@@ -118,6 +118,11 @@ try :
 except ImportError as e:
     print("本地AI状态模块导入失败，状态监控功能不可用。",e)
 
+try:
+    from mods.story_creator import StoryCreatorGlobalVar,MainStoryCreaterInstruction
+except ImportError as e:
+    print('主线生成器未挂载')
+
 # 常量定义
 API_CONFIG_FILE = "api_config.ini"
 DEFAULT_APIS = {
@@ -2486,7 +2491,6 @@ class StrTools:
             actual_response = StrTools.remove_var(actual_response)
         return actual_response
 
-
 #发送消息前处理器
 class MessagePreprocessor:
     def __init__(self, god_class):
@@ -2502,7 +2506,7 @@ class MessagePreprocessor:
         message = self._fix_chat_history(message)
         #message = self._clean_consecutive_messages(message)
         message = self._handle_long_chat_placement(message)
-        message = self._handle_status_manager(message)
+        message = self._handle_mod_functions(message)
         params = self._build_request_params(message,stream=self.stream,tools=tools)
         print(f'发送长度: {len(str(message))}')
         return message, params
@@ -2595,6 +2599,12 @@ class MessagePreprocessor:
                     pass
         return message
 
+    def _handle_mod_functions(self,message):
+        message=self._handle_status_manager(message)
+        message=self._handle_story_creator(message)
+        return message
+    
+    #mod functions
     def _handle_status_manager(self, message):
         if not "mods.status_monitor" in sys.modules:
             return message
@@ -2610,6 +2620,19 @@ class MessagePreprocessor:
         text = status_text + use_ai_func + text
         message_copy[-1]['content'] = text
         return message_copy
+    
+    def _handle_story_creator(self,message):
+        if not "mods.story_creator" in sys.modules:
+            return message
+        if not self.god.mod_configer.enable_story_insert.isChecked():
+            return message
+        if not self.god.mod_configer.story_creator.story_hint_current.isChecked():
+            return message
+        message_copy = [dict(item) for item in message]
+        text = message_copy[-1]['content']
+        message_copy[-1]['content'] = self.god.mod_configer.story_creator.last_node_analysis+text
+        return message_copy
+            
 
     def _build_request_params(self, message, stream=True,tools=False):
         """构建请求参数（含Function Call支持）"""
@@ -3037,6 +3060,7 @@ class ModConfiger(QTabWidget):
     def addtabs(self):
         self.add_status_monitor()
         self.add_tts_server()
+        self.add_story_creator()
 
     def handle_new_message(self,message,chathistory):
         self.status_monitor_handle_new_message(message)
@@ -3058,7 +3082,6 @@ class ModConfiger(QTabWidget):
         
         self.status_monitor = StatusMonitorWindow()
 
-        # Create a label for the status monitor
         self.status_label = QLabel("角色扮演状态栏")
         status_monitor_layout.addWidget(self.status_label, 0, 0, 1, 1)
         self.status_label_info = QLabel("AI状态栏是一个mod，用于给AI提供状态信息，可以引导AI的行为。\n需要模型有较强的理解能力。\n预计启用后token使用量增加≈30-50")
@@ -3070,6 +3093,27 @@ class ModConfiger(QTabWidget):
         #挂载MOD设置
         status_monitor_layout.addWidget(StatusMonitorInstruction.mod_configer())
 
+    def add_story_creator(self):
+        self.story_creator_manager=QWidget()
+        self.creator_manager_layout=QGridLayout()
+        self.story_creator_manager.setLayout(self.creator_manager_layout)
+        self.addTab(self.story_creator_manager, "主线创建器")
+        if not "mods.story_creator" in sys.modules:
+            self.creator_manager_layout.addWidget(QLabel("主线生成器模块未挂载"),0,0,1,1)
+            return
+        self.enable_story_insert=QCheckBox("启用主线剧情挂载")
+        self.creator_manager_layout.addWidget(self.enable_story_insert,0,0,1,1)
+        self.setGeometry(100, 100, 850, 600)
+
+        dialog = APIConfigDialog(self)
+        dialog.configUpdated.connect(self.finish_story_creator_init)
+        dialog._on_update_models()
+        
+    def finish_story_creator_init(self):
+        StoryCreatorGlobalVar.DEFAULT_APIS=DEFAULT_APIS
+        StoryCreatorGlobalVar.MODEL_MAP=MODEL_MAP
+        self.story_creator=MainStoryCreaterInstruction.mod_configer()
+        self.creator_manager_layout.addWidget(self.story_creator,1,0,1,1)
 
 
     def status_monitor_handle_new_message(self,message):
@@ -3087,6 +3131,10 @@ class ModConfiger(QTabWidget):
         self.tts_server = QWidget()
         self.addTab(self.tts_server,'语音识别')
         return
+
+    def run_close_event(self):
+        if "mods.story_creator" in sys.modules:
+            self.story_creator.save_settings()
 
 #主类
 class MainWindow(QMainWindow):
@@ -5183,6 +5231,7 @@ QPushButton:pressed {
         except Exception as e:
             print("save_hotkey_config",e)
         ConfigManager.config_save(self)
+        self.mod_configer.run_close_event()
         # 确保执行父类关闭操作
         super().closeEvent(event)
         event.accept()  # 确保窗口可以正常关闭

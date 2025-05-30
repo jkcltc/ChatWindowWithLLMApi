@@ -4,11 +4,19 @@ A PYQT5-based LLM chat window optimized for role-playing interactions, with enha
 
 ## ✨ Features
 
-- **Long-context Optimization**  
-  Maintains coherent character memory for role-playing chats up to ~40,000 Chinese characters
+- **Long-context Optimization**
+  By using self-iterative summarization,
+  After truncating 40+k of words of dialogue to 4-6k words and sending them to the API, the AI can still retain memories from before the truncation point.
+  Significantly saving tokens during extended role-playing scenarios with lengthy plots.
+
+- **Role Play Status Bar:**
+  The built-in character status bar will automatically be added to the conversation once enabled and mounted. Status can be updated by the user, AI, or dynamically as the dialogue progresses.
+﻿
+- **Main Story Generator**:
+  Rapidly generates worlds and storylines using AI. Supports custom plots. Lightweight AI (free/local-run) is recommended for node updates to minimize API token consumption.
 
 - **Multimodal Generation**  
-  Supports automatic **text generation** and **image generation** during conversations  
+  Supports synchronous **text generation** and **image generation** during conversations  
   *(Requires [Novita API](https://www.novita.ai/))* 
 
 - **Easy Setup**  
@@ -27,7 +35,7 @@ A PYQT5-based LLM chat window optimized for role-playing interactions, with enha
 git clone https://github.com/jkcltc/ChatWindowWithLLMApi.git
 ```
 
-## enable tts
+## Enable tts
 -  move chatapi_tts_server.py & start_chatapi_tts_server.bat to where you install cosyvoice
 -  prepare a audio and remane it as '2342.wav' to where you install cosyvoice
 -  edit the tts setting in the mainwindow(ctrl+q, check left tab, page 3)

@@ -32,7 +32,8 @@ def install_packages():
         'beautifulsoup4',
         'lxml',
         'pygments',
-        'markdown'
+        'markdown',
+        'jsonfinder'
     ]
 
     # 过滤掉标准库模块
@@ -63,7 +64,7 @@ def install_packages():
             print(f"安装 {package} 时出错: {e}")
     messagebox.showinfo("提示", "程序初始化完成！")
 
-try:
+try:    
     from PyQt5.QtWidgets import *
     from PyQt5.QtCore import *
     from PyQt5.QtGui import *
@@ -77,6 +78,7 @@ try:
     from pygments.lexers import get_lexer_by_name
     from pygments.formatters import HtmlFormatter
     import markdown
+    import jsonfinder
 except ImportError:
     install_packages()
 finally:
@@ -1918,9 +1920,9 @@ class APIConfigDialog(QDialog):
         
         # 收集配置数据
         config_data = {}
-        for api_name, (url_entry, key_entry) in self._entries.items():
-            url = url_entry.text().strip()
-            key = key_entry.text().strip()
+        for api_name,value in DEFAULT_APIS.items():
+            url = value["url"]#.text().strip()
+            key = value["key"]#.text().strip()
             
             if not url:
                 url=''
@@ -2611,7 +2613,6 @@ class MessagePreprocessor:
         if not self.god.mod_configer.status_monitor_enable_box.isChecked():
             return message
         
-        # Create a deep copy of the message to avoid modifying the original
         message_copy = [dict(item) for item in message]
         
         text = message_copy[-1]['content']
@@ -2623,16 +2624,12 @@ class MessagePreprocessor:
     
     def _handle_story_creator(self,message):
         if not "mods.story_creator" in sys.modules:
+            print('no mods.story_creator')
             return message
         if not self.god.mod_configer.enable_story_insert.isChecked():
             return message
-        if not self.god.mod_configer.story_creator.story_hint_current.isChecked():
-            return message
-        message_copy = [dict(item) for item in message]
-        text = message_copy[-1]['content']
-        message_copy[-1]['content'] = self.god.mod_configer.story_creator.last_node_analysis+text
+        message_copy=self.god.mod_configer.story_creator.process_income_chat_history(message)
         return message_copy
-            
 
     def _build_request_params(self, message, stream=True,tools=False):
         """构建请求参数（含Function Call支持）"""

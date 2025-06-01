@@ -476,7 +476,7 @@ class StatusMonitorInstruction:
     def mod_main_function():
         return {"ui":StatusMonitorWindow,"name":"status_monitor_window"}
     def mod_configer():
-        return QLabel("记得点挂载")
+        return QLabel("已集成在主UI")
 
 
 if __name__ == '__main__':

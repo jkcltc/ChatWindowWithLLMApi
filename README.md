@@ -15,7 +15,7 @@ A PYQT5-based LLM chat window optimized for role-playing interactions, with enha
 - **Main Story Generator**:
   Rapidly generates worlds and storylines using AI. Supports custom plots. Lightweight AI (free/local-run) is recommended for node updates to minimize API token consumption.
 
-- **Local & Online models**
+- **Local & Online models**: 
   Support local models from ollama.
   Support api models from Deepseek, Baidu, Siliconflow, Tensent.
 

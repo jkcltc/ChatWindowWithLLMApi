@@ -4,18 +4,18 @@ A PYQT5-based LLM chat window optimized for role-playing interactions, with enha
 
 ## ✨ Features
 
-- **Long-context Optimization**
+- **Long-context Optimization**  
   By using self-iterative summarization,
   After truncating 40+k of words of dialogue to 4-6k words and sending them to the API, the AI can still retain memories from before the truncation point.
   Significantly saving tokens during extended role-playing scenarios with lengthy plots.
 
-- **Role Play Status Bar:**
+- **Role Play Status Bar:**  
   The built-in character status bar will automatically be added to the conversation once enabled and mounted. Status can be updated by the user, AI, or dynamically as the dialogue progresses.
 ﻿
-- **Main Story Generator**:
+- **Main Story Generator**:  
   Rapidly generates worlds and storylines using AI. Supports custom plots. Lightweight AI (free/local-run) is recommended for node updates to minimize API token consumption.
 
-- **Local & Online models**: 
+- **Local & Online models**:  
   Support local models from ollama.
   Support api models from Deepseek, Baidu, Siliconflow, Tensent.
 

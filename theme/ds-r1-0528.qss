@@ -1,0 +1,299 @@
+/* 主窗口样式 */
+QWidget {
+    font-family: 'Segoe UI', 'Microsoft YaHei', sans-serif;
+    font-size: 14px;
+}
+
+
+QLabel {
+    font-size: 15px;
+    font-weight: bold;
+    color: #1a2980; /* 从白色改为深蓝色 */
+    padding: 2px;
+    background-color: rgba(255, 255, 255, 0.55); /* 提高背景不透明度 */
+    border-radius: 2px;
+}
+
+
+/* 图标样式 */
+QLabel#icon-user {
+    background-color: #ff416c;
+    border-radius: 30px;
+    color: white;
+    font-size: 24px;
+}
+
+QLabel#icon-chart-bar {
+    background-color: #1a2980;
+    border-radius: 30px;
+    color: white;
+    font-size: 24px;
+}
+
+QLabel#icon-cog {
+    background-color: #26d0ce;
+    border-radius: 30px;
+    color: white;
+    font-size: 24px;
+}
+
+/* 按钮样式 */
+QPushButton {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+        stop:0 #1a2980, stop:1 #26d0ce);
+    color: white;
+    border: none;
+    border-radius: 20px;
+    padding: 10px 20px;
+    font-weight: bold;
+}
+
+QPushButton:hover {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+        stop:0 #2334a3, stop:1 #3de0de);
+}
+
+QPushButton:pressed {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+        stop:0 #121f5e, stop:1 #1db3b1);
+}
+
+/* 表单样式 */
+QGroupBox[title="用户信息表单"] {
+    background-color: rgba(255, 255, 255, 0.95);
+    border-radius: 15px;
+    border: 1px solid #e0e0e0;
+}
+
+QLineEdit {
+    background-color: #f0f4f8;
+    border: 2px solid #d0d8e0;
+    border-radius: 4px;
+    padding: 3px 6px;
+    font-size: 14px;
+    min-height: 20px;
+}
+
+QLineEdit:focus {
+    border-color: #26d0ce;
+    background-color: white;
+}
+
+QRadioButton, QCheckBox {
+    color: #333333;
+    spacing: 8px;
+}
+
+QRadioButton::indicator, QCheckBox::indicator {
+    width: 20px;
+    height: 20px;
+    border-radius: 10px;
+    border: 2px solid #d0d8e0;
+}
+
+QRadioButton::indicator:checked, QCheckBox::indicator:checked {
+    background-color: #26d0ce;
+    border: 2px solid #1a2980;
+}
+
+QGroupBox[title="性别"], QGroupBox[title="兴趣爱好"] {
+    border: 1px solid #e0e0e0;
+    border-radius: 8px;
+    margin-top: 10px;
+}
+
+/* 状态栏 */
+QStatusBar {
+    background-color: rgba(26, 41, 128, 0.85);
+    color: white;
+    font-size: 12px;
+    padding: 5px 10px;
+}
+
+/* 进度条 */
+QProgressBar {
+    border: 1px solid #d0d8e0;
+    border-radius: 5px;
+    background-color: #f0f4f8;
+    text-align: center;
+}
+
+QProgressBar::chunk {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+        stop:0 #1a2980, stop:1 #26d0ce);
+    border-radius: 4px;
+}
+
+/* 选项卡 */
+QTabWidget::pane {
+    border: 1px solid #d0d8e0;
+    border-radius: 8px;
+    background: white;
+}
+
+QTabBar::tab {
+    background: #f0f4f8;
+    color: #333;
+    padding: 8px 20px;
+    border-top-left-radius: 8px;
+    border-top-right-radius: 8px;
+    margin-right: 2px;
+    border: 1px solid #d0d8e0;
+    border-bottom: none;
+}
+
+QTabBar::tab:selected {
+    background: white;
+    color: #1a2980;
+    font-weight: bold;
+    border-color: #d0d8e0;
+}
+
+QTabBar::tab:hover {
+    background: #e0e8f0;
+}
+
+
+/* 新增树控件样式 */
+QTreeWidget {
+    background-color: rgba(255, 255, 255, 0.85);
+    border-radius: 8px;
+    border: 1px solid #d0d8e0;
+    padding: 5px;
+    font-size: 14px;
+    outline: 0; /* 移除焦点虚线框 */
+}
+
+QTreeWidget::item {
+    height: 32px;
+    padding: 4px;
+    border-bottom: 1px solid #eaeaea;
+}
+
+QTreeWidget::item:hover {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+        stop:0 rgba(26, 41, 128, 0.3), stop:1 rgba(38, 208, 206, 0.3));
+    color: #9c1a2980;
+}
+
+QTreeWidget::item:selected {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+        stop:0 rgba(26, 41, 128, 0.3), stop:1 rgba(38, 208, 206, 0.3));
+    color: #1a2980;
+}
+
+QTextEdit {
+    background-color: rgba(255, 255, 255, 0.2);
+    border-radius: 8px;
+    border: 1px solid #d0d8e0;
+    padding: 10px;
+    font-size: 14px;
+}
+
+QTextBrowser {
+    background-color: rgba(255, 255, 255, 0.2);
+    border-radius: 8px;
+    border: 1px solid #d0d8e0;
+    padding: 10px;
+    font-size: 14px;
+}
+
+/* ====== QListWidget 样式 ====== */
+QListWidget {
+    background-color: rgba(255, 255, 255, 0.9);
+    border: 2px solid #d0d8e0;
+    border-radius: 10px;
+    padding: 5px;
+    outline: none;
+    color: #333333;
+    font-size: 14px;
+}
+
+QListWidget::item {
+    background-color: #f0f4f8;
+    border-radius: 8px;
+    padding: 2px 2px;
+    margin: 4px 0;
+}
+
+QListWidget::item:selected {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+        stop:0 #1a2980, stop:1 #26d0ce);
+    color: white;
+    border: none;
+}
+
+QListWidget::item:hover {
+    background-color: #e0e8f0;
+}
+
+/* ====== QComboBox 样式 ====== */
+QComboBox {
+    background-color: #f0f4f8;
+    border: 2px solid #d0d8e0;
+    border-radius: 4px;
+    padding: 2px 4px;
+    font-size: 12px;
+    color: #333333;
+}
+
+QComboBox:editable {
+    background: white;
+}
+
+QComboBox:focus {
+    border-color: #26d0ce;
+}
+
+QComboBox::drop-down {
+    subcontrol-origin: padding;
+    subcontrol-position: top right;
+    width: 10px;
+    border-left: 1px solid #d0d8e0;
+    border-top-right-radius: 4px;
+    border-bottom-right-radius: 4px;
+}
+
+QComboBox::down-arrow {
+    width: 4px;
+    height: 4px;
+}
+
+QComboBox QAbstractItemView {
+    background-color: rgba(255, 255, 255, 0.95);
+    border: 2px solid #d0d8e0;
+    border-radius: 4px;
+    padding: 5px;
+    outline: none;
+    selection-background-color: #26d0ce;
+    selection-color: white;
+}
+
+QComboBox QAbstractItemView::item {
+    padding: 2px 4px;
+    border-radius: 3px;
+    margin: 2px;
+}
+
+QComboBox QAbstractItemView::item:hover {
+    background-color: #e0e8f0;
+}
+
+
+/* 卡片样式 */
+QGroupBox {
+    background-color: rgba(255, 255, 255, 0.95);
+    border-radius: 8px;
+    border: none;
+    padding-top: 20px;
+    font-size: 18px;
+    font-weight: bold;
+    color: #1a2980;
+}
+
+QGroupBox::title {
+    subcontrol-origin: margin;
+    subcontrol-position: top center;
+    padding: 0 10px;
+    background-color: transparent;
+}

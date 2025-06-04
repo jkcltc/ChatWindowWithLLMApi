@@ -2,9 +2,10 @@
  
 基于 PyQt5 的大型语言模型（LLM）聊天窗口，专为角色扮演交互和token消耗量优化，具备增强的长上下文记忆能力。  
 代码是学习中写的，正在平屎山。
-| 主界面 | 状态栏 | 主线创建 |
-| ---- | ---- | ---- |
-| <img src="https://github.com/user-attachments/assets/12cbf534-134a-4f29-9062-cce77bd48d71" alt="图片1" style="width:100px;"> | <img src="https://github.com/user-attachments/assets/8929c332-75f1-4f87-92ec-dcccfa347baf" alt="图片2" style="width:100px;"> | <img src="https://github.com/user-attachments/assets/1ed9c2d8-0eb3-4ef4-a130-9747c159b66f" alt="图片3" style="width:100px;"> |
+| 主界面 | 功能界面 | 主线创建 | 状态栏 |
+| ---- | ---- | ---- | ---- |
+| ![image](https://github.com/user-attachments/assets/12cbf534-134a-4f29-9062-cce77bd48d71) | ![image](https://github.com/user-attachments/assets/ae804710-bb81-4c3c-991e-ece9861da15e)
+ | ![image](https://github.com/user-attachments/assets/8929c332-75f1-4f87-92ec-dcccfa347baf) | ![image](https://github.com/user-attachments/assets/1ed9c2d8-0eb3-4ef4-a130-9747c159b66f) |
 
 
 ## ✨ 功能特性

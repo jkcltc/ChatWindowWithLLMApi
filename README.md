@@ -43,6 +43,7 @@
 # 克隆仓库
 git clone https://github.com/jkcltc/ChatWindowWithLLMApi.git
 ```
+
 ###启用语音合成（TTS）  
 - 将 chatapi_tts_server.py 和 start_chatapi_tts_server.bat 移动至 CosyVoice 安装目录
 - 准备音频文件并重命名为 2342.wav，放置于 CosyVoice 安装目录

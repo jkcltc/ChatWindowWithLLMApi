@@ -3146,7 +3146,7 @@ class ModConfiger(QTabWidget):
         return
 
     def run_close_event(self):
-        if "mods.story_creator" in sys.modules:
+        if "mods.story_creator" in sys.modules and hasattr(self,"story_creator"):
             self.story_creator.save_settings()
 
 #主类
@@ -3181,7 +3181,6 @@ class MainWindow(QMainWindow):
         top = (screen_geometry.height() - height) // 2
         
         self.setGeometry(left, top, width, height)
-        self.setWindowTitle("自适应分辨率窗口")
         self.api=api_init()
         
         # 初始化参数
@@ -3630,7 +3629,7 @@ QPushButton:pressed {
         self.name_ai=""
 
         #界面主题
-        self.theme_path='theme/ds-r1-0258.qss'
+        self.theme_path='theme/ds-r1-0528.qss'
 
     def init_response_manager(self):
         # AI响应更新控制
@@ -4961,6 +4960,8 @@ QPushButton:pressed {
         # 共享数据结构与线程锁
         past_chats = {}
         lock = threading.Lock()
+        if not os.path.exists(application_path):
+            os.mkdir(application_path)
         
         def get_json_files() -> List[str]:
             """获取最新的50个JSON文件"""

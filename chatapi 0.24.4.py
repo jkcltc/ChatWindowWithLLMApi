@@ -161,19 +161,8 @@ DEFAULT_APIS = {
         "key": "unknown"
     }
 }
-MODEL_MAP = ModelMapManager().get_default_model_map()
-NOVITA_MODEL_OPTIONS = [
-            'flat2DAnimerge_v30_72593.safetensors',
-            'wlopArienwlopstylexl_v10_101973.safetensors',
-            "colorBoxModel_colorBOX_20935.safetensors",
-            'cyberrealistic_v32_81390.safetensors', 
-            'fustercluck_v2_233009.safetensors',
-            'novaPrimeXL_v10_107899.safetensors',
-            'foddaxlPhotorealism_v45_122788.safetensors',
-            "sciFiDiffusionV10_v10_4985.ckpt",
-            'cyberrealistic_v31_62396.safetensors'
-        ]
-
+MODEL_MAP = ModelMapManager().get_model_map()
+NOVITA_MODEL_OPTIONS = NovitaModelManager().get_model_options()
 #同步模型
 
 def _create_default_config():
@@ -2975,12 +2964,15 @@ class ModConfiger(QTabWidget):
             return
         self.enable_story_insert=QCheckBox("启用主线剧情挂载")
         self.creator_manager_layout.addWidget(self.enable_story_insert,0,0,1,1)
+        self.main_story_creator_placeholder=QLabel('正在等待模型库更新...')
+        self.creator_manager_layout.addWidget(self.main_story_creator_placeholder,1,0,1,1)
 
         dialog = APIConfigDialog(self)
         dialog.configUpdated.connect(self.finish_story_creator_init)
         dialog._on_update_models()
         
     def finish_story_creator_init(self):
+        self.main_story_creator_placeholder.hide()
         StoryCreatorGlobalVar.DEFAULT_APIS=DEFAULT_APIS
         StoryCreatorGlobalVar.MODEL_MAP=MODEL_MAP
         self.story_creator=MainStoryCreaterInstruction.mod_configer()

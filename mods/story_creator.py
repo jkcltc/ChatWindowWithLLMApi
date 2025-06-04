@@ -42,84 +42,7 @@ class StoryCreatorGlobalVar:
     "ernie-4.0-turbo-8k",
     "qwq-32b",
     "ernie-4.5-turbo-vl-32k",
-    "aquilachat-7b",
-    "bloomz-7b",
-    "chatglm2-6b-32k",
-    "codellama-7b-instruct",
-    "deepseek-r1-distill-llama-70b",
-    "deepseek-r1-distill-llama-8b",
-    "deepseek-r1-distill-qianfan-70b",
-    "deepseek-r1-distill-qianfan-8b",
-    "deepseek-r1-distill-qianfan-llama-70b",
-    "deepseek-r1-distill-qianfan-llama-8b",
-    "deepseek-r1-distill-qwen-1.5b",
-    "deepseek-r1-distill-qwen-14b",
-    "deepseek-r1-distill-qwen-32b",
-    "deepseek-r1-distill-qwen-7b",
-    "deepseek-v3-241226",
-    "deepseek-vl2",
-    "deepseek-vl2-small",
-    "enrie-irag-edit",
-    "ernie-3.5-128k",
-    "ernie-3.5-128k-preview",
-    "ernie-3.5-8k-0613",
-    "ernie-3.5-8k-0701",
-    "ernie-3.5-8k-preview",
-    "ernie-4.0-8k-0613",
-    "ernie-4.0-8k-latest",
-    "ernie-4.0-8k-preview",
-    "ernie-4.0-turbo-128k",
-    "ernie-4.0-turbo-8k-0628",
-    "ernie-4.0-turbo-8k-0927",
-    "ernie-4.0-turbo-8k-latest",
-    "ernie-4.0-turbo-8k-preview",
-    "ernie-4.5-8k-preview",
-    "ernie-4.5-turbo-128k",
-    "ernie-x1-32k",
-    "ernie-x1-32k-preview",
-    "ernie-x1-turbo-32k",
-    "gemma-7b-it",
-    "glm-4-32b-0414",
-    "glm-z1-32b-0414",
-    "glm-z1-rumination-32b-0414",
-    "internvl2.5-38b-mpo",
-    "llama-2-13b-chat",
-    "llama-2-70b-chat",
-    "llama-2-7b-chat",
-    "llama-4-maverick-17b-128e-instruct",
-    "llama-4-scout-17b-16e-instruct",
-    "meta-llama-3-70b",
-    "meta-llama-3-8b",
-    "mixtral-8x7b-instruct",
-    "qianfan-70b",
-    "qianfan-8b",
-    "qianfan-agent-lite-8k",
-    "qianfan-agent-speed-32k",
-    "qianfan-agent-speed-8k",
-    "qianfan-bloomz-7b-compressed",
-    "qianfan-chinese-llama-2-13b",
-    "qianfan-chinese-llama-2-70b",
-    "qianfan-chinese-llama-2-7b",
-    "qianfan-llama-vl-8b",
-    "qianfan-sug-8k",
-    "qwen2.5-7b-instruct",
-    "qwen2.5-vl-32b-instruct",
-    "qwen2.5-vl-7b-instruct",
-    "sqlcoder-7b",
-    "xuanyuan-70b-chat-4bit",
-    "ernie-speed-128k",
-    "ernie-speed-8k",
-    "ernie-lite-8k",
-    "ernie-lite-pro-128k",
-    "qwen3-235b-a22b",
-    "qwen3-30b-a3b",
-    "qwen3-32b",
-    "qwen3-14b",
-    "qwen3-8b",
-    "qwen3-4b",
-    "qwen3-1.7b",
     "qwen3-0.6b",
-
     ],
         "deepseek": ["deepseek-chat", "deepseek-reasoner"],
         "tencent": ["deepseek-r1", "deepseek-v3"]
@@ -718,11 +641,23 @@ class Analysier(QObject):
         return returning_system_prompt
 
 class StoryManagerBackend(QWidget):
-    def __init__(self, parent=None):
+    def __init__(self, parent=None,save_path='utils'):
         super().__init__(parent)
         # 初始化UI
         self.ui = Ui_story_manager()
         self.ui.setupUi(self)  # 将UI设置到当前窗口实例
+
+
+
+        screen_geometry = QApplication.primaryScreen().availableGeometry()
+        
+        width = int(screen_geometry.width() * 0.6)
+        height = int(screen_geometry.height() * 0.6)
+        
+        left = (screen_geometry.width() - width) //4
+        top = (screen_geometry.height() - height) // 4
+        
+        self.setGeometry(left, top, width, height)
         
         self.default_apis = StoryCreatorGlobalVar.DEFAULT_APIS
         self.model_map = StoryCreatorGlobalVar.MODEL_MAP
@@ -743,13 +678,14 @@ class StoryManagerBackend(QWidget):
         self.income_round = 0  # 当前对话轮数
         self.last_node_analysis=''
         self.auto_save_path = "auto_save_story.json"
+        self.save_path=save_path
 
         # 初始化组件
         self._init_common_ui()
         self._init_providers()
         self._connect_signals()
         self._load_default_models()
-        self._load_settings()
+        self._load_settings(save_path)
         self._init_nodes()
 
     def _init_common_ui(self):
@@ -1093,13 +1029,17 @@ class StoryManagerBackend(QWidget):
             message_copy[0]['content'] = self.analysier.mount_system_handler( message_copy[0]['content'], self.last_node_analysis)
             return message_copy
 
-    def save_settings(self):
+    def save_settings(self,save_path=None):
         """保存当前配置到 INI 文件"""
-        if not os.path.exists("config.ini"):
-            with open("config.ini", 'w') as f:
+        if save_path:
+            save_path=os.path.join(save_path,"config.ini")
+        else:
+            save_path="config.ini"
+        if not os.path.exists(save_path):
+            with open(save_path, 'w') as f:
                 print('created')
                 pass  # 创建空文件
-        settings = QSettings("config.ini", QSettings.IniFormat)
+        settings = QSettings(save_path, QSettings.IniFormat)
         
         # 保存主线创建设置
         settings.setValue("create_provider", self.ui.story_create_api_provider.currentText())
@@ -1130,9 +1070,13 @@ class StoryManagerBackend(QWidget):
         if tree_data:
             settings.setValue("story_data", json.dumps(tree_data))
     
-    def _load_settings(self):
+    def _load_settings(self,save_path=None):
+        if save_path:
+            save_path=os.path.join(save_path,"config.ini")
+        else:
+            save_path="config.ini"
         """从 INI 文件加载配置"""
-        settings = QSettings("config.ini", QSettings.IniFormat)
+        settings = QSettings(save_path, QSettings.IniFormat)
         
         # 加载主线创建设置
         provider = settings.value("create_provider", "baidu", type=str)
@@ -1181,7 +1125,7 @@ class StoryManagerBackend(QWidget):
                 pass
 
     def closeEvent(self, event):
-        self.save_settings()
+        self.save_settings(save_path=self.save_path)
         event.accept()
 
 class MainStoryCreaterInstruction:
@@ -1189,7 +1133,7 @@ class MainStoryCreaterInstruction:
         window =StoryManagerBackend()
         return {"ui":window,"name":"status_monitor_window"}
     def mod_configer():
-        window =StoryManagerBackend()
+        window =StoryManagerBackend(save_path='utils')
         return window
 
 if __name__ == "__main__":

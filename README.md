@@ -2,7 +2,8 @@
  
 基于 PyQt5 的大型语言模型（LLM）聊天窗口，专为角色扮演交互和token消耗量优化，具备增强的长上下文记忆能力。  
 代码是学习中写的，正在平屎山。
- 
+![image](https://github.com/user-attachments/assets/1d806bc2-d9ac-4803-8ac1-71722b877a59)
+
 ## ✨ 功能特性
  
 - **长上下文优化**  

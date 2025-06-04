@@ -769,6 +769,7 @@ class StoryManagerBackend(QWidget):
 
     def _init_nodes(self):
         if not getattr(self, 'nodes', None):# 如果 nodes 已经存在，则不重新加载
+            nodes=[]
             from jsonfinder import jsonfinder
             for _, __, obj in jsonfinder(self.ui.respond_json.toPlainText(), json_only=True):
                 if isinstance(obj, list):  # 确保我们提取到的是JSON数组

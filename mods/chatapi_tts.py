@@ -30,7 +30,7 @@ class TTSClient(QObject):
 
     def send_request(self, text, prompt=None, function_type="zero-shot", audio='2342.wav',extract_dialogue=False):
         """
-        异步发送TTS请求（需配合线程使用）
+        异步发送TTS请求
         参数：
         - text: 需要合成的文本内容
         - prompt: 提示文本（可选）

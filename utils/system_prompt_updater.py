@@ -45,8 +45,6 @@ class FileManager:
         if not file_name.endswith(".json"):
             file_name += ".json"
         file_path = os.path.join(self.folder_path, file_name)
-        if os.path.exists(file_path):
-            return False
         return self.save_preset(file_path, data)
     
     def delete_preset(self, file_path):
@@ -64,6 +62,8 @@ class SystemPromptUI(QWidget):
     def __init__(self,folder_path="system_prompt_presets"):
         super().__init__()
         
+
+        self.setWindowTitle('system prompt')
         # 初始化文件管理器
         self.file_manager = FileManager(folder_path)
 
@@ -141,10 +141,17 @@ class SystemPromptUI(QWidget):
         
         # 状态变量
         self.is_modified = False
+
+        # 内部变量
+        self.default_current_filename='当前对话'
         
         # 加载初始文件列表
         self.load_file_list()
     
+    def load_income_prompt(self,system_prompt):
+        self.create_new_config(self.default_current_filename,True)
+        self.content_edit.setText(system_prompt)
+        self.save_current_config(show_window=False)
 
     def load_file_list(self):
         """加载文件列表"""
@@ -162,7 +169,7 @@ class SystemPromptUI(QWidget):
         # 保存当前修改
         if self.is_modified:
             self.save_current_config()
-        
+
         # 加载新文件
         file_name = selected_items[0].text()
         presets = self.file_manager.get_all_presets()
@@ -180,11 +187,12 @@ class SystemPromptUI(QWidget):
         self.is_modified = True
         self.save_button.setEnabled(True)
     
-    def create_new_config(self):
+    def create_new_config(self,name=None,ok=None):
         """创建新配置文件"""
-        name, ok = QInputDialog.getText(
-            self, "新建配置", "请输入配置名称:"
-        )
+        if not name and not ok:
+            name, ok = QInputDialog.getText(
+                self, "新建配置", "请输入配置名称:"
+            )
         if ok and name:
             # 检查文件名是否有效
             if not name.endswith(".json"):
@@ -192,9 +200,9 @@ class SystemPromptUI(QWidget):
             
             # 检查是否已存在
             file_path = os.path.join(self.file_manager.folder_path, name)
-            if os.path.exists(file_path):
-                QMessageBox.warning(self, "文件已存在", "该文件名已存在，请使用其他名称")
-                return
+            #if os.path.exists(file_path):
+            #    QMessageBox.warning(self, "文件已存在", "该文件名已存在，请使用其他名称")
+            #    return
             
             # 创建新配置
             new_config = {
@@ -239,7 +247,7 @@ class SystemPromptUI(QWidget):
                         QMessageBox.critical(self, "删除失败", "无法删除配置文件")
                     break
     
-    def save_current_config(self):
+    def save_current_config(self,show_window=True):
         """保存当前配置文件"""
         if not self.current_file or not self.is_modified:
             return
@@ -277,7 +285,8 @@ class SystemPromptUI(QWidget):
             self.is_modified = False
             self.save_button.setEnabled(False)
             self.load_file_list()  # 刷新列表（如果名称改变）
-            QMessageBox.information(self, "保存成功", "配置文件已成功保存")
+            if show_window:
+                QMessageBox.information(self, "保存成功", "配置文件已成功保存")
         else:
             QMessageBox.critical(self, "保存失败", "无法保存配置文件")
     
@@ -313,4 +322,5 @@ if __name__ == "__main__":
     app = QApplication([])
     window = SystemPromptUI()
     window.show()
+    window.load_income_prompt('aaa')
     app.exec_()

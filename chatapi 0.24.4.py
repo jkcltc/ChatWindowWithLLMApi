@@ -104,6 +104,7 @@ finally:
         sys.exit(0)
 
 #自定义类初始化
+from utils.custom_widget import *
 from utils.system_prompt_updater import SystemPromptUI
 from utils.settings import *
 from utils.model_map_manager import ModelMapManager
@@ -990,200 +991,6 @@ class PicCreaterWindow(QWidget):
         self.send_btn.setEnabled(True)
         self.label_prompt.setText("等待Novita api响应")
 
-
-##自定义控件
-#背景更新
-#背景
-class AspectLabel(QLabel):
-    def __init__(self, master_pixmap, parent=None):
-        super().__init__(parent)
-        self.master_pixmap = master_pixmap
-        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        self.setMinimumSize(1, 1)
-        self.setAlignment(Qt.AlignCenter)  # 居中显示
-        self.locked = False
-        
-    def lock(self):
-        """锁定图片内容（允许缩放）"""
-        self.locked = True
-
-    def unlock(self):
-        """解锁图片内容"""
-        self.locked = False
-        
-    def resizeEvent(self, event):
-        # 计算覆盖尺寸
-        target_size = self.master_pixmap.size().scaled(
-            event.size(),
-            Qt.KeepAspectRatioByExpanding  # 关键模式
-        )
-        
-        # 执行高质量缩放
-        scaled_pix = self.master_pixmap.scaled(
-            target_size,
-            Qt.KeepAspectRatioByExpanding,
-            Qt.SmoothTransformation
-        )
-        
-        self.setPixmap(scaled_pix)
-        super().resizeEvent(event)
-    
-    def update_icon(self,pic):
-        """ 根据当前尺寸更新显示图标 """
-        if not self.locked:
-            self.master_pixmap=pic
-        target_size = self.master_pixmap.size().scaled(
-            self.size(),
-            Qt.KeepAspectRatioByExpanding  # 关键模式
-        )
-        
-        # 执行高质量缩放
-        scaled_pix = self.master_pixmap.scaled(
-            target_size,
-            Qt.KeepAspectRatioByExpanding,
-            Qt.SmoothTransformation
-        )
-        
-        self.setPixmap(scaled_pix)
-
-#按钮：打开背景
-class AspectRatioButton(QPushButton):
-    def __init__(self, pixmap_path, parent=None):
-        super().__init__(parent)
-        # 加载原始图片
-        self.original_pixmap = QPixmap(pixmap_path)
-        if not self.original_pixmap.isNull():
-            self.aspect_ratio = self.original_pixmap.width() / self.original_pixmap.height()
-        else:
-            # 处理图像加载失败的情况
-            self.aspect_ratio = 1.0  # 或者其他默认值
- 
-        # 初始化配置
-        self.setSizePolicy(QSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding))
-        self.setMinimumSize(40, 30)  # 合理的最小尺寸
-        self.setIconSize(QSize(0, 0))  # 初始图标尺寸清零
- 
-        # 视觉效果
-        self.setFlat(True)  # 移除默认按钮样式
-        self.setCursor(Qt.PointingHandCursor)
-
-        self.setStyleSheet("""
-    QPushButton {
-        border: none;
-        background: rgba(0,0,0,0);
-    }
-    QPushButton:hover {
-        background: rgba(200,200,200,30);
-    }
-""")
- 
-        # 初始图片设置
-        self.update_icon(self.original_pixmap)
-
- 
-    def update_icon(self,pic):
-        """ 根据当前尺寸更新显示图标 """
-        self.original_pixmap=pic
-        scaled_pix = self.original_pixmap.scaled(
-            self.size(),
-            Qt.KeepAspectRatio,
-            Qt.SmoothTransformation
-        )
-        self.setIcon(QIcon(scaled_pix))
-        self.setIconSize(scaled_pix.size())
- 
-    def resizeEvent(self, event):
-        """ 动态调整按钮比例 """
-        # 计算保持宽高比的目标尺寸
-        target_width = min(event.size().width(), int(event.size().height() * self.aspect_ratio))
-        target_height = int(target_width / self.aspect_ratio)
- 
-        # 注意：这里我们不应该再次调用 self.resize()，因为这会导致无限递归。
-        # 相反，我们应该让父类的 resizeEvent 处理实际的尺寸调整。
-        # 我们只需要确保图标在调整大小后得到更新。
- 
-        # 更新显示内容
-        self.update_icon(self.original_pixmap)
-        super().resizeEvent(event)  # 这应该放在最后，以允许父类处理尺寸调整
- 
-    def sizeHint(self):
-        """ 提供合理的默认尺寸 """
-        # 注意：这里返回的尺寸应该基于当前的 aspect_ratio，但不应该在构造函数之外修改它。
-        # 如果需要基于某个默认宽度来计算高度，可以这样做：
-        default_width = 200
-        default_height = int(default_width / self.aspect_ratio)
-        return QSize(default_width, default_height)
-
-#滑动按钮
-class SwitchButton(QPushButton):
-    def __init__(self, texta='on', textb='off'):
-        super().__init__()
-        self.texta = texta
-        self.textb = textb
-        self.setCheckable(True)
-        #self.setStyleSheet("""
-        #    SwitchButton {
-        #        border: 2px solid #ccc;
-        #        border-radius: 15px;
-        #        background-color: #ccc;
-        #        height: 30px;
-        #    }
-        #    SwitchButton:checked {
-        #        background-color: #4CAF50;
-        #    }
-        #""")
-
-        # 计算文本所需宽度
-        font = self.font()
-        fm = QFontMetrics(font)
-        self.texta_width = fm.width(texta)
-        self.textb_width = fm.width(textb)
-        self.max_text_width = max(self.texta_width, self.textb_width)
-
-        # 初始化滑块
-        self._slider = QPushButton(self)
-        self._slider.setFixedSize(28, 28)
-        #self._slider.setStyleSheet("""
-        #    QPushButton {
-        #        border-radius: 14px;
-        #        background-color: white;
-        #    }
-        #""")
-        slider_width = self._slider.width()
-        # 计算总宽度：滑块宽度 + 左右边距(各2px) + 文本最大宽度
-        total_width = slider_width + 4 + self.max_text_width
-        self.setFixedSize(total_width, 30)
-        self._slider.move(2, 1)
-
-        # 初始化标签
-        self._label = QLabel(textb, self)
-        #self._label.setStyleSheet("QLabel { color: white; font-weight: bold; }")
-        self._label.setFixedSize(self.max_text_width, 30)
-        self._label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        # 初始位置在右侧
-        self._label.move(self.width() - self.max_text_width - 2, 0)
-
-        self.animation = QPropertyAnimation(self._slider, b"pos")
-        self.animation.setDuration(200)
-        self.clicked.connect(self.toggle)
-
-    def toggle(self):
-        slider_width = self._slider.width()
-        if self.isChecked():
-            # 滑块移至右侧，显示texta
-            end_x = self.width() - slider_width - 2
-            self._label.setText(self.texta)
-            self._label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-            self._label.move(2, 0)
-        else:
-            # 滑块移至左侧，显示textb
-            end_x = 2
-            self._label.setText(self.textb)
-            self._label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-            self._label.move(self.width() - self.max_text_width - 2, 0)
-        self.animation.setEndValue(QPoint(end_x, self._slider.y()))
-        self.animation.start()
-
 #tps处理
 class CharSpeedAnalyzer:
     def __init__(self):
@@ -1234,25 +1041,7 @@ class CharSpeedAnalyzer:
     def get_peak_rate(self):
         return self.peak_rate
 
-#搜索按钮
-class SearchButton(QPushButton):
-    def __init__(self, text):
-        super().__init__(text)
-        self._is_checked = False  # 自定义变量来跟踪选中状态
-        self.setStyleSheet("background-color: gray")
-        self.clicked.connect(self.toggle_state)
- 
-    def toggle_state(self):
-        # 切换自定义变量的状态
-        self._is_checked = not self._is_checked
-        if self._is_checked:
-            self.setStyleSheet("background-color: green")
-        else:
-            self.setStyleSheet("background-color: gray")
-        # 发射自定义信号，传递当前状态
-        self.toggled.emit(self._is_checked)
-
-#搜索组件
+# 搜索组件
 class WebSearchSettingWindows:
     def __init__(self):
         self.search_engine = "baidu"
@@ -2964,7 +2753,7 @@ class ModConfiger(QTabWidget):
             return
         self.enable_story_insert=QCheckBox("启用主线剧情挂载")
         self.creator_manager_layout.addWidget(self.enable_story_insert,0,0,1,1)
-        self.main_story_creator_placeholder=QLabel('正在等待模型库更新...')
+        self.main_story_creator_placeholder=GradientLabel('正在等待模型库更新...')
         self.creator_manager_layout.addWidget(self.main_story_creator_placeholder,1,0,1,1)
 
         dialog = APIConfigDialog(self)
@@ -4323,19 +4112,6 @@ QPushButton:pressed {
         self.last_summary=''
         self.update_opti_bar()
 
-    #载入sys prompt
-    def load_sysrule(self):
-        try:
-            with open('sysrule.ini', 'r', encoding='utf-8') as file:
-                self.sysrule = file.read()
-        except FileNotFoundError:
-            # 如果文件不存在，尝试使用全局变量
-            if not sysrule:
-                self.sysrule = ''  # 如果全局变量也为空，初始化为空字符串
-            # 创建sysrule.ini文件
-            with open('sysrule.ini', 'w', encoding='utf-8') as file:
-                file.write(self.sysrule)
-
     #保存sys prompt
     def save_sysrule(self):
         global sysrule
@@ -4348,76 +4124,23 @@ QPushButton:pressed {
         self.sub_window.close()  # 关闭子窗口
         self.last_summary=''
 
-    def open_system_prompt(self):
-        def load_from_current(show_msg=True):
-            if self.chathistory[0]["role"] == "system":
-                self.sysrule = self.chathistory[0]["content"]
-                self.text_edit.setText(self.chathistory[0]["content"])
-            elif show_msg:
-                reply = QMessageBox.question(
-                    self,
-                    "提示",
-                    "当前对话无system prompt\n是否自动导入新system prompt？",
-                    QMessageBox.Yes | QMessageBox.No | QMessageBox.Cancel
-                )
-                if reply == QMessageBox.Yes:
-                    self.load_sysrule()
-                elif reply == QMessageBox.No or reply == QMessageBox.Cancel:
-                    pass
-        def add_system_over_rider_to_window():
-            self.open_module_window(show_at_call=False)
-            self.system_prompt_override_window.update_system_prompt.connect(load_from_current)
-            if self.system_prompt_override_window.isVisible():
-                self.system_prompt_override_window.hide()
+    def open_system_prompt(self, show_at_call=True):
+        def update_system_prompt(prompt):
+            if self.chathistory and self.chathistory[0]['role'] == "system":
+                self.chathistory[0]['content'] = prompt
             else:
-                grid_layout.addWidget(self.system_prompt_override_window,0,5,3,1)
+                self.chathistory.insert(0, {'role': 'system', 'content': prompt})
+        def get_system_prompt():
+            if self.chathistory and self.chathistory[0]['role'] == "system":
+                return self.chathistory[0]['content']
+        # 创建子窗口
+        if not hasattr(self,"system_prompt_override_window"):
+            self.system_prompt_override_window = SystemPromptUI(folder_path='utils/system_prompt_presets')
+            self.system_prompt_override_window.update_system_prompt.connect(update_system_prompt)
+        if show_at_call:
+            self.system_prompt_override_window.show()
+        self.system_prompt_override_window.load_income_prompt(get_system_prompt())
 
-        self.load_sysrule()  # 加载系统规则
-        self.sub_window = QDialog(self)  # 创建子窗口
-        self.sub_window.setWindowTitle("System Prompt 设定")
-        self.sub_window.resize(900, 600)
-
-        # 使用网格布局
-        grid_layout = QGridLayout()
-        self.sub_window.setLayout(grid_layout)
-
-        # 编辑系统提示标签 (0行0列)
-        label = QLabel("编辑系统提示：")
-        grid_layout.addWidget(label, 0, 0, 1, 1)  # 第0行，第0列
-
-        # 文本编辑框 (1行0列，跨4列)
-        self.text_edit = QTextEdit()
-        self.text_edit.setText(self.sysrule)
-        grid_layout.addWidget(self.text_edit, 1, 0, 1, 4)  # 第1行，0列开始，占4列
-
-        # 按钮行 (2行0列)
-        call_system_over_rider=QPushButton("打开预设列表")
-        call_system_over_rider.clicked.connect(add_system_over_rider_to_window)
-        grid_layout.addWidget(call_system_over_rider, 2, 0)  # 第2行，第0列
-
-        load_button = QPushButton("从当前聊天载入")
-        load_button.clicked.connect(load_from_current)
-        grid_layout.addWidget(load_button, 2, 1)  # 第2行，第0列
-
-        save_button = QPushButton("保存")
-        save_button.clicked.connect(self.save_sysrule)
-        grid_layout.addWidget(save_button, 2, 2)  # 第2行，第1列
-
-        cancel_button = QPushButton("取消")
-        cancel_button.clicked.connect(self.sub_window.close)
-        grid_layout.addWidget(cancel_button, 2, 3)  # 第2行，第2列
-
-        
-
-        # 设置布局间距和边距
-        grid_layout.setHorizontalSpacing(10)
-        grid_layout.setVerticalSpacing(15)
-        grid_layout.setContentsMargins(15, 15, 15, 15)
-
-        # 设置文本编辑框的最小高度
-        self.text_edit.setMinimumHeight(400)
-
-        self.sub_window.exec_()
 
     #打开设置，快捷键
     def open_settings_window(self):
@@ -4507,16 +4230,8 @@ QPushButton:pressed {
         return None  # 如果没有找到 role 为 'assistant' 的记录，返回 None
 
     #打开模式设置
-    def open_module_window(self,show_at_call=True):
-        def update_system_prompt(prompt):
-            if self.chathistory[0]['role']=="system":
-                self.chathistory[0]['content']=prompt
-        # 创建子窗口
-        if not hasattr(self,"system_prompt_override_window"):
-            self.system_prompt_override_window = SystemPromptUI(folder_path='utils/system_prompt_presets')
-            self.system_prompt_override_window.update_system_prompt.connect(update_system_prompt)
-        if show_at_call:
-            self.system_prompt_override_window.show()
+    def open_module_window(self):
+        pass
     
     #保存聊天
     def save_chathistory(self, filename=None):

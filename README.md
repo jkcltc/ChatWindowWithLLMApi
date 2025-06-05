@@ -11,7 +11,7 @@
  
 - **长上下文优化**  
   通过自迭代摘要技术，  
-  将 4 万+ 字的对话内容压缩至 4-6 千字后发送至 API，AI 仍能保留截断点之前的记忆。  
+  支持将数万字的对话内容压缩至数千字（可调）后发送至 API，AI 仍能保留截断点之前的记忆。  
   显著节省长篇角色扮演场景中的 token 消耗。  
  
 - **角色扮演状态栏**  
@@ -57,7 +57,7 @@ A PYQT5-based LLM chat window optimized for role-playing interactions, with enha
 
 - **Long-context Optimization**  
   By using self-iterative summarization,  
-  After truncating 40+k of words of dialogue to 4-6k words and sending them to the API, the AI can still retain memories from before the truncation point.  
+  After truncating 40+k of words of dialogue to 4-6k words(example) and sending them to the API, the AI can still retain memories from before the truncation point.  
   Significantly saving tokens during extended role-playing scenarios with lengthy plots.  
 
 - **Role Play Status Bar:**  

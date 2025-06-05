@@ -187,7 +187,7 @@ class SystemPromptUI(QWidget):
         self.is_modified = True
         self.save_button.setEnabled(True)
     
-    def create_new_config(self,name=None,ok=None):
+    def create_new_config(self,name=None,ok=None,default_content=''):
         """创建新配置文件"""
         if not name and not ok:
             name, ok = QInputDialog.getText(
@@ -207,7 +207,7 @@ class SystemPromptUI(QWidget):
             # 创建新配置
             new_config = {
                 "name": name.replace(".json", ""),
-                "content": "",
+                "content": default_content,
                 "post_history": ""
             }
             
@@ -293,10 +293,10 @@ class SystemPromptUI(QWidget):
     def send_current_content(self):
         """发送当前内容"""
         content = self.content_edit.toPlainText().strip()
-        if not content:
-            QMessageBox.warning(self, "内容为空", "当前配置内容为空，无法发送")
-            return
         
+        self.create_new_config(self.default_current_filename,True,default_content=content)
+
+        self.save_current_config(show_window=False)
         # 发送内容信号
         self.update_system_prompt.emit(content)
         QMessageBox.information(self, "发送成功", "配置内容已发送")

@@ -109,6 +109,8 @@ from utils.system_prompt_updater import SystemPromptUI
 from utils.settings import *
 from utils.model_map_manager import ModelMapManager
 from utils.novita_model_manager import NovitaModelManager
+from utils.theme_manager import ThemeSelector
+from utils.function_manager import *
 
 #自定义插件初始化
 try:
@@ -234,7 +236,6 @@ if True:
         with open('background.jpg', 'wb') as f:
             f.write(think_img)
 # 全局变量
-global sysrule
 application_path = None
 temp_path = None
 api = api_init()
@@ -370,12 +371,12 @@ else:
     # 普通 Python 脚本
     application_path = os.path.dirname(os.path.abspath(__file__))
 
-# 加载系统规则（假设保存在本地的 sysrule.ini 文件中）
-try:
-    with open('sysrule.ini', 'r', encoding='utf-8') as file:
-        sysrule = file.read()
-except FileNotFoundError:
-    sysrule = '你是一个有用的AI助手'
+# 加载系统规则
+#try:
+#    with open('sysrule.ini', 'r', encoding='utf-8') as file:
+#        sysrule = file.read()
+#except FileNotFoundError:
+#    sysrule = '你是一个有用的AI助手'
 
 ##支持类
 #Novita Api 下的图像生成
@@ -2136,6 +2137,7 @@ class MessagePreprocessor:
 
     def prepare_message(self,tools=False):
         """预处理消息并构建API参数"""
+        start=time.perf_counter()
         better_round = self._calculate_better_round()
         better_message = self._handle_system_messages(better_round)
         message = self._process_special_styles(better_message)
@@ -2147,6 +2149,7 @@ class MessagePreprocessor:
         message = self._handle_mod_functions(message)
         params = self._build_request_params(message,stream=self.stream,tools=tools)
         print(f'发送长度: {len(str(message))}')
+        print(f'处理时间:{(time.perf_counter()-start)*1000:.2f}ms')
         return message, params
 
     def _calculate_better_round(self):
@@ -2317,347 +2320,6 @@ class MessagePreprocessor:
                 params['tools'] = function_definitions
         return params
 
-#API请求客户端
-class APISenderClient:
-    """API 请求客户端"""
-    def __init__(self, api_key, base_url):
-        self.client = openai.Client(api_key=api_key, base_url=base_url)
-    
-    def send_stream_request(self, params):
-        """发送流式请求"""
-        return self.client.chat.completions.create(**params)
-
-#函数管理器
-class FunctionManager:
-    def __init__(self):
-        self.functions = {}  # 存储函数信息的字典结构
-        self.function_library = FunctionLibrary()
-        self.init_functions()  # 初始化时自动加载函数库
-
-    def init_functions(self):
-        """从函数库加载所有预定义函数"""
-        # 遍历函数库中的所有预定义函数
-        for func in self.function_library.functions:
-            # 解析每个函数描述（支持多个描述）
-            for desc in func["description"]:
-                if desc["type"] == "function":
-                    func_info = desc["function"]
-                    # 注册函数到管理器
-                    self.add_function(
-                        name=func_info["name"],
-                        function=func["definition"],
-                        description=func_info["description"],
-                        parameters=func_info["parameters"]
-                    )
-
-    def add_function(self, name, function, description, parameters):
-        """
-        添加新函数
-        :param name: 函数名称（需与AI模型返回一致）
-        :param function: 函数实现（可调用对象）
-        :param description: 功能描述（用于模型理解）
-        :param parameters: 参数规范（JSON Schema格式）
-        """
-        if name in self.functions:
-            raise ValueError(f"Function '{name}' already exists")
-            
-        self.functions[name] = {
-            'function': function,
-            'description': description,
-            'parameters': parameters
-        }
-
-    def remove_function(self, name):
-        """删除指定函数"""
-        if name not in self.functions:
-            raise KeyError(f"Function '{name}' not found")
-        del self.functions[name]
-
-    def update_function(self, name, function=None, description=None, parameters=None):
-        """
-        更新现有函数
-        :param name: 要更新的函数名称
-        :param function: 新的函数实现（可选）
-        :param description: 新的描述（可选）
-        :param parameters: 新的参数规范（可选）
-        """
-        if name not in self.functions:
-            raise KeyError(f"Function '{name}' not found")
-
-        entry = self.functions[name]
-        if function is not None:
-            entry['function'] = function
-        if description is not None:
-            entry['description'] = description
-        if parameters is not None:
-            entry['parameters'] = parameters
-
-    def get_function(self, name):
-        """获取单个函数信息"""
-        return self.functions.get(name)
-
-    def get_functions_list(self):
-        """获取符合OpenAI格式的函数列表"""
-        return [{
-            'name': name,
-            'description': info['description'],
-            'parameters': info['parameters']
-        } for name, info in self.functions.items()]
-
-    def call_function(self, function_call_dict):
-        """
-        适配流式函数调用格式
-        :param function_call_dict: 包含完整函数调用信息的字典
-        Example格式:
-        {
-            "id": "call_abc123",
-            "type": "function",
-            "function": {
-                "name": "get_weather",
-                "arguments": {"location": "Beijing"}
-            }
-        }
-        """
-        print(f"Function call dict: {function_call_dict}")
-        # 参数校验
-        if not isinstance(function_call_dict, dict):
-            raise ValueError("Function call must be a dictionary")
-        
-        try:
-            # 提取关键信息
-            func_name = function_call_dict["function"]["name"]
-            arguments = function_call_dict["function"]["arguments"]
-            
-            # 类型安全校验
-            if not isinstance(arguments, dict):
-                raise TypeError(f"Arguments should be dict, got {type(arguments)}")
-            
-            # 调用核心逻辑
-            return self._execute_function(func_name, arguments)
-        except KeyError as e:
-            raise ValueError(f"Missing required field in function call: {str(e)}")
-        except Exception as e:
-            raise RuntimeError(f"Function call failed: {str(e)}") from e
-
-    def _execute_function(self, name, arguments):
-        """实际执行函数的内部方法"""
-        func_info = self.functions.get(name)
-        if not func_info:
-            raise ValueError(f"Function '{name}' not found")
-
-        try:
-            # 参数类型二次校验
-            if not isinstance(arguments, dict):
-                arguments = json.loads(arguments) if isinstance(arguments, str) else {}
-                
-            return func_info['function'](**arguments)
-        except json.JSONDecodeError:
-            raise ValueError(f"Invalid JSON arguments for {name}")
-        except TypeError as e:
-            raise ValueError(f"Invalid arguments for {name}: {str(e)}")
-        except Exception as e:
-            raise RuntimeError(f"Runtime error in {name}: {str(e)}")
-
-#函数选择器UI
-class FunctionSelectorUI(QWidget):
-    def __init__(self, function_manager, parent=None):
-        super().__init__(parent)
-        self.function_manager = function_manager  # 函数管理器实例
-        self.selected_functions = []              # 存储选中函数名称的列表
-        self.init_ui()
-        self.refresh_functions()
-
-    def init_ui(self):
-        """初始化界面布局"""
-        self.setWindowTitle('Function Selector')
-        self.setMinimumSize(400, 300)
-
-        # 主滚动区域
-        self.scroll = QScrollArea()
-        self.scroll.setWidgetResizable(True)
-        self.scroll.setFrameShape(QFrame.NoFrame)
-
-        # 滚动区域内容容器
-        self.content_widget = QWidget()
-        self.layout = QVBoxLayout(self.content_widget)
-        self.layout.setAlignment(Qt.AlignTop)
-        
-        self.scroll.setWidget(self.content_widget)
-
-        # 主布局
-        main_layout = QVBoxLayout(self)
-        main_layout.addWidget(self.scroll)
-        self.setLayout(main_layout)
-
-    def refresh_functions(self):
-        """刷新函数列表显示"""
-        # 清空现有复选框
-        while self.layout.count():
-            item = self.layout.takeAt(0)
-            if widget := item.widget():
-                widget.deleteLater()
-        
-        # 添加新复选框
-        functions = self.function_manager.get_functions_list()
-        for func in functions:
-            self._add_function_checkbox(func)
-
-    def _add_function_checkbox(self, func):
-        """添加单个函数复选框"""
-        cb = QCheckBox(self._format_checkbox_text(func), self.content_widget)
-        cb.setObjectName(func['name'])  # 使用函数名作为对象标识
-        
-        # 使用带参数的lambda保证正确捕获变量
-        cb.toggled.connect(
-            lambda checked, name=func['name']: 
-            self._handle_checkbox_toggle(name, checked)
-        )
-        
-        self.layout.addWidget(cb)
-
-    def _format_checkbox_text(self, func):
-        """格式化复选框显示文本"""
-        return f"{func['name']}\n{func['description']}"
-
-    def _handle_checkbox_toggle(self, name, checked):
-        """处理复选框状态变化"""
-        if checked and name not in self.selected_functions:
-            self.selected_functions.append(name)
-        elif not checked and name in self.selected_functions:
-            self.selected_functions.remove(name)
-
-    def get_selected_functions(self):
-        """获取当前选中函数列表（按名称）"""
-        return self.selected_functions.copy()
-
-    def get_selected_function_details(self):
-        """获取选中函数的详细信息"""
-        return [
-            self.function_manager.get_function(name)
-            for name in self.selected_functions
-        ]
-
-#function库
-class FunctionLibrary:
-    def __init__(self):
-        self.functions=[
-            {
-            "name": "open_file",
-            "description": [
-    {
-        "type": "function",
-        "function": {
-            "name": "open_file",
-            "description": "Open a file, can be a URL or a local file",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "url": {
-                        "type": "string",
-                        "description": "The URL/path to open",
-                    }
-                },
-                "required": ["url"]
-            },
-        }
-    },
-],
-            "definition": FunctionLibrary.open_file
-        },
-
-        {
-            "name": "python_cmd",
-            "description": [
-    {
-        "type": "function",
-        "function": {
-            "name": "python_cmd",
-            "description": "A Python interpreter that will exec() the code you provide,and will return the content in the print(). Ensure the code is safe.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "code": {
-                        "type": "string",
-                        "description": "python code to exec(),do not use markdown",
-                    }
-                },
-                "required": ["code"]
-            },
-        }
-    },
-],
-            "definition": FunctionLibrary.python_cmd
-        },
-    {
-            "name": "sys_time",
-            "description": [
-    {
-        "type": "function",
-        "function": {
-            "name": "sys_time",
-            "description": "get the current date and time",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "type": {
-                        "type": "string",
-                        "description": "date or exact time",
-                    }
-                },
-                "required": ["type"]
-            },
-        }
-    },
-],
-            "definition": FunctionLibrary.get_current_time
-        }
-]
-
-
-    @staticmethod
-    def weather_test(**kwargs):
-        """天气查询函数"""
-        # 这里可以添加实际的天气查询逻辑
-        return f"Weather is sunny. 0°C. Windy."
-
-    @staticmethod
-    def open_file(**kwargs):
-        """打开网页函数"""
-        url = kwargs.get("url", "")
-        try:
-            os.startfile(url)
-            return f"Opened {url}"
-        except Exception as e:
-            return f"Failed to open {url}: {str(e)}"
-    
-    @staticmethod
-    def python_cmd(**kwargs):
-        """Python命令执行函数，捕获print输出"""
-        import contextlib
-        from io import StringIO
-        code = kwargs.get("code", "")
-        code = code.replace('```python', '').replace('```', '').replace('`', '')
-        print(f"Executing code: {code}")
-        output_buffer = StringIO()
-        try:
-            with contextlib.redirect_stdout(output_buffer):
-                exec(code, {})  # 在独立环境中执行代码
-            captured_output = output_buffer.getvalue().strip()
-            if len(captured_output)>10000:
-                return '部分执行'+captured_output[0:10000]+"\n部分执行\ntoo many output!\nthe rest is abandoned"
-            if len(captured_output) == 0:
-                return '执行成功，无输出内容'
-            return f"执行成功，输出内容：\n{captured_output}"
-        except Exception as e:
-            return f"执行失败：{str(e)}"
-
-    @staticmethod
-    def get_current_time(**kwargs):
-        """获取当前日期时间函数"""
-        import datetime
-        current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        return f"当前时间：{current_time}"
-
 #tts处理器
 class TTSHandler:
     def __init__(self):
@@ -2796,14 +2458,13 @@ class MainWindow(QMainWindow):
     back_animation_finished = pyqtSignal()
     update_background_signal= pyqtSignal(str)
 
-    def setupUi(self,qss_path=None):
-        if not qss_path:
-            qss_path=self.theme_path
-            with open(qss_path, "r", encoding="utf-8") as f:
-                return f.read()
+    def setupUi(self):
+        self.theme_selector = ThemeSelector(parent=self)
+        self.theme_selector.apply_saved_theme(init_path=None)
 
     def __init__(self):
         super().__init__()
+        self.setupUi()
         self.setWindowTitle("早上好！夜之城！")
         self.setWindowIcon(self.render_svg_to_icon(MAIN_ICON))
         self.tokenpers=CharSpeedAnalyzer()
@@ -3173,7 +2834,6 @@ QPushButton:pressed {
 
 
         # 设置快捷键
-        global sysrule
         self.send_message_var = True
         self.autoslide_var = True
         self.send_message_var=True
@@ -3184,7 +2844,7 @@ QPushButton:pressed {
         self.shortcut1.activated.connect(self.toggle_tree_view)
         self.shortcut2.activated.connect(self.toggle_tree_view)
         self.send_message_shortcut.activated.connect(self.send_message)
-        self.sysrule=sysrule
+        self.sysrule=self.init_sysrule()
         self.chathistory = []
         self.chathistory.append({'role': 'system', 'content': self.sysrule})
         self.pause_flag = False
@@ -3267,9 +2927,6 @@ QPushButton:pressed {
         self.name_user="用户"
         self.name_ai=""
 
-        #界面主题
-        self.theme_path='theme/ds-r1-0528.qss'
-
     def init_response_manager(self):
         # AI响应更新控制
         self.ai_last_update_time = 0
@@ -3295,6 +2952,39 @@ QPushButton:pressed {
         dialog.configUpdated.connect(self._handle_api_update)
         dialog._on_update_models()
         
+    def init_sysrule(self):
+        # 定义文件路径
+        file_path = "utils/system_prompt_presets/当前对话.json"
+        
+        # 检查文件是否存在
+        if os.path.exists(file_path):
+            # 读取JSON文件内容
+            with open(file_path, 'r', encoding='utf-8') as f:
+                config_data = json.load(f)
+            
+            # 获取content字段的值
+            self.sysrule = config_data["content"]
+        else:
+            # 创建目录（如果不存在）
+            os.makedirs(os.path.dirname(file_path), exist_ok=True)
+            
+            # 创建默认配置数据
+            default_content = "你是一个有用的AI助手"
+            new_config = {
+                "name": "当前对话",
+                "content": default_content,
+                "post_history": ""
+            }
+            
+            # 写入新文件
+            with open(file_path, 'w', encoding='utf-8') as f:
+                json.dump(new_config, f, ensure_ascii=False, indent=2)
+            
+            # 设置系统规则
+            self.sysrule = default_content
+        
+        # 返回当前系统规则
+        return self.sysrule
 
     def add_tts_page(self):
         if not "mods.chatapi_tts" in sys.modules:
@@ -3414,7 +3104,7 @@ QPushButton:pressed {
             {"上级名称": "背景", "按钮变量名": "self.background_setting", "提示语": "设置背景更新", "执行函数": "self.background_settings_window"},
             {"上级名称": "背景", "按钮变量名": "self.setting_trigger_background_update", "提示语": "触发背景更新（跟随聊天）", "执行函数": "self.back_ground_update"},
             {"上级名称": "背景", "按钮变量名": "self.customed_background_update", "提示语": "触发背景更新（自定义内容）", "执行函数": "self.show_pic_creater"},
-            {"上级名称": "设置", "按钮变量名": "self.module_button", "提示语": "模块", "执行函数": "self.open_module_window"},
+            {"上级名称": "设置", "按钮变量名": "", "提示语": "主题", "执行函数": "self.show_theme_settings"},
             {"上级名称": "设置", "按钮变量名": "self.set_button", "提示语": "快捷键", "执行函数": "self.open_settings_window"},
             {"上级名称": "设置", "按钮变量名": "self.web_search_setting", "提示语": "联网搜索", "执行函数": "self.open_web_search_setting_window"}
         ]
@@ -4112,33 +3802,29 @@ QPushButton:pressed {
         self.last_summary=''
         self.update_opti_bar()
 
-    #保存sys prompt
-    def save_sysrule(self):
-        global sysrule
-        new_sysrule = self.text_edit.toPlainText().strip()  # 获取文本框中的内容
-        with open('sysrule.ini', 'w', encoding='utf-8') as file:
-            file.write(new_sysrule)
-        self.sysrule = new_sysrule  # 更新全局变量
-        #if 
-        self.chathistory[0]={'role': 'system', 'content':self.sysrule}
-        self.sub_window.close()  # 关闭子窗口
-        self.last_summary=''
-
+    #打开设置窗口
     def open_system_prompt(self, show_at_call=True):
         def update_system_prompt(prompt):
             if self.chathistory and self.chathistory[0]['role'] == "system":
                 self.chathistory[0]['content'] = prompt
             else:
                 self.chathistory.insert(0, {'role': 'system', 'content': prompt})
+            self.sysrule=prompt
         def get_system_prompt():
-            if self.chathistory and self.chathistory[0]['role'] == "system":
-                return self.chathistory[0]['content']
+            if len(self.chathistory)>1:
+                if self.chathistory and self.chathistory[0]['role'] == "system":
+                    return self.chathistory[0]['content']
+            else:
+                return self.sysrule
         # 创建子窗口
         if not hasattr(self,"system_prompt_override_window"):
             self.system_prompt_override_window = SystemPromptUI(folder_path='utils/system_prompt_presets')
             self.system_prompt_override_window.update_system_prompt.connect(update_system_prompt)
         if show_at_call:
             self.system_prompt_override_window.show()
+        if self.system_prompt_override_window.isVisible():
+            self.system_prompt_override_window.raise_()
+            self.system_prompt_override_window.activateWindow()
         self.system_prompt_override_window.load_income_prompt(get_system_prompt())
 
 
@@ -4181,7 +3867,6 @@ QPushButton:pressed {
     #绑定快捷键
     def bind_enter_key(self):
         """根据设置绑定或解绑 Enter 键"""
-        #print('binding')
 
         if self.send_message_var:
             self.send_message_shortcut=QShortcut(QKeySequence(), self)
@@ -4348,7 +4033,7 @@ QPushButton:pressed {
                 new_chathistory.pop()
                 text_edit.setText(json.dumps(new_chathistory, ensure_ascii=False, indent=4))
 
-        # 修改后的show_replace_dialog函数，去掉self参数
+        # 批量替换
         def show_replace_dialog():
             # 创建临时对话框，使用edit_window作为父窗口
             dialog = QDialog(edit_window)
@@ -4969,6 +4654,7 @@ QPushButton:pressed {
                     return
                 else:
                     self.chathistory[0]=past_chathistory[0]
+                    self.sysrule=past_chathistory[0]["content"]
                     print('导入system prompt完成。\n导入长度：',len(self.chathistory[0]["content"]))
 
         except json.JSONDecodeError:
@@ -5509,12 +5195,14 @@ QPushButton:pressed {
                 setattr(self, attr, max(0, current - 2))
         self.update_opti_bar()
         
+    def show_theme_settings(self):
+        self.theme_selector.show()
+
 if __name__ == "__main__":
     app = QApplication(sys.argv)
     if sys.platform == 'win32':
         appid = 'chatapi.0.23.1'
         ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(appid)
     window = MainWindow()
-    app.setStyleSheet(window.setupUi())
     window.show()
     sys.exit(app.exec_())

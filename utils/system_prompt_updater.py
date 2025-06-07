@@ -187,12 +187,13 @@ class SystemPromptUI(QWidget):
         self.is_modified = True
         self.save_button.setEnabled(True)
     
-    def create_new_config(self,name=None,ok=None,default_content=''):
+    def create_new_config(self, name=None, ok=None, default_content='', select_new=True):
         """创建新配置文件"""
         if not name and not ok:
             name, ok = QInputDialog.getText(
                 self, "新建配置", "请输入配置名称:"
             )
+
         if ok and name:
             # 检查文件名是否有效
             if not name.endswith(".json"):
@@ -212,12 +213,13 @@ class SystemPromptUI(QWidget):
             }
             
             if self.file_manager.create_new_preset(name, new_config):
-                self.load_file_list()
-                # 选择新创建的文件
-                for i in range(self.file_list.count()):
-                    if self.file_list.item(i).text() == name:
-                        self.file_list.setCurrentRow(i)
-                        break
+                if select_new:
+                    self.load_file_list()
+                    # 选择新创建的文件
+                    for i in range(self.file_list.count()):
+                        if self.file_list.item(i).text() == name:
+                            self.file_list.setCurrentRow(i)
+                            break
             else:
                 QMessageBox.critical(self, "创建失败", "无法创建新配置文件")
     
@@ -292,14 +294,39 @@ class SystemPromptUI(QWidget):
     
     def send_current_content(self):
         """发送当前内容"""
-        content = self.content_edit.toPlainText().strip()
+        # 保存当前状态以便恢复
+        was_modified = self.is_modified
+        old_file = self.current_file
         
-        self.create_new_config(self.default_current_filename,True,default_content=content)
-
-        self.save_current_config(show_window=False)
-        # 发送内容信号
-        self.update_system_prompt.emit(content)
-        QMessageBox.information(self, "发送成功", "配置内容已发送")
+        try:
+            # 阻塞文件列表的信号，避免触发on_file_selected
+            self.file_list.blockSignals(True)
+            
+            content = self.content_edit.toPlainText().strip()
+            
+            # 创建新配置
+            self.create_new_config(self.default_current_filename, True, default_content=content)
+            
+            # 手动设置当前文件为新创建的配置
+            new_file_path = os.path.join(
+                self.file_manager.folder_path, 
+                f"{self.default_current_filename}.json"
+            )
+            self.current_file = new_file_path
+            self.is_modified = False
+            self.save_button.setEnabled(False)
+            
+            # 发送内容信号
+            self.update_system_prompt.emit(content)
+            QMessageBox.information(self, "发送成功", "配置内容已发送")
+        
+        finally:
+            # 恢复文件列表信号
+            self.file_list.blockSignals(False)
+            
+            # 恢复原始状态
+            self.is_modified = was_modified
+            self.current_file = old_file
 
     def closeEvent(self, event):
         """窗口关闭事件处理"""

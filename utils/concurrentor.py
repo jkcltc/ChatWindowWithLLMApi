@@ -1,9 +1,7 @@
 import sys
-from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-                             QGroupBox, QLabel, QSpinBox, QComboBox, QTextEdit, QPushButton, 
-                             QSizePolicy, QFrame)
-from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QFont, QPixmap
+from PyQt5.QtWidgets import *
+from PyQt5.QtCore import *
+from PyQt5.QtGui import *
 from theme_manager import ThemeSelector
 MODEL_MAP={
   "baidu": [
@@ -217,20 +215,25 @@ MODEL_MAP={
     "qwq:latest"
   ]
 }
-class AIWorkflowUI(QMainWindow):
+class ConvergenceDialogueOptiUI(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("AI 工作流处理系统")
-        self.setGeometry(100, 100, 1200, 900)  # 增加窗口尺寸以适应水平布局
+        self.setWindowTitle("汇流对话优化")
+        self.setGeometry(100, 100, 1000, 700)  # 减小初始尺寸
         
-        # 主控件和布局
-        main_widget = QWidget()
-        self.setCentralWidget(main_widget)
-        main_layout = QVBoxLayout(main_widget)
-        main_layout.setSpacing(20)
+        # 创建滚动区域
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        central_widget = QWidget()
+        scroll.setWidget(central_widget)
+        self.setCentralWidget(scroll)  # 设置滚动区域为中央控件
+        
+        # 主布局
+        main_layout = QVBoxLayout(central_widget)
+        main_layout.setSpacing(15)
         
         # 添加标题和流程图引导
-        title_label = QLabel("AI 工作流处理流程图")
+        title_label = QLabel("汇流对话优化")
         title_font = QFont()
         title_font.setPointSize(16)
         title_font.setBold(True)
@@ -244,7 +247,6 @@ class AIWorkflowUI(QMainWindow):
             "↓ 表示流程方向，每层处理后将结果传递给下一层"
         )
         guide_label.setAlignment(Qt.AlignCenter)
-        guide_label.setStyleSheet("background-color: #f0f8ff; padding: 10px; border-radius: 5px;")
         main_layout.addWidget(guide_label)
         
         # 顶部控制区域
@@ -279,29 +281,32 @@ class AIWorkflowUI(QMainWindow):
         
         # 添加流程箭头
         self.add_flow_arrows()
-    
-    def add_flow_arrows(self):
-        """在层之间添加箭头表示流程方向"""
-        arrows = []
-        for i in range(4):  # 最多4个箭头
-            arrow_label = QLabel()
-            arrow_label.setPixmap(QPixmap("").scaled(30, 30))  # 实际使用时替换为箭头图片
-            arrow_label.setText("↓")  # 使用文本箭头作为替代
-            arrow_label.setAlignment(Qt.AlignCenter)
-            arrow_label.setStyleSheet("font-size: 24px; color: #888;")
-            arrows.append(arrow_label)
         
-        # 在层之间插入箭头
-        for i, widget in enumerate(self.layer_container.parent().children()):
-            if isinstance(widget, QGroupBox):
-                index = self.layer_container.indexOf(widget)
-                if index > 0 and i <= len(arrows):
-                    self.layer_container.insertWidget(index, arrows[i-1])
+    def add_flow_arrows(self):
+        # 移除当前所有箭头
+        for i in reversed(range(self.layer_container.count())):
+            widget = self.layer_container.itemAt(i).widget()
+            if widget and widget.property("flow_arrow"):
+                self.layer_container.removeWidget(widget)
+        
+        # 添加新箭头（仅在可见层之间）
+        visible_layers = [w for w in self.layer_container.children() 
+                        if isinstance(w, QGroupBox) and w.isVisible()]
+        
+        for i in range(len(visible_layers) - 1):
+            arrow_label = QLabel("↓")  # 使用简单文本箭头
+            arrow_label.setAlignment(Qt.AlignCenter)
+            arrow_label.setProperty("flow_arrow", True)  # 标记为流程箭头
+            
+            # 在层和箭头之间添加间距
+            self.layer_container.insertWidget(
+                self.layer_container.indexOf(visible_layers[i]) + 1, 
+                arrow_label
+            )
     
     def create_layer1(self):
         """创建请求并发层 - 修改为水平布局"""
         self.layer1 = QGroupBox("1. 请求并发层")
-        self.layer1.setStyleSheet("QGroupBox { font-weight: bold; }")
         layout = QVBoxLayout()
         
         # 并发设置
@@ -318,7 +323,7 @@ class AIWorkflowUI(QMainWindow):
         # 水平布局的模型容器
         models_container = QWidget()
         models_layout = QHBoxLayout(models_container)
-        models_layout.setSpacing(15)
+        models_layout.setSpacing(8)
         
         self.model_groups = []
         
@@ -334,7 +339,6 @@ class AIWorkflowUI(QMainWindow):
         # 添加流程说明
         layer1_guide = QLabel("↑ 同时请求多个AI模型，获取不同结果")
         layer1_guide.setAlignment(Qt.AlignRight)
-        layer1_guide.setStyleSheet("color: #666; font-style: italic;")
         layout.addWidget(layer1_guide)
         
         self.layer1.setLayout(layout)
@@ -367,7 +371,6 @@ class AIWorkflowUI(QMainWindow):
         # 响应显示
         response_text = QTextEdit()
         response_text.setReadOnly(True)
-        response_text.setMinimumHeight(150)
         response_text.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         response_text.setPlaceholderText("模型响应将显示在这里...")
         
@@ -400,7 +403,6 @@ class AIWorkflowUI(QMainWindow):
     def create_layer2(self):
         """创建评价层"""
         self.layer2 = QGroupBox("2. 评价层")
-        self.layer2.setStyleSheet("QGroupBox { font-weight: bold; }")
         layout = QVBoxLayout()
         
         # 评分显示
@@ -414,7 +416,6 @@ class AIWorkflowUI(QMainWindow):
         # 添加流程说明
         layer2_guide = QLabel("↑ 对多个模型的响应进行质量评价和评分")
         layer2_guide.setAlignment(Qt.AlignRight)
-        layer2_guide.setStyleSheet("color: #666; font-style: italic;")
         layout.addWidget(layer2_guide)
         
         self.layer2.setLayout(layout)
@@ -423,7 +424,6 @@ class AIWorkflowUI(QMainWindow):
     def create_layer3(self):
         """创建汇总层"""
         self.layer3 = QGroupBox("3. 汇总层")
-        self.layer3.setStyleSheet("QGroupBox { font-weight: bold; }")
         layout = QVBoxLayout()
         
         # 汇总结果显示
@@ -437,7 +437,6 @@ class AIWorkflowUI(QMainWindow):
         # 添加流程说明
         layer3_guide = QLabel("↑ 综合多个模型的响应生成最终结果")
         layer3_guide.setAlignment(Qt.AlignRight)
-        layer3_guide.setStyleSheet("color: #666; font-style: italic;")
         layout.addWidget(layer3_guide)
         
         self.layer3.setLayout(layout)
@@ -446,17 +445,10 @@ class AIWorkflowUI(QMainWindow):
     def create_layer4(self):
         """创建风格层"""
         self.layer4 = QGroupBox("4. 风格层")
-        self.layer4.setStyleSheet("QGroupBox { font-weight: bold; }")
         layout = QVBoxLayout()
         
         # 风格选择
         style_layout = QHBoxLayout()
-        style_layout.addWidget(QLabel("输出风格:"))
-        
-        self.style_combo = QComboBox()
-        self.style_combo.addItems(["正式", "简洁", "专业", "幽默", "学术"])
-        style_layout.addWidget(self.style_combo)
-        style_layout.addStretch(1)
         
         # 风格化结果显示
         self.style_text = QTextEdit()
@@ -470,7 +462,6 @@ class AIWorkflowUI(QMainWindow):
         # 添加流程说明
         layer4_guide = QLabel("↑ 调整最终结果的语气和表达风格")
         layer4_guide.setAlignment(Qt.AlignRight)
-        layer4_guide.setStyleSheet("color: #666; font-style: italic;")
         layout.addWidget(layer4_guide)
         
         self.layer4.setLayout(layout)
@@ -479,7 +470,6 @@ class AIWorkflowUI(QMainWindow):
     def create_layer5(self):
         """创建补正层"""
         self.layer5 = QGroupBox("5. 补正层")
-        self.layer5.setStyleSheet("QGroupBox { font-weight: bold; }")
         layout = QVBoxLayout()
         
         # 补正结果显示
@@ -493,13 +483,11 @@ class AIWorkflowUI(QMainWindow):
         # 添加最终流程说明
         layer5_guide = QLabel("↑ 最终优化和修正，得到最终结果")
         layer5_guide.setAlignment(Qt.AlignRight)
-        layer5_guide.setStyleSheet("color: #666; font-style: italic;")
         layout.addWidget(layer5_guide)
         
         # 完成标记
         finish_label = QLabel("✓ 流程完成")
         finish_label.setAlignment(Qt.AlignCenter)
-        finish_label.setStyleSheet("font-weight: bold; color: green; font-size: 14px; padding-top: 10px;")
         layout.addWidget(finish_label)
         
         self.layer5.setLayout(layout)
@@ -575,36 +563,157 @@ class AIWorkflowUI(QMainWindow):
         
         return selections
 
-if __name__ == "__main__":
-    import sys
-    from PyQt5.QtWidgets import QMainWindow, QTextEdit
+import time
+import random
+
+# 模拟模型映射数据（实际使用时替换为API模型）
+MODEL_MAP = {
+    "OpenAI": ["GPT-4", "GPT-3.5", "GPT-3"],
+    "Anthropic": ["Claude-3", "Claude-2", "Claude-Instant"],
+    "Google": ["Gemini Pro", "PaLM-2", "Imagen"],
+    "Meta": ["Llama-3", "Llama-2", "Optimus"]
+}
+
+# 模拟的请求发送类
+class RefluxDialogueSender(QThread):
+    request_finished = pyqtSignal(dict)
     
-    class MainWindow(QMainWindow):
-        def __init__(self):
-            super().__init__()
-            self.setWindowTitle("主应用窗口")
-            self.setGeometry(100, 100, 800, 600)
-            
-            # 创建中央部件
-            central_widget = QTextEdit()
-            central_widget.setPlaceholderText("这里是主应用内容区域...")
-            self.setCentralWidget(central_widget)
-            
-            # 添加主题选择按钮
-            theme_button = QPushButton("更换主题", self)
-            theme_button.move(20, 20)
-            theme_button.clicked.connect(self.open_theme_selector)
+    def __init__(self, slot, api_provider, model):
+        super().__init__()
+        self.slot = slot
+        self.api_provider = api_provider
+        self.model = model
+    
+    def run(self):
+        # 模拟API请求的延迟
+        delay = random.uniform(1.0, 3.0)
+        time.sleep(delay)
         
-        def open_theme_selector(self):
-            selector = ThemeSelector(self,init_path=r'C:\Users\Administrator\Desktop\chatApi\ChatWindowWithLLMApi')
-            selector.show()
+        # 模拟API响应
+        responses = [
+            f"好的，我明白了。作为{self.model}模型，我的回应会简短明了。",
+            f"收到您的查询，这是来自{self.api_provider}的{self.model}的回应。",
+            f"{self.api_provider}的{self.model}正在处理您的请求，这是我的建议。",
+            f"这个问题很有意思！作为{self.model}，我认为有以下解决方案。",
+            f"感谢使用{self.api_provider}的服务，{self.model}为您提供如下响应。"
+        ]
+        
+        message = random.choice(responses)
+        self.request_finished.emit({"slot": self.slot, "message": message})
+
+class ConvergenceDialogueOptiProcessor(QWidget):
+    def __init__(self):
+        super().__init__()
+        self.ui = ConvergenceDialogueOptiUI()
+        self.init_ui()
+        self.connect_signals()
+        self.active_requests = 0
     
-    app = QApplication(sys.argv)
-    wifndow = MainWindow()
-    wifndow.show()
+    def init_ui(self):
+        layout = QVBoxLayout()
+        layout.addWidget(self.ui)
+        self.setLayout(layout)
+        self.setWindowTitle("汇流对话优化处理器")
+        self.resize(1000, 700)
+    
+    def connect_signals(self):
+        # 连接模型供应商选择变化时的信号
+        for group in self.ui.model_groups:
+            vendor_combo = group.property("vendor")
+            vendor_combo.currentIndexChanged.connect(self.on_vendor_changed)
+    
+    def show_ui(self):
+        self.show()
+    
+    def on_vendor_changed(self):
+        """当供应商选择变化时更新模型列表"""
+        sender = self.sender()
+        group = sender.parent().parent()  # 获取模型组对象
+        model_combo = group.property("model")
+        vendor_name = sender.currentText()
+        
+        # 更新模型列表
+        model_combo.clear()
+        model_combo.addItems(MODEL_MAP.get(vendor_name, []))
+    
+    def start_concurrent_requests(self):
+        """启动并发请求（由外部调用）"""
+        if self.active_requests > 0:
+            print("已经有请求正在进行中，请等待完成")
+            return
+        
+        # 重置计数器
+        self.active_requests = 0
+        
+        # 清除之前的响应
+        for group in self.ui.model_groups:
+            text_edit = group.property("response")
+            text_edit.clear()
+        
+        # 遍历所有模型组并发送请求
+        for slot, group in enumerate(self.ui.model_groups):
+            vendor_combo = group.property("vendor")
+            model_combo = group.property("model")
+            
+            vendor = vendor_combo.currentText()
+            model = model_combo.currentText()
+            
+            if not vendor or not model:
+                print(f"槽位 {slot+1} 未选择供应商或模型")
+                continue
+            
+            # 禁用界面控件
+            vendor_combo.setEnabled(False)
+            model_combo.setEnabled(False)
+            self.ui.concurrent_spin.setEnabled(False)
+            self.active_requests += 1
+            
+            # 创建并启动请求线程
+            sender = RefluxDialogueSender(slot, vendor, model)
+            sender.request_finished.connect(self.on_request_finished)
+            sender.finished.connect(self.on_request_completed)
+            sender.start()
+    
+    def on_request_finished(self, result):
+        """处理单个请求完成"""
+        slot = result["slot"]
+        message = result["message"]
+        
+        # 找到对应的模型组
+        group = self.ui.model_groups[slot]
+        text_edit = group.property("response")
+        
+        # 更新UI
+        text_edit.setPlainText(message)
+    
+    def on_request_completed(self):
+        """所有请求完成后的处理"""
+        self.active_requests -= 1
+        if self.active_requests == 0:
+            # 所有请求完成后启用界面控件
+            for group in self.ui.model_groups:
+                vendor_combo = group.property("vendor")
+                model_combo = group.property("model")
+                
+                vendor_combo.setEnabled(True)
+                model_combo.setEnabled(True)
+            
+            self.ui.concurrent_spin.setEnabled(True)
+            print("所有并发请求已完成")
+
 
 if __name__ == "__main__":
-
-    window = AIWorkflowUI()
-    window.show()
-    sys.exit(app.exec_())
+    app = QApplication([])
+    processor = ConvergenceDialogueOptiProcessor()
+    processor.show_ui()
+    
+    # 模拟外部调用启动请求（通常在UI中有触发按钮）
+    def trigger_requests():
+        processor.start_concurrent_requests()
+    
+    # 添加启动按钮以便测试
+    btn = QPushButton("开始并发请求")
+    btn.clicked.connect(trigger_requests)
+    processor.layout().insertWidget(0, btn)
+    
+    app.exec_()

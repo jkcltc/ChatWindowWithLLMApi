@@ -136,6 +136,14 @@ class MainSettingWindow(QWidget):
         grid_layout.addWidget(self.model_combo, row, 1, 1, 1)
         
         row+=1
+        
+        # 自定义提示
+        grid_layout.addWidget(QLabel("优先保留记忆\n也可用于私货"), row, 0)
+        self.custom_hint_edit = QTextEdit()
+        self.custom_hint_edit.setText(self.config.get('long_chat_hint', ''))
+        grid_layout.addWidget(self.custom_hint_edit, row, 1, 1, 1)
+
+        row+=1
 
         grid_layout.addWidget(QuickSeparator(),row, 0, 1, 2)
 
@@ -163,13 +171,6 @@ class MainSettingWindow(QWidget):
         grid_layout.addWidget(self.penalty_checkbox, row, 0)
         self.penalty_edit = QLineEdit(str(self.config.get('presence_penalty', 0.0)))
         grid_layout.addWidget(self.penalty_edit, row, 1)
-        
-        row+=1
-        # 自定义提示
-        grid_layout.addWidget(QLabel("优先保留记忆\n也可用于私货"), row, 0)
-        self.custom_hint_edit = QTextEdit()
-        self.custom_hint_edit.setText(self.config.get('long_chat_hint', ''))
-        grid_layout.addWidget(self.custom_hint_edit, row, 1, 1, 1)
         
         row+=1
 
@@ -315,6 +316,7 @@ class MainSettingWindow(QWidget):
     #def closeEvent(self, event):
     #    self.window_closed.emit()
     #    super().closeEvent(event)
+
 
 if __name__=="__main__":
     app=QApplication(sys.argv)

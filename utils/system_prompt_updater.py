@@ -328,23 +328,6 @@ class SystemPromptUI(QWidget):
             self.is_modified = was_modified
             self.current_file = old_file
 
-    def closeEvent(self, event):
-        """窗口关闭事件处理"""
-        if self.is_modified:
-            reply = QMessageBox.question(
-                self, "未保存的更改",
-                "有未保存的更改，是否保存?",
-                QMessageBox.Save | QMessageBox.Discard | QMessageBox.Cancel
-            )
-            
-            if reply == QMessageBox.Save:
-                self.save_current_config()
-            elif reply == QMessageBox.Cancel:
-                event.ignore()
-                return
-        
-        event.accept()
-
 if __name__ == "__main__":
     app = QApplication([])
     window = SystemPromptUI()

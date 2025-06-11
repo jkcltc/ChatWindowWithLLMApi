@@ -17,10 +17,11 @@ import difflib
 import random
 from typing import Any, Dict, List, Tuple,Optional
 from urllib.parse import quote
+import urllib
 import warnings
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 warnings.filterwarnings("ignore", message="libpng warning: iCCP: known incorrect sRGB profile")
-
+print("import_done")
 def install_packages():
     import subprocess
     import tkinter as tk
@@ -243,135 +244,12 @@ user_input = ''
 # 初始化聊天历史
 pause_flag = False  # 暂停标志变量，默认为 False（未暂停）
 
-
-class ModelListUpdater:
-    '''
-    模型库更新
-    ModelListUpdater.update_model_map(
-    ollama_alive : bool
-    )
-    '''
-    _lock = threading.Lock()
-    @staticmethod
-    def get_model_ids(url: str, api_key: str) -> list:
-        """获取指定API端点的模型ID列表"""
-        headers = {"Authorization": f"Bearer {api_key}"}
-        params = {"type": "text"}
-        
-        try:
-            normalized_url = ModelListUpdater._normalize_url(url)
-            response = requests.get(normalized_url, headers=headers, params=params)
-            response.raise_for_status()
-            
-            if (data := response.json().get("data")) and isinstance(data, list):
-                return_model_list=[model["id"] for model in data if "id" in model]
-                return_model_list.sort()
-                return return_model_list
-            return []
-            
-        except requests.exceptions.RequestException as e:
-            print(f"[{url}] 请求失败: {str(e)}")
-            return []
-        except ValueError:
-            print(f"[{url}] 无效的JSON响应")
-            return []
-
-    @staticmethod
-    def update_model_map(update_ollama=False):
-        """并发更新所有平台的模型数据"""
-        global MODEL_MAP
-        if update_ollama:
-            DEFAULT_APIS["ollama"] = {
-                "url": "http://localhost:11434/v1/",
-                "key": "not_required"
-            }
-            MODEL_MAP ["ollama"]= []
-        #for api_provider in DEFAULT_APIS:
-        #    if api_provider not in MODEL_MAP:
-        #        MODEL_MAP[api_provider] = []
-        threads = []
-        # 创建并启动所有线程
-        for platform, config in DEFAULT_APIS.items():
-            thread = threading.Thread(
-                target=ModelListUpdater._update_platform_models,
-                args=(platform, config["url"], config["key"])
-            )
-            thread.start()
-            threads.append(thread)
-        
-        # 等待所有线程完成
-        for thread in threads:
-            thread.join()
-
-    @staticmethod
-    def _update_platform_models(platform: str, url: str, key: str):
-        """单个平台的模型更新逻辑"""
-        try:
-            if models := ModelListUpdater.get_model_ids(url, key):
-                with ModelListUpdater._lock:  # 加锁操作共享数据
-                    existing = set(MODEL_MAP.get(platform, []))
-                    new_models = [m for m in models if m not in existing]
-                    
-                    if new_models:
-                        MODEL_MAP.setdefault(platform, []).extend(new_models)
-                        print(f"[{platform}] 新增 {len(new_models)} 模型")
-                    else:
-                        print(f"[{platform}] 无新模型")
-            else:
-                print(f"[{platform}] 响应数据为空")
-        except Exception as e:
-            print(f"[{platform}] 更新失败: {str(e)}")
-
-    @staticmethod
-    def _normalize_url(original_url: str) -> str:
-        """URL标准化处理（保持不变）"""
-        if "://" not in original_url:
-            original_url = "https://" + original_url
-            
-        protocol, rest = original_url.split("://", 1)
-        domain_part = rest.split("/", 1)[0]
-        path_part = rest[len(domain_part):]
-        
-        path = path_part.split("?")[0].split("#")[0]
-        query = "?" + path_part.split("?")[1] if "?" in path_part else ""
-        fragment = "#" + path_part.split("#")[1] if "#" in path_part else ""
-        
-        clean_path = "/".join([p for p in path.split("/") if p])
-        if not clean_path.endswith("models"):
-            clean_path = f"{clean_path}/models" if clean_path else "models"
-        
-        return f"{protocol}://{domain_part}/{clean_path}{query}{fragment}"
-
-    @staticmethod
-    def is_ollama_alive(url='http://localhost:11434/v1/'):
-        """
-        检查Ollama服务是否存活。
-        
-        :return: 如果Ollama服务存活，返回True；否则返回False。
-        """
-        url=ModelListUpdater._normalize_url(url)
-        try:
-            response = requests.get(url)
-            if response.status_code == 200:
-                return True
-            else:
-                return False
-        except requests.exceptions.RequestException as e:
-            print(f"请求失败: {e}")
-            return False
-    @staticmethod
-    def update():
-        ollama_alive=ModelListUpdater.is_ollama_alive()
-        print('ollama模型库存活')
-        ModelListUpdater.update_model_map(update_ollama=ollama_alive)
-
 class ModelListUpdater:
     _lock = threading.Lock()
 
     @staticmethod
     def _read_api_config():
         """读取api_config.ini文件并返回配置字典"""
-        # 使用os.path获取当前脚本所在的目录
         script_dir = os.path.dirname(os.path.abspath(__file__))
         config_path = os.path.join(script_dir, "api_config.ini")
         
@@ -394,31 +272,23 @@ class ModelListUpdater:
         return api_configs
 
     @staticmethod
-    def get_model_ids(url: str, api_key: str) -> list:
-        """获取指定API端点的模型ID列表"""
-        headers = {"Authorization": f"Bearer {api_key}"}
-        params = {"type": "text"}
+    def _correct_url(url: str) -> str:
+        """修正URL，确保以/models结尾"""
+        parsed = urllib.parse.urlparse(url)
+        path = parsed.path.rstrip('/')
         
-        try:
-            normalized_url = ModelListUpdater._normalize_url(url)
-            response = requests.get(normalized_url, headers=headers, params=params)
-            response.raise_for_status()
-            
-            if (data := response.json().get("data")) and isinstance(data, list):
-                return_model_list=[model["id"] for model in data if "id" in model]
-                return_model_list.sort()
-                return return_model_list
-            return []
-            
-        except requests.exceptions.RequestException as e:
-            print(f"[{url}] 请求失败: {str(e)}")
-            return []
-        except ValueError:
-            print(f"[{url}] 无效的JSON响应")
-            return []
-        except Exception as e:
-            print(f"[{url}] 意外错误: {str(e)}")
-            return []
+        # 如果路径不以/models结尾，则添加
+        if not path.endswith('/models') and not path.endswith('/api/tags'):
+            path += '/models'
+        
+        return urllib.parse.urlunparse((
+            parsed.scheme or 'https',
+            parsed.netloc,
+            path,
+            parsed.params,
+            parsed.query,
+            parsed.fragment
+        ))
 
     @staticmethod
     def update_model_map(update_ollama=False):
@@ -438,9 +308,15 @@ class ModelListUpdater:
 
         threads = []
         for platform, config in api_configs.items():
+            # 修正URL（特殊处理百度）
+            corrected_config = {
+                "url": ModelListUpdater._correct_url(config["url"]),
+                "key": config["key"]
+            }
+            
             thread = threading.Thread(
                 target=ModelListUpdater._update_platform_models,
-                args=(platform, config["url"], config["key"])
+                args=(platform, corrected_config)
             )
             thread.start()
             threads.append(thread)
@@ -449,10 +325,14 @@ class ModelListUpdater:
             thread.join()
 
     @staticmethod
-    def _update_platform_models(platform: str, url: str, key: str):
+    def _update_platform_models(platform: str, platform_config: dict):
         """单个平台的模型更新逻辑"""
         try:
-            if models := ModelListUpdater.get_model_ids(url, key):
+            # 使用新的get_model_list函数
+            models = ModelListUpdater.get_model_list(platform_config)
+            
+            if models:
+                models.sort()  # 排序以便后续处理
                 with ModelListUpdater._lock:  # 加锁操作共享数据
                     # 获取该平台现有的模型列表
                     existing = set(MODEL_MAP.get(platform, []))
@@ -471,39 +351,54 @@ class ModelListUpdater:
             print(f"[{platform}] 更新失败: {str(e)}")
 
     @staticmethod
-    def _normalize_url(original_url: str) -> str:
-        """URL标准化处理"""
-        if "://" not in original_url:
-            original_url = "https://" + original_url
-            
-        protocol, rest = original_url.split("://", 1)
-        domain_part = rest.split("/", 1)[0]
-        path_part = rest[len(domain_part):]
-        
-        path = path_part.split("?")[0].split("#")[0]
-        query = "?" + path_part.split("?")[1] if "?" in path_part else ""
-        fragment = "#" + path_part.split("#")[1] if "#" in path_part else ""
-        
-        clean_path = "/".join([p for p in path.split("/") if p])
-        if not clean_path.endswith("models"):
-            clean_path = f"{clean_path}/models" if clean_path else "models"
-        
-        return f"{protocol}://{domain_part}/{clean_path}{query}{fragment}"
-
-    @staticmethod
-    def is_ollama_alive(url='http://localhost:11434/v1/'):
+    def is_ollama_alive(url='http://localhost:11434/'):
         """
         检查Ollama服务是否存活
         
         :return: 如果Ollama服务存活，返回True；否则返回False
         """
-        url = ModelListUpdater._normalize_url(url)
         try:
+            corrected_url = urllib.parse.urljoin(url, 'api/tags')
             # 使用较短的超时时间，避免长时间阻塞
-            response = requests.get(url, timeout=5)
+            response = requests.get(corrected_url, timeout=5)
             return response.status_code == 200
         except requests.exceptions.RequestException:
             return False
+    
+    @staticmethod
+    def get_model_list(platform):
+        """获取指定平台的模型ID列表
+        
+        Args:
+            platform (dict): 平台配置信息，包含url和key
+            
+        Returns:
+            list: 模型ID的列表，如 ["model1", "model2"]
+        """
+        headers = {
+            'Content-Type': 'application/json',
+            'Authorization': f'Bearer {platform["key"]}'
+        }
+        
+        try:
+            response = requests.get(platform["url"], headers=headers)
+            response.raise_for_status()  # 检查HTTP错误
+            
+            data = response.json()
+            
+            # 提取模型ID列表
+            if 'data' in data:
+                return [model['id'] for model in data['data']]
+            else:
+                print(f"返回数据中缺少'data'字段: {data}")
+                return []
+                
+        except requests.exceptions.RequestException as e:
+            print(f"请求失败: {e}")
+            return []
+        except json.JSONDecodeError:
+            print("返回的不是有效JSON格式")
+            return []
 
     @staticmethod
     def update():
@@ -511,6 +406,7 @@ class ModelListUpdater:
         ollama_alive = ModelListUpdater.is_ollama_alive()
         print(f"Ollama服务状态: {'存活' if ollama_alive else '未启动'}")
         ModelListUpdater.update_model_map(update_ollama=ollama_alive)
+    
 
 #路径初始化
 if getattr(sys, 'frozen', False):
@@ -520,13 +416,6 @@ if getattr(sys, 'frozen', False):
 else:
     # 普通 Python 脚本
     application_path = os.path.dirname(os.path.abspath(__file__))
-
-# 加载系统规则
-#try:
-#    with open('sysrule.ini', 'r', encoding='utf-8') as file:
-#        sysrule = file.read()
-#except FileNotFoundError:
-#    sysrule = '你是一个有用的AI助手'
 
 ##支持类
 #Novita Api 下的图像生成
@@ -3899,8 +3788,6 @@ QPushButton:pressed {
                 self.think_response += content.reasoning_content
                 self.think_response_signal.emit(self.think_response)
                 print(content.reasoning_content, end='', flush=True)
-
-                
 
         api_provider = self.api_var.currentText()
         client = openai.Client(

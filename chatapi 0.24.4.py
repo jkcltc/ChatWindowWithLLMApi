@@ -19,7 +19,7 @@ from typing import Any, Dict, List, Tuple,Optional
 from urllib.parse import quote
 import warnings
 warnings.filterwarnings("ignore", category=DeprecationWarning)
-warnings.filterwarnings("ignore", message="libpng warning: iCCP")
+warnings.filterwarnings("ignore", message="libpng warning: iCCP: known incorrect sRGB profile")
 
 def install_packages():
     import subprocess
@@ -181,7 +181,7 @@ def _create_default_config():
         QMessageBox.critical(None, "配置错误", f"无法创建配置文件：{str(e)}")
         return {}
     
-    QMessageBox.warning(None, "注意", "首次启动需要先填写API")
+    #QMessageBox.warning(None, "注意", "首次启动需要先填写API")
     return {k: [v["url"], v["key"]] for k, v in DEFAULT_APIS.items()}
 
 def _read_existing_config():
@@ -205,7 +205,7 @@ def _read_existing_config():
                 api_data[api_name] = [DEFAULT_APIS[api_name]["url"],[DEFAULT_APIS[api_name]["key"]]]
         return api_data
     except (configparser.Error, FileNotFoundError) as e:
-        QMessageBox.warning(None, "配置错误", f"配置文件损坏或不存在：{str(e)}")
+        #QMessageBox.warning(None, "配置错误", f"配置文件损坏或不存在：{str(e)}")
         return _create_default_config()
 
 def api_init():
@@ -286,6 +286,9 @@ class ModelListUpdater:
                 "key": "not_required"
             }
             MODEL_MAP ["ollama"]= []
+        #for api_provider in DEFAULT_APIS:
+        #    if api_provider not in MODEL_MAP:
+        #        MODEL_MAP[api_provider] = []
         threads = []
         # 创建并启动所有线程
         for platform, config in DEFAULT_APIS.items():
@@ -360,6 +363,153 @@ class ModelListUpdater:
     def update():
         ollama_alive=ModelListUpdater.is_ollama_alive()
         print('ollama模型库存活')
+        ModelListUpdater.update_model_map(update_ollama=ollama_alive)
+
+class ModelListUpdater:
+    _lock = threading.Lock()
+
+    @staticmethod
+    def _read_api_config():
+        """读取api_config.ini文件并返回配置字典"""
+        # 使用os.path获取当前脚本所在的目录
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        config_path = os.path.join(script_dir, "api_config.ini")
+        
+        if not os.path.exists(config_path):
+            print(f"配置文件不存在: {config_path}")
+            return {}
+
+        config = configparser.ConfigParser()
+        config.read(config_path)
+        
+        api_configs = {}
+        for section in config.sections():
+            try:
+                url = config.get(section, "url").strip()
+                key = config.get(section, "key").strip()
+                api_configs[section] = {"url": url, "key": key}
+            except (configparser.NoOptionError, configparser.NoSectionError) as e:
+                print(f"配置解析错误[{section}]: {str(e)}")
+        
+        return api_configs
+
+    @staticmethod
+    def get_model_ids(url: str, api_key: str) -> list:
+        """获取指定API端点的模型ID列表"""
+        headers = {"Authorization": f"Bearer {api_key}"}
+        params = {"type": "text"}
+        
+        try:
+            normalized_url = ModelListUpdater._normalize_url(url)
+            response = requests.get(normalized_url, headers=headers, params=params)
+            response.raise_for_status()
+            
+            if (data := response.json().get("data")) and isinstance(data, list):
+                return_model_list=[model["id"] for model in data if "id" in model]
+                return_model_list.sort()
+                return return_model_list
+            return []
+            
+        except requests.exceptions.RequestException as e:
+            print(f"[{url}] 请求失败: {str(e)}")
+            return []
+        except ValueError:
+            print(f"[{url}] 无效的JSON响应")
+            return []
+        except Exception as e:
+            print(f"[{url}] 意外错误: {str(e)}")
+            return []
+
+    @staticmethod
+    def update_model_map(update_ollama=False):
+        """从api_config.ini读取配置并发更新模型数据"""
+        global MODEL_MAP
+        
+        # 读取INI配置文件
+        api_configs = ModelListUpdater._read_api_config()
+        if not api_configs:
+            print("无有效API配置，跳过更新")
+            return
+        
+        # 动态处理Ollama配置
+        if not update_ollama and "ollama" in api_configs:
+            del api_configs["ollama"]
+            print("跳过ollama更新")
+
+        threads = []
+        for platform, config in api_configs.items():
+            thread = threading.Thread(
+                target=ModelListUpdater._update_platform_models,
+                args=(platform, config["url"], config["key"])
+            )
+            thread.start()
+            threads.append(thread)
+        
+        for thread in threads:
+            thread.join()
+
+    @staticmethod
+    def _update_platform_models(platform: str, url: str, key: str):
+        """单个平台的模型更新逻辑"""
+        try:
+            if models := ModelListUpdater.get_model_ids(url, key):
+                with ModelListUpdater._lock:  # 加锁操作共享数据
+                    # 获取该平台现有的模型列表
+                    existing = set(MODEL_MAP.get(platform, []))
+                    # 找出新模型
+                    new_models = [m for m in models if m not in existing]
+                    
+                    if new_models:
+                        # 如果platform键不存在，会自动创建空列表
+                        MODEL_MAP.setdefault(platform, []).extend(new_models)
+                        print(f"[{platform}] 新增 {len(new_models)} 模型")
+                    else:
+                        print(f"[{platform}] 无新模型")
+            else:
+                print(f"[{platform}] 响应数据为空")
+        except Exception as e:
+            print(f"[{platform}] 更新失败: {str(e)}")
+
+    @staticmethod
+    def _normalize_url(original_url: str) -> str:
+        """URL标准化处理"""
+        if "://" not in original_url:
+            original_url = "https://" + original_url
+            
+        protocol, rest = original_url.split("://", 1)
+        domain_part = rest.split("/", 1)[0]
+        path_part = rest[len(domain_part):]
+        
+        path = path_part.split("?")[0].split("#")[0]
+        query = "?" + path_part.split("?")[1] if "?" in path_part else ""
+        fragment = "#" + path_part.split("#")[1] if "#" in path_part else ""
+        
+        clean_path = "/".join([p for p in path.split("/") if p])
+        if not clean_path.endswith("models"):
+            clean_path = f"{clean_path}/models" if clean_path else "models"
+        
+        return f"{protocol}://{domain_part}/{clean_path}{query}{fragment}"
+
+    @staticmethod
+    def is_ollama_alive(url='http://localhost:11434/v1/'):
+        """
+        检查Ollama服务是否存活
+        
+        :return: 如果Ollama服务存活，返回True；否则返回False
+        """
+        url = ModelListUpdater._normalize_url(url)
+        try:
+            # 使用较短的超时时间，避免长时间阻塞
+            response = requests.get(url, timeout=5)
+            return response.status_code == 200
+        except requests.exceptions.RequestException:
+            return False
+
+    @staticmethod
+    def update():
+        """更新所有API平台的模型列表"""
+        ollama_alive = ModelListUpdater.is_ollama_alive()
+        print(f"Ollama服务状态: {'存活' if ollama_alive else '未启动'}")
         ModelListUpdater.update_model_map(update_ollama=ollama_alive)
 
 #路径初始化
@@ -1444,129 +1594,343 @@ class APIConfigDialogUpdateModelThread(QThread):
             self.finished_signal.emit()
         except Exception as e:
             self.error_signal.emit(str(e))
-class APIConfigDialog(QDialog):
-    """
-    API配置管理对话框，支持多服务商配置编辑
-    
-    特性：
-    - 动态生成所有MODEL_MAP中的API配置项
-    - 支持滚动查看
-    - 自动加载/保存配置文件
-    - 类型提示和参数验证
-    
-    信号：
-    configUpdated: 当配置成功保存时触发，传递新配置字典
-    """
+class APIConfigWidget(QWidget):
+    """API配置管理组件，支持多服务商配置编辑和自定义供应商"""
     
     configUpdated = pyqtSignal(dict)  # 配置更新信号
-
+    
     def __init__(self, parent: Optional[QWidget] = None):
-        super().__init__(parent, Qt.WindowTitleHint | Qt.WindowCloseButtonHint)
-        self._entries: Dict[str, Tuple[QLineEdit, QLineEdit]] = {}
+        super().__init__(parent)
+        self.preset_apis = [
+            "baidu", "deepseek", "siliconflow", "tencent", "novita", "ollama"
+        ]
+        self.custom_apis = []  # 存储自定义API名称
+        self.api_widgets: Dict[str, Tuple[QLineEdit, QLineEdit]] = {}
+        self.custom_group_boxes: Dict[str, QGroupBox] = {} 
+        
+        # 初始化UI前设置尺寸策略
+        #self.setSizePolicy(QSizePolicy.MinimumExpanding, QSizePolicy.MinimumExpanding)
         self._initialize_ui()
         self.load_config()
+        self.adjustSize()  # 初始调整窗口大小
+
+        screen_geometry = QApplication.primaryScreen().availableGeometry()
+        
+        width = int(screen_geometry.width() * 0.4)
+        height = int(screen_geometry.height() * 0.5)
+        
+        left = (screen_geometry.width() - width) // 2
+        top = (screen_geometry.height() - height) // 2
+        
+        self.setGeometry(left, top, width, height)
+        self.setWindowTitle("API 配置管理")
 
     def _initialize_ui(self) -> None:
-        """初始化界面组件"""
-        self.setWindowTitle("API 配置管理")
-        self.resize(300, 105*len(DEFAULT_APIS)+40)
+        """初始化现代化UI界面，优化布局管理"""
+        # 主布局 - 使用垂直布局并设置内容边距
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(20, 20, 20, 20)
+        main_layout.setSpacing(15)
         
-        # 主滚动区域
-        scroll_area = QScrollArea()
-        content_widget = QWidget()
-        self.main_layout = QVBoxLayout(content_widget)
+        # 标题
+        title_label = QLabel("API 配置管理")
+        title_font = QFont()
+        title_font.setPointSize(16)
+        title_font.setBold(True)
+        title_label.setFont(title_font)
+        title_label.setAlignment(Qt.AlignCenter)
+        title_label.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
+        main_layout.addWidget(title_label)
         
-        # 动态生成配置区域
-        for api_name in sorted(DEFAULT_APIS.keys()):
-            self._add_api_section(api_name)
+        # 使用选项卡控件来组织预设和自定义API
+        self.tab_widget = QTabWidget()
+        self.tab_widget.setDocumentMode(True)  # 扁平化样式
+        main_layout.addWidget(self.tab_widget, 1)  # 添加拉伸因子
         
-        # 操作按钮
-        self.save_btn = QPushButton("保存所有配置")
-        self.save_btn.clicked.connect(self._validate_and_save)
-        self.update_btn = QPushButton("更新模型库")
-        self.update_btn.clicked.connect(self._on_update_models)
+        # 预设API区域
+        preset_tab = QWidget()
+        preset_layout = QVBoxLayout(preset_tab)
+        preset_layout.setContentsMargins(0, 10, 0, 10)
+        self._setup_preset_apis(preset_layout)
+        self.tab_widget.addTab(preset_tab, "预设供应商")
+        
+        # 自定义API区域
+        custom_tab = QWidget()
+        self.custom_layout = QVBoxLayout(custom_tab)
+        self.custom_layout.setContentsMargins(0, 10, 0, 10)
+        self._setup_custom_apis()
+        self.tab_widget.addTab(custom_tab, "自定义供应商")
+        
+        # 添加自定义API按钮
+        self.add_custom_btn = QPushButton("+ 添加自定义API供应商")
+        self.add_custom_btn.setFixedHeight(40)
+        self.add_custom_btn.clicked.connect(self.add_custom_api)
+        main_layout.addWidget(self.add_custom_btn, 0, Qt.AlignLeft)
+        
+        # 操作按钮区域 - 使用水平布局
         button_layout = QHBoxLayout()
-        button_layout.addStretch()
+        button_layout.setSpacing(15)
+        button_layout.addStretch(1)
+        
+        self.update_btn = QPushButton("更新模型库")
+        self.update_btn.setFixedHeight(40)
+        self.update_btn.clicked.connect(self.on_update_models)
         button_layout.addWidget(self.update_btn)
+        
+        self.save_btn = QPushButton("保存所有配置")
+        self.save_btn.setFixedHeight(40)
+        self.save_btn.clicked.connect(self._validate_and_save)
         button_layout.addWidget(self.save_btn)
         
-        # 布局组装
-        self.main_layout.addLayout(button_layout)
-        scroll_area.setWidget(content_widget)
-        scroll_area.setWidgetResizable(True)
-        
-        main_layout = QVBoxLayout(self)
-        main_layout.addWidget(scroll_area)
+        main_layout.addLayout(button_layout)
         
         # 状态栏
         self.status_label = QLabel()
         self.status_label.setAlignment(Qt.AlignCenter)
+        self.status_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.status_label.setWordWrap(True)  # 支持文本换行
         main_layout.addWidget(self.status_label)
+        
+        # 调整大小策略
+        self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
 
-    def _on_update_models(self) -> None:
-        """触发模型库更新操作"""
-        print('更新开始')
-        self.update_thread = APIConfigDialogUpdateModelThread()
-        self.update_thread.started_signal.connect(
-            lambda: self.status_label.setText("正在更新模型库..."))
-        self.update_thread.finished_signal.connect(
-            lambda: self.status_label.setText("模型库更新完成！"))
-        self.update_thread.finished_signal.connect(self._validate_and_save)
-        self.update_thread.error_signal.connect(
-            lambda msg: self.status_label.setText(f"更新出错: {msg}"))
-        self.update_thread.start()
+    def _setup_preset_apis(self, layout: QVBoxLayout) -> None:
+        """设置预设API区域的布局"""
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setFrameShape(QScrollArea.NoFrame)
+        
+        # 内容容器
+        content_widget = QWidget()
+        scroll_area.setWidget(content_widget)
+        
+        # 使用网格布局处理预设API
+        grid_layout = QGridLayout(content_widget)
+        grid_layout.setSpacing(15)
+        grid_layout.setContentsMargins(10, 10, 10, 10)
+        
+        # 将预设API分成两列显示
+        for idx, api_name in enumerate(self.preset_apis):
+            group = self._create_api_group(api_name)
+            row = idx // 2
+            col = idx % 2
+            grid_layout.addWidget(group, row, col)
+        
+        # 添加拉伸项使网格布局顶部对齐
+        grid_layout.setRowStretch(grid_layout.rowCount(), 1)
+        
+        layout.addWidget(scroll_area)
 
-    def _add_api_section(self, api_name: str) -> None:
-        """为每个API服务商添加配置区域"""
-        group = QGroupBox(f"{api_name} 配置")
+    def _setup_custom_apis(self) -> None:
+        """设置自定义API区域的布局-使用垂直布局而不是网格布局"""
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setFrameShape(QScrollArea.NoFrame)
+        
+        # 内容容器 - 使用垂直布局
+        self.custom_container = QWidget()
+        self.custom_container_layout = QVBoxLayout(self.custom_container)
+        self.custom_container_layout.setSpacing(15)
+        self.custom_container_layout.setContentsMargins(10, 10, 10, 10)
+        
+        # 添加拉伸项
+        self.custom_container_layout.addStretch(1)
+        
+        # 添加滚动区域到主布局
+        scroll_area.setWidget(self.custom_container)
+        self.custom_layout.addWidget(scroll_area)
+
+    def _arrange_custom_apis(self) -> None:
+        """重新排列自定义API到垂直布局中"""
+        # 清除现有内容（保留布局对象）
+        while self.custom_container_layout.count() > 0:
+            item = self.custom_container_layout.takeAt(0)
+            if item.widget():
+                item.widget().setParent(None)
+            del item
+        
+        # 添加所有自定义API
+        for api_name in self.custom_apis:
+            if api_name in self.custom_group_boxes:
+                self.custom_container_layout.addWidget(self.custom_group_boxes[api_name])
+        
+        # 添加底部拉伸
+        self.custom_container_layout.addStretch(1)
+
+    def _create_api_group(self, api_name: str, custom: bool = False) -> QGroupBox:
+        """创建API配置组，固定尺寸策略"""
+        group = QGroupBox(api_name)
+        group.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
+        if custom:
+            self.custom_group_boxes[api_name] = group
+            
         form_layout = QFormLayout()
+        form_layout.setSpacing(10)
+        form_layout.setContentsMargins(15, 15, 15, 15)
         
         url_entry = QLineEdit()
         url_entry.setPlaceholderText("请输入API端点URL...")
+        url_entry.setClearButtonEnabled(True)
+        
         key_entry = QLineEdit()
         key_entry.setPlaceholderText("请输入认证密钥...")
         key_entry.setEchoMode(QLineEdit.Password)
+        key_entry.setClearButtonEnabled(True)
         
         form_layout.addRow("API URL:", url_entry)
         form_layout.addRow("API 密钥:", key_entry)
+        
+        # 自定义API添加删除按钮
+        if custom:
+            del_btn = QPushButton("删除")
+            del_btn.setFixedWidth(80)
+            del_btn.clicked.connect(lambda: self.remove_custom_api(api_name))
+            
+            btn_layout = QHBoxLayout()
+            btn_layout.addStretch()
+            btn_layout.addWidget(del_btn)
+            form_layout.addRow(btn_layout)
+        
         group.setLayout(form_layout)
         
-        self.main_layout.addWidget(group)
-        self._entries[api_name] = (url_entry, key_entry)
+        # 保存到widgets字典
+        self.api_widgets[api_name] = (url_entry, key_entry)
+        return group
+
+    def add_custom_api(self) -> None:
+        """添加新的自定义API供应商"""
+        name, ok = QInputDialog.getText(
+            self, 
+            "添加自定义API供应商", 
+            "请输入供应商名称:",
+            text="custom_api"
+        )
+        
+        if ok and name:
+            name = name.strip()
+            if not name:
+                QMessageBox.warning(self, "输入错误", "供应商名称不能为空")
+                return
+                
+            if name in self.api_widgets:
+                QMessageBox.warning(self, "名称冲突", "该供应商名称已存在")
+                return
+                
+            # 添加新的自定义API
+            self.custom_apis.append(name)
+            group = self._create_api_group(name, custom=True)
+            self._arrange_custom_apis()  # 重新排列自定义API
+
+    def remove_custom_api(self, api_name: str) -> None:
+        """删除自定义API供应商"""
+        if api_name not in self.custom_apis:
+            return
+            
+        # 确认删除
+        reply = QMessageBox.question(
+            self,
+            "确认删除",
+            f"确定要删除'{api_name}'的配置吗?",
+            QMessageBox.Yes | QMessageBox.No
+        )
+        
+        if reply == QMessageBox.Yes:
+            try:
+                # 从UI中移除
+                if api_name in self.custom_group_boxes:
+                    # 从字典中移除
+                    group_box = self.custom_group_boxes.pop(api_name)
+                    # 删除小部件
+                    group_box.setParent(None)
+                    group_box.deleteLater()
+                
+                # 从自定义列表中移除
+                if api_name in self.custom_apis:
+                    self.custom_apis.remove(api_name)
+                    
+                # 从widgets字典中移除
+                if api_name in self.api_widgets:
+                    del self.api_widgets[api_name]
+                    
+                # 重新排列自定义API
+                self._arrange_custom_apis()
+                
+            except Exception as e:
+                QMessageBox.critical(self, "删除错误", f"删除时发生错误: {str(e)}")
+
 
     def load_config(self) -> None:
         """从配置文件加载已有配置"""
         if not os.path.exists("api_config.ini"):
+            # 使用默认配置初始化
+            self._apply_config(DEFAULT_APIS)
             return
             
         config = configparser.ConfigParser()
         try:
             config.read("api_config.ini")
-            for api_name, (url_entry, key_entry) in self._entries.items():
+            
+            # 处理预设API
+            for api_name in self.preset_apis:
                 if config.has_section(api_name):
+                    url_entry, key_entry = self.api_widgets[api_name]
                     url_entry.setText(config.get(api_name, "url", fallback=""))
                     key_entry.setText(config.get(api_name, "key", fallback=""))
+            
+            # 处理自定义API
+            config = configparser.ConfigParser()
+            config.read("api_config.ini")
+            
+            for section in config.sections():
+                if section not in self.preset_apis and section not in self.custom_apis:
+                    # 添加新的自定义API
+                    self.custom_apis.append(section)
+                    group = self._create_api_group(section, custom=True)
+                    
+            # 排列自定义API
+            self._arrange_custom_apis()
+                    
+            # 设置自定义API的值
+            for section in config.sections():
+                if section in self.api_widgets:
+                    url_entry, key_entry = self.api_widgets[section]
+                    url_entry.setText(config.get(section, "url", fallback=""))
+                    key_entry.setText(config.get(section, "key", fallback=""))
+                    
         except configparser.Error as e:
             QMessageBox.warning(self, "配置加载错误", 
                 f"配置文件格式错误:\n{str(e)}")
 
-    def _validate_and_save(self,show_messagebox=False):
+    def _apply_config(self, config: Dict[str, dict]) -> None:
+        """应用配置到UI"""
+        for api_name, values in config.items():
+            if api_name not in self.api_widgets:
+                if api_name not in self.preset_apis:
+                    # 添加新的自定义API
+                    self.custom_apis.append(api_name)
+                    group = self._create_api_group(api_name, custom=True)
+            
+            if api_name in self.api_widgets:
+                url_entry, key_entry = self.api_widgets[api_name]
+                url_entry.setText(values.get("url", ""))
+                key_entry.setText(values.get("key", ""))
+        
+        # 排列自定义API
+        self._arrange_custom_apis()
+    def _validate_and_save(self) -> None:
         """验证输入并保存配置"""
         config = configparser.ConfigParser()
         
         # 收集配置数据
-        config_data = {}
-        for api_name,value in DEFAULT_APIS.items():
-            url = value["url"]#.text().strip()
-            key = value["key"]#.text().strip()
+        for api_name, (url_entry, key_entry) in self.api_widgets.items():
+            url = url_entry.text().strip()
+            key = key_entry.text().strip()
             
-            if not url:
-                url=''
-            if not key:
-                key=''
+            if not config.has_section(api_name):
+                config.add_section(api_name)
                 
-            config_data[api_name] = {"url": url, "key": key}
-            config[api_name] = {"url": url, "key": key}
+            config.set(api_name, "url", url)
+            config.set(api_name, "key", key)
 
         # 尝试写入文件
         try:
@@ -1582,10 +1946,31 @@ class APIConfigDialog(QDialog):
             return
 
         # 发送更新信号
+        config_data = {}
+        for api_name, (url_entry, key_entry) in self.api_widgets.items():
+            config_data[api_name] = {
+                "url": url_entry.text().strip(),
+                "key": key_entry.text().strip()
+            }
         self.configUpdated.emit(config_data)
-        if show_messagebox:
-            QMessageBox.information(self, "成功", "所有配置已保存")
-        self.accept()
+        
+        # 更新状态
+        self.status_label.setText("配置已成功保存")
+        QTimer.singleShot(3000, lambda: self.status_label.setText(""))
+
+    def on_update_models(self) -> None:
+        """触发模型库更新操作（保持原有功能）"""
+        self.status_label.setText("正在更新模型库...")
+        self.update_thread = APIConfigDialogUpdateModelThread()
+        self.update_thread.started_signal.connect(
+            lambda: self.status_label.setText("正在更新模型库..."))
+        self.update_thread.finished_signal.connect(
+            lambda: self.status_label.setText("模型库更新完成！"))
+        self.update_thread.finished_signal.connect(self._validate_and_save)
+        self.update_thread.error_signal.connect(
+            lambda msg: self.status_label.setText(f"更新出错: {msg}"))
+        self.update_thread.start()
+APIConfigDialog=APIConfigWidget
 
 #窗口大小过渡器
 class WindowAnimator:
@@ -2418,9 +2803,9 @@ class ModConfiger(QTabWidget):
         self.main_story_creator_placeholder=GradientLabel('正在等待模型库更新...')
         self.creator_manager_layout.addWidget(self.main_story_creator_placeholder,1,0,1,1)
 
-        dialog = APIConfigDialog(self)
+        dialog = APIConfigDialog()
         dialog.configUpdated.connect(self.finish_story_creator_init)
-        dialog._on_update_models()
+        dialog.on_update_models()
         
     def finish_story_creator_init(self):
         self.main_story_creator_placeholder.hide()
@@ -2537,10 +2922,18 @@ class MainWindow(QMainWindow):
         self.opti_frame_layout.addWidget(self.chat_opti_trigger_bar,1,0,1,7)
 
         self.cancel_trigger_background_update=QPushButton("×")
-        self.cancel_trigger_background_update.clicked.connect(self.cancel_background_update)
+        self.cancel_trigger_background_update.clicked.connect(
+            lambda: (setattr(
+                self, 'new_background_rounds', 0), 
+                self.update_opti_bar())
+                )
 
         self.cancel_trigger_chat_opti=QPushButton("×")
-        self.cancel_trigger_chat_opti.clicked.connect(self.cancel_chat_opti)
+        self.cancel_trigger_chat_opti.clicked.connect(
+            lambda: (
+                setattr(self, 'new_chat_rounds', 0), 
+                self.update_opti_bar())
+                )
 
         self.opti_frame_layout.addWidget(self.cancel_trigger_background_update, 0,  8,  1,  1)
         self.opti_frame_layout.addWidget(self.cancel_trigger_chat_opti,         1,  8,  1,  1)
@@ -2948,9 +3341,10 @@ QPushButton:pressed {
         self.function_chooser = FunctionSelectorUI(self.function_manager)
 
     def init_post_ui_creation(self):
-        dialog = APIConfigDialog(self)
-        dialog.configUpdated.connect(self._handle_api_update)
-        dialog._on_update_models()
+        self.dialog = APIConfigDialog()
+        self.dialog.configUpdated.connect(self._handle_api_update)
+        self.dialog.on_update_models()
+        
         
     def init_sysrule(self):
         # 定义文件路径
@@ -3774,9 +4168,9 @@ QPushButton:pressed {
 
     #api导入窗口
     def open_api_window(self):
-        dialog = APIConfigDialog(self)
-        dialog.configUpdated.connect(self._handle_api_update)
-        dialog.exec_()
+        self.api_window = APIConfigDialog()
+        self.api_window.configUpdated.connect(self._handle_api_update)
+        self.api_window.show()
     def _handle_api_update(self, config_data: dict={}) -> None:
         """处理配置更新信号"""
         print('模型库更新完成')
@@ -4547,6 +4941,10 @@ QPushButton:pressed {
                 lambda text: setattr(self, 'name_ai', text))
             self.main_setting_window.user_name_changed.connect(
                 lambda text: print(text))
+            
+            self.main_setting_window.long_chat_improve_changed.connect(
+                self.update_opti_bar
+            )
 
     #历史对话
     def past_chats_menu(self, position):
@@ -5078,7 +5476,7 @@ QPushButton:pressed {
 
 
     #更新触发进度条
-    def update_opti_bar(self):
+    def update_opti_bar(self,_=None):
         try:
             self.chat_opti_trigger_bar.setVisible(self.long_chat_improve_var)
             self.chat_opti_trigger_bar.setValue(self.new_chat_rounds)
@@ -5099,14 +5497,6 @@ QPushButton:pressed {
             self.opti_frame.setVisible(self.long_chat_improve_var or self.back_ground_update_var)
         except Exception as e:
             print("Setting up process bar,ignore if first set up:",e)
-    #取消背景更新
-    def cancel_background_update(self):
-        self.new_background_rounds=0
-        self.update_opti_bar()
-    #取消长对话优化
-    def cancel_chat_opti(self):
-        self.new_chat_rounds=0
-        self.update_opti_bar()
 
     #联网搜索结果窗口
     def handle_search_result_button_toggle(self):

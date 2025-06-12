@@ -1,146 +1,20 @@
-import sys,threading,openai,os,configparser
+import sys,threading,openai,os,configparser,json
 from PyQt5.QtWidgets import *
 from PyQt5.QtCore import *
 from PyQt5.QtGui import *
 from theme_manager import ThemeSelector
 MODEL_MAP={#临时测试用
   "baidu": [
-    "codellama-7b-instruct",
-    "deepseek-r1-distill-llama-70b",
-    "deepseek-r1-distill-llama-8b",
-    "deepseek-r1-distill-qianfan-70b",
-    "deepseek-r1-distill-qianfan-8b",
-    "deepseek-r1-distill-qianfan-llama-70b",
-    "deepseek-r1-distill-qianfan-llama-8b",
-    "deepseek-r1-distill-qwen-1.5b",
-    "deepseek-r1-distill-qwen-14b",
-    "deepseek-r1-distill-qwen-32b",
     "deepseek-r1-distill-qwen-7b",
-    "deepseek-v3-241226",
-    "deepseek-vl2",
-    "deepseek-vl2-small",
-    "enrie-irag-edit",
-    "ernie-3.5-128k",
-    "ernie-3.5-128k-preview",
-    "ernie-3.5-8k-0613",
-    "ernie-3.5-8k-0701",
-    "ernie-3.5-8k-preview",
-    "ernie-4.0-8k-0613",
-    "ernie-4.0-8k-latest",
-    "ernie-4.0-8k-preview",
-    "ernie-4.0-turbo-128k",
-    "ernie-4.0-turbo-8k-0628",
-    "ernie-4.0-turbo-8k-0927",
-    "ernie-4.0-turbo-8k-latest",
-    "ernie-4.0-turbo-8k-preview",
-    "ernie-4.5-8k-preview",
-    "ernie-4.5-turbo-128k",
-    "ernie-x1-32k",
-    "ernie-x1-32k-preview",
-    "ernie-x1-turbo-32k",
-    "gemma-7b-it",
-    "glm-4-32b-0414",
-    "glm-z1-32b-0414",
-    "glm-z1-rumination-32b-0414",
-    "internvl2.5-38b-mpo",
-    "llama-2-13b-chat",
-    "llama-2-70b-chat",
-    "llama-2-7b-chat",
-    "llama-4-maverick-17b-128e-instruct",
-    "llama-4-scout-17b-16e-instruct",
-    "meta-llama-3-70b",
-    "meta-llama-3-8b",
-    "mixtral-8x7b-instruct",
-    "qianfan-70b",
-    "qianfan-8b",
-    "qianfan-agent-lite-8k",
-    "qianfan-agent-speed-32k",
-    "qianfan-agent-speed-8k",
-    "qianfan-bloomz-7b-compressed",
-    "qianfan-chinese-llama-2-13b",
-    "qianfan-chinese-llama-2-70b",
-    "qianfan-chinese-llama-2-7b",
-    "qianfan-llama-vl-8b",
-    "qianfan-sug-8k",
-    "qwen2.5-7b-instruct",
-    "qwen2.5-vl-32b-instruct",
-    "qwen2.5-vl-7b-instruct",
-    "sqlcoder-7b",
-    "xuanyuan-70b-chat-4bit",
-    "ernie-speed-128k",
-    "ernie-speed-8k",
-    "ernie-lite-8k",
-    "ernie-lite-pro-128k",
-    "qwen3-235b-a22b",
-    "qwen3-30b-a3b",
-    "qwen3-32b",
-    "qwen3-14b",
-    "qwen3-8b",
-    "qwen3-4b",
-    "qwen3-1.7b",
-    "qwen3-0.6b",
-    "deepseek-r1-250528",
-    "ernie-4.5-turbo-vl-32k-preview",
-    "ernie-char-8k",
-    "ernie-char-fiction-8k",
-    "ernie-irag-edit",
-    "ernie-novel-8k",
-    "ernie-tiny-8k",
-    "flux.1-schnell",
-    "internvl3-14b",
-    "internvl3-1b",
-    "internvl3-38b",
-    "irag-1.0",
-    "qianfan-agent-intent-32k",
-    "qianfan-check-vl",
-    "qianfan-composition",
-    "qianfan-multpicocr",
-    "search-deepseek-v3",
-    "wan-2.1-i2v-14b-480p",
-    "yi-34b-chat"
+    "qwen3-8b"
   ],
   "deepseek": [
     "deepseek-chat",
     "deepseek-reasoner"
   ],
-  "tencent": [
-    "deepseek-r1",
-    "deepseek-v3",
-    "deepseek-prover-v2",
-    "deepseek-v3-0324"
-  ],
   "siliconflow": [
     "deepseek-ai/DeepSeek-V3",
-    "deepseek-ai/DeepSeek-R1",
-    "Pro/deepseek-ai/DeepSeek-R1",
-    "Pro/deepseek-ai/DeepSeek-V3",
-    "THUDM/chatglm3-6b",
-    "THUDM/glm-4-9b-chat",
     "Qwen/Qwen2-7B-Instruct",
-    "Qwen/Qwen2-1.5B-Instruct",
-    "internlm/internlm2_5-7b-chat",
-    "BAAI/bge-large-en-v1.5",
-    "BAAI/bge-large-zh-v1.5",
-    "Pro/Qwen/Qwen2-7B-Instruct",
-    "Pro/Qwen/Qwen2-1.5B-Instruct",
-    "Pro/THUDM/glm-4-9b-chat",
-    "LoRA/Qwen/Qwen2.5-72B-Instruct",
-    "Qwen/Qwen2.5-Coder-32B-Instruct",
-    "Pro/BAAI/bge-reranker-v2-m3",
-    "Qwen/QwQ-32B-Preview",
-    "AIDC-AI/Marco-o1",
-    "LoRA/Qwen/Qwen2.5-14B-Instruct",
-    "LoRA/Qwen/Qwen2.5-32B-Instruct",
-    "meta-llama/Llama-3.3-70B-Instruct",
-    "LoRA/meta-llama/Meta-Llama-3.1-8B-Instruct",
-    "deepseek-ai/deepseek-vl2",
-    "Qwen/QVQ-72B-Preview",
-    "Pro/deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B",
-    "Pro/deepseek-ai/DeepSeek-R1-Distill-Qwen-7B",
-    "Pro/deepseek-ai/DeepSeek-R1-Distill-Llama-8B",
-    "THUDM/GLM-Z1-9B-0414",
-    "THUDM/GLM-Z1-Rumination-32B-0414",
-    "Tongyi-Zhiwen/QwenLong-L1-32B",
     "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B"
   ]
 }
@@ -488,9 +362,6 @@ class ConvergenceDialogueOptiUI(QWidget):
         
         return selections
 
-import time
-import random
-
 class TestLib:
     def __init__(self):
         self.chathistory=[
@@ -548,10 +419,13 @@ class GodVarStock:
 
 class ConcurrentorTools:
     @staticmethod
-    def get_default_apis():
+    def get_default_apis(testpath=True):
         current_path = os.path.abspath(__file__)
-        parent_dir = os.path.dirname(os.path.dirname(current_path))
-        config_path = os.path.join(parent_dir, "api_config.ini")
+        if testpath:
+            parent_dir = os.path.dirname(os.path.dirname(current_path))
+            config_path = os.path.join(parent_dir, "api_config.ini")
+        else:
+            config_path="api_config.ini"
         
         if not os.path.exists(config_path):
             print(f"配置文件不存在: {config_path}")
@@ -676,7 +550,7 @@ class APIRequestHandler(QObject):
             print("下一步是发送信号")
             self.request_completed.emit(self.full_response)
         except Exception as e:
-            print("主线API请求错误:", str(e))
+            print("汇流优化API请求错误:", str(e))
             self.error_occurred.emit(f"API请求错误: {str(e)}")
 
 # 模拟的请求发送类
@@ -705,30 +579,54 @@ class ConcurrentorSender(QObject):
         self.request_finished.emit({"slot": self.slot, "message": message})
 
 class ConvergenceDialogueOptiProcessor(QWidget):
+    PRESETS_PATH = "utils/global_presets/convergence_presets.json"
     def __init__(self):
         super().__init__()
         self.ui = ConvergenceDialogueOptiUI()
         self.init_ui()
         self.connect_signals()
         self.active_requests = 0
+        self.presets = {
+            "evaluation": {
+                "prefix": "请根据以下模型响应进行评分:\n",
+                "suffix": "",#这一层不需要后缀
+                "process_provider":"deepseek",
+                "process_model":"deepseek-reasoner"
+            },
+            "summary": {
+                "prefix": "请总结以下多个模型响应的核心观点，可以抛弃评价较低的回复和观点:\n",
+                "suffix": "\n\n要求: 生成简短的清晰总结。",
+                "process_provider":"deepseek",
+                "process_model":"deepseek-reasoner"
+            },
+            "style": {
+                "prefix": "先前的对话是：#chathistory#\n现在根据以下内容，回复{{user}}。#pervious_content#要求：回复风格为#style#",
+                "suffix": "style:自然",#这个字段在执行时会捕获内容替换prefix中的#style#
+                "process_provider":"deepseek",
+                "process_model":"deepseek-reasoner"
+            },
+            "correction": {
+                "prefix": "根据要求评估并返回响应的结果:\n#mod_functions#",
+                "suffix": "回复时使用json",
+                "process_provider":"deepseek",
+                "process_model":"deepseek-reasoner"
+            }
+        }
+        
+        # 加载预设文件
+        self.load_presets()
     
     def init_ui(self):
         layout = QVBoxLayout()
         layout.addWidget(self.ui)
         self.setLayout(layout)
-        self.setWindowTitle("汇流对话优化处理器")
+        self.setWindowTitle("汇流对话优化")
         self.resize(1000, 700)
     
     def connect_signals(self):
         # 连接模型供应商选择变化时的信号
         pass
 
-    
-    def show_ui(self):
-        self.show()
-    
-
-    
     def start_concurrent_requests(self,params):
         """启动并发请求（由外部调用）"""
         if self.active_requests > 0:
@@ -766,8 +664,7 @@ class ConvergenceDialogueOptiProcessor(QWidget):
             sender.request_finished.connect(self.on_request_finished)
             sender.run()
             self.thread_keeper.append(sender)
-
-    
+ 
     def on_request_finished(self, result):
         """处理单个请求完成"""
         slot = result["slot"]
@@ -790,12 +687,53 @@ class ConvergenceDialogueOptiProcessor(QWidget):
             
             self.ui.concurrent_spin.setEnabled(True)
 
+    def update_preset(self, layer_name, prefix, suffix,process_provider='',process_model=''):
+        """更新指定层的预设"""
+        if layer_name in self.presets:
+            self.presets[layer_name] = {"prefix": prefix, "suffix": suffix,"process_provider":process_provider,"process_model":process_model}
+            return True
+        return False
+    
+    def get_preset(self, layer_name):
+        """获取指定层的预设"""
+        return self.presets.get(layer_name, {"prefix": "", "suffix": "","process_provider":"","process_model":""})
+    
+    def load_presets(self):
+        """从JSON文件加载预设"""
+        try:
+            if os.path.exists(self.PRESETS_PATH):
+                with open(self.PRESETS_PATH, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    
+                    # 更新现有预设
+                    for layer, preset in data.items():
+                        if layer in self.presets:
+                            self.presets[layer] = preset
+                    
+                    print("预设已成功加载")
+        except Exception as e:
+            print(f"加载预设时出错: {e}")
 
+    def save_presets(self):
+        """将当前预设保存为JSON文件"""
+        try:
+            # 创建目录（如果不存在）
+            os.makedirs(os.path.dirname(self.PRESETS_PATH), exist_ok=True)
+            
+            # 保存为JSON
+            with open(self.PRESETS_PATH, 'w', encoding='utf-8') as f:
+                json.dump(self.presets, f, ensure_ascii=False, indent=4)
+            
+            print("预设已成功保存")
+            return True
+        except Exception as e:
+            print(f"保存预设时出错: {e}")
+            return False
 
 if __name__ == "__main__":
     app = QApplication([])
     processor = ConvergenceDialogueOptiProcessor()
-    processor.show_ui()
+    processor.showi()
     params={
         "messages":TestLib().chathistory
     }

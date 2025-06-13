@@ -149,9 +149,46 @@ class SystemPromptUI(QWidget):
         self.load_file_list()
     
     def load_income_prompt(self,system_prompt):
-        self.create_new_config(self.default_current_filename,True)
-        self.content_edit.setText(system_prompt)
-        self.save_current_config(show_window=False)
+        if self.is_modified:
+            # 给用户保存更改的机会
+            reply = QMessageBox.question(
+                self,
+                "未保存的更改",
+                "您有未保存的更改。是否要保存后再继续操作？",
+                QMessageBox.Save | QMessageBox.Discard | QMessageBox.Cancel
+            )
+            
+            if reply == QMessageBox.Cancel:
+                return  # 用户取消操作
+            elif reply == QMessageBox.Save:
+                self.save_current_config(show_window=False)
+                # 保存后继续操作
+        
+        # 查找现有的名为"当前对话.json"的文件
+        existing_config = None
+        filename = f"{self.default_current_filename}.json"
+        file_path = os.path.join(self.file_manager.folder_path, filename)
+        
+        presets = self.file_manager.get_all_presets()
+        for preset in presets:
+            if preset["file_name"] == filename:
+                existing_config = preset
+                break
+        
+        # 如果是新创建或内容更新
+        if not existing_config or existing_config["content"] != system_prompt:
+            # 创建/更新配置
+            self.create_new_config(self.default_current_filename, True, default_content=system_prompt)
+        
+        # 确保选中该文件
+        found_index = -1
+        for i in range(self.file_list.count()):
+            if self.file_list.item(i).text() == filename:
+                found_index = i
+                break
+        
+        if found_index != -1:
+            self.file_list.setCurrentRow(found_index)
 
     def load_file_list(self):
         """加载文件列表"""

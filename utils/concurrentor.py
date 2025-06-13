@@ -1356,7 +1356,7 @@ class StyleSender(QObject):
             }
             
             # 创建API请求处理器
-            print(full_messages)
+            print(full_messages[0]("content"))
             self.requester = APIRequestHandler(api_config)
             self.requester.request_completed.connect(self._handle_style_response)
             self.requester.send_request(full_messages, model)

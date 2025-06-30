@@ -112,6 +112,7 @@ from utils.model_map_manager import ModelMapManager
 from utils.novita_model_manager import NovitaModelManager
 from utils.theme_manager import ThemeSelector
 from utils.function_manager import *
+from utils.concurrentor import ConvergenceDialogueOptiProcessor
 
 #自定义插件初始化
 try:
@@ -2794,12 +2795,23 @@ class MainWindow(QMainWindow):
 
         #轮换模型
         self.use_muti_model=QCheckBox("使用轮换模型")
-        self.use_muti_model.toggled.connect(lambda checked: self.ordered_model.show() if checked else None)
-        self.use_muti_model.stateChanged.connect(lambda state: [
-            self.api_var.setEnabled(not bool(state)),
-            self.model_combobox.setEnabled(not bool(state))
-        ])
+        self.use_muti_model.toggled.connect(lambda checked: (
+            self.ordered_model.show() if checked else self.ordered_model.hide(),
+            self.api_var.setEnabled(not checked),
+            self.model_combobox.setEnabled(not checked)
+        ))
         self.use_muti_model.setToolTip("用于TPM合并扩增/AI回复去重")
+
+        #汇流优化
+        self.use_concurrent_model=QCheckBox("使用汇流优化")
+        self.use_concurrent_model.setToolTip("用于提高生成质量\n注意！！极高token消耗量！！")
+        self.use_concurrent_model.toggled.connect(lambda checked: self.show_concurrent_model(show=checked))
+
+        #两模式互斥
+        self.use_muti_model.toggled.connect(lambda c: self.use_concurrent_model.setChecked(False) if c else None)
+        self.use_concurrent_model.toggled.connect(lambda c: self.use_muti_model.setChecked(False) if c else None)
+
+
         #优化功能触发进度
         self.opti_frame=QGroupBox("触发优化")
         self.opti_frame_layout = QGridLayout()
@@ -2833,11 +2845,12 @@ class MainWindow(QMainWindow):
         api_page = QWidget()
         api_page_layout = QGridLayout(api_page)
 
-        api_page_layout.addWidget(api_label             ,0,0,1,1)
-        api_page_layout.addWidget(self.api_var          ,0,1,1,1)
-        api_page_layout.addWidget(model_label           ,1,0,1,1)
-        api_page_layout.addWidget(self.model_combobox   ,1,1,1,1)
-        api_page_layout.addWidget(self.use_muti_model   ,2,0,1,1)
+        api_page_layout.addWidget(api_label                 ,0,0,1,1)
+        api_page_layout.addWidget(self.api_var              ,0,1,1,1)
+        api_page_layout.addWidget(model_label               ,1,0,1,1)
+        api_page_layout.addWidget(self.model_combobox       ,1,1,1,1)
+        api_page_layout.addWidget(self.use_muti_model       ,2,0,1,1)
+        api_page_layout.addWidget(self.use_concurrent_model ,2,1,1,1)
 
         opti_page = QWidget()
         opti_page_layout = QVBoxLayout(opti_page)
@@ -5475,6 +5488,13 @@ QPushButton:pressed {
     def show_theme_settings(self):
         self.theme_selector.show()
 
+    def show_concurrent_model(self,show=False):
+        if not getattr(self,"concurrent_model",None):
+            self.concurrent_model=ConvergenceDialogueOptiProcessor()
+        if show:
+            self.concurrent_model.show()
+        else:
+            self.concurrent_model.hide()
 if __name__ == "__main__":
     app = QApplication(sys.argv)
     if sys.platform == 'win32':

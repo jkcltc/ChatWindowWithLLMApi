@@ -2,7 +2,6 @@ import sys,threading,openai,os,configparser,json
 from PyQt5.QtWidgets import *
 from PyQt5.QtCore import *
 from PyQt5.QtGui import *
-from theme_manager import ThemeSelector
 MODEL_MAP={#临时测试用
   "baidu": [
     "deepseek-r1-distill-qwen-7b",
@@ -18,6 +17,39 @@ MODEL_MAP={#临时测试用
     "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B"
   ]
 }
+class ConcurrentorTools:
+    @staticmethod
+    def get_default_apis(testpath=False):
+        current_path = os.path.abspath(__file__)
+        if testpath:
+            parent_dir = os.path.dirname(os.path.dirname(current_path))
+            config_path = os.path.join(parent_dir, "api_config.ini")
+        else:
+            config_path="api_config.ini"
+        
+        if not os.path.exists(config_path):
+            print(f"配置文件不存在: {config_path}")
+            return {}
+
+        config = configparser.ConfigParser()
+        config.read(config_path)
+        
+        api_configs = {}
+        for section in config.sections():
+            try:
+                url = config.get(section, "url").strip()
+                key = config.get(section, "key").strip()
+                api_configs[section] = {"url": url, "key": key}
+            except (configparser.NoOptionError, configparser.NoSectionError) as e:
+                print(f"配置解析错误[{section}]: {str(e)}")
+        
+        return api_configs
+    @staticmethod
+    def get_model_map():
+        file_path = "utils/global_presets/MODEL_MAP.json"
+        with open(file_path, 'r', encoding='utf-8') as f:
+            return json.load(f)
+
 
 class ConvergenceDialogueOptiUI(QWidget):
     def __init__(self, parent=None):
@@ -69,6 +101,11 @@ class ConvergenceDialogueOptiUI(QWidget):
         self.settings_btn = QPushButton("设置")
         top_layout.addStretch(1)
         top_layout.addWidget(self.settings_btn)
+
+        self.refresh_btn = QPushButton("刷新模型列表")
+        self.refresh_btn.setToolTip("从配置文件重新加载模型列表")
+        top_layout.addWidget(self.refresh_btn)
+        self.refresh_btn.clicked.connect(self.refresh_model_map)
 
         self.layer_container = QVBoxLayout()
         self.layer_container.setSpacing(30)
@@ -153,7 +190,7 @@ class ConvergenceDialogueOptiUI(QWidget):
         self.layer_container.addWidget(self.layer1)
     
     def create_model_group(self, index):
-        """创建单个模型组"""
+        """创建单个模型组 - 使用动态获取的模型映射"""
         group = QGroupBox(f"模型 {index}")
         group_layout = QVBoxLayout()
         
@@ -162,7 +199,8 @@ class ConvergenceDialogueOptiUI(QWidget):
         vendor_layout.addWidget(QLabel("供应商:"))
         
         vendor_combo = QComboBox()
-        vendor_combo.addItems(MODEL_MAP.keys())
+        model_map = ConcurrentorTools.get_model_map()
+        vendor_combo.addItems(model_map.keys())
         vendor_layout.addWidget(vendor_combo)
         vendor_layout.addStretch(1)
         
@@ -171,7 +209,8 @@ class ConvergenceDialogueOptiUI(QWidget):
         model_layout.addWidget(QLabel("模型:"))
         
         model_combo = QComboBox()
-        model_combo.addItems(MODEL_MAP[vendor_combo.currentText()])
+        current_vendor = vendor_combo.currentText()
+        model_combo.addItems(model_map.get(current_vendor, []))
         model_layout.addWidget(model_combo)
         model_layout.addStretch(1)
         
@@ -195,12 +234,18 @@ class ConvergenceDialogueOptiUI(QWidget):
             current_model = model_combo.currentText()
             
             # 获取新的模型列表
+            model_combo.blockSignals(True)
+            model_map = ConcurrentorTools.get_model_map()
             model_combo.clear()
-            model_combo.addItems(MODEL_MAP.get(vendor, []))
+            models = model_map.get(vendor, [])
+            model_combo.addItems(models)
             
             # 尝试保持之前的模型选择（如果在新列表中）
-            if current_model in MODEL_MAP.get(vendor, []):
+            if current_model and current_model in models:
                 model_combo.setCurrentText(current_model)
+            elif models:
+                model_combo.setCurrentIndex(0)
+            model_combo.blockSignals(False)
         
         # 连接供应商变化信号
         vendor_combo.currentIndexChanged.connect(update_models)
@@ -300,6 +345,69 @@ class ConvergenceDialogueOptiUI(QWidget):
         self.layer5.setLayout(layout)
         self.layer_container.addWidget(self.layer5)
     
+    def refresh_model_map(self):
+        """刷新所有模型组合框，保留当前选中的值"""
+        # 获取当前所有模型组的选择状态
+        current_selections = []
+        for group in self.model_groups:
+            vendor_combo = group.property("vendor")
+            model_combo = group.property("model")
+            current_selections.append({
+                "vendor": vendor_combo.currentText(),
+                "model": model_combo.currentText()
+            })
+        
+        # 更新所有模型组
+        for i, group in enumerate(self.model_groups):
+            vendor_combo = group.property("vendor")
+            model_combo = group.property("model")
+            
+            # 保存当前供应商选择
+            current_vendor = current_selections[i]["vendor"]
+            current_model = current_selections[i]["model"]
+            
+            # 获取最新模型映射
+            model_map = ConcurrentorTools.get_model_map()
+            
+            # 更新供应商下拉框
+            vendors = list(model_map.keys())
+            vendor_combo.blockSignals(True)  # 临时阻止信号
+            
+            # 保存当前选中的供应商（如果还在列表中）
+            if current_vendor in vendors:
+                vendor_to_set = current_vendor
+            else:
+                vendor_to_set = vendors[0] if vendors else ""
+            
+            # 更新供应商列表
+            vendor_combo.clear()
+            vendor_combo.addItems(vendors)
+            if vendor_to_set and vendor_to_set in vendors:
+                vendor_combo.setCurrentText(vendor_to_set)
+            
+            vendor_combo.blockSignals(False)
+            
+            # 更新模型下拉框
+            models = model_map.get(vendor_combo.currentText(), [])
+            model_combo.blockSignals(True)
+            
+            # 保存当前选中的模型（如果还在列表中）
+            if current_model in models:
+                model_to_set = current_model
+            else:
+                model_to_set = models[0] if models else ""
+            
+            # 更新模型列表
+            model_combo.clear()
+            model_combo.addItems(models)
+            if model_to_set and model_to_set in models:
+                model_combo.setCurrentText(model_to_set)
+            
+            model_combo.blockSignals(False)
+            
+            # 触发一次模型更新以确保一致
+            vendor_combo.currentIndexChanged.emit(vendor_combo.currentIndex())
+
     def update_layer_visibility(self):
         """根据选择的层数更新各层的可见性"""
         layers = self.layer_spin.value()
@@ -853,34 +961,6 @@ class GodVarStock:
         else:
             self.stock=TestLib()
 
-class ConcurrentorTools:
-    @staticmethod
-    def get_default_apis(testpath=True):
-        current_path = os.path.abspath(__file__)
-        if testpath:
-            parent_dir = os.path.dirname(os.path.dirname(current_path))
-            config_path = os.path.join(parent_dir, "api_config.ini")
-        else:
-            config_path="api_config.ini"
-        
-        if not os.path.exists(config_path):
-            print(f"配置文件不存在: {config_path}")
-            return {}
-
-        config = configparser.ConfigParser()
-        config.read(config_path)
-        
-        api_configs = {}
-        for section in config.sections():
-            try:
-                url = config.get(section, "url").strip()
-                key = config.get(section, "key").strip()
-                api_configs[section] = {"url": url, "key": key}
-            except (configparser.NoOptionError, configparser.NoSectionError) as e:
-                print(f"配置解析错误[{section}]: {str(e)}")
-        
-        return api_configs
-
 class APIRequestHandler(QObject):
     # 定义信号用于跨线程通信
     response_received = pyqtSignal(str)  # 接收到部分响应
@@ -1163,6 +1243,142 @@ class SummarySender(QObject):
         # 直接返回汇总结果，无需额外处理
         self.summary_finished.emit(response_text)
 
+class StyleSender(QObject):
+    # 定义信号用于返回风格化后的文本
+    style_finished = pyqtSignal(str)
+    
+    def __init__(self):
+        super().__init__()
+        self.requester = None
+        
+    def run(self, previous_content, style_settings, params):
+        """
+        执行风格转换请求
+        :param previous_content: 上一步的结果文本（通常是汇总层的输出）
+        :param style_settings: 风格层设置（包含前缀、后缀和模型信息）
+        :param params: 额外参数（包含用户消息、对话历史等上下文）
+        """
+        chathistory=params.get("messages", "")
+        user=params.get("user", "用户")
+        message=''
+        if type(chathistory)==list:
+            for item in chathistory:
+                if item["role"]=="user":
+                    message+='\n'+user+':\n'+item["content"]+'\n'
+                elif item["role"]=="assistant":
+                    message+='\n'+"AI(you)"+':\n'+item["content"]+'\n'
+                elif item["role"]=="system":
+                    message+="背景设定"+':\n'+item["content"]
+
+
+        try:
+            # 构建提示词
+            content = style_settings["prefix"]
+            
+            # 替换提示词中的变量
+            content = content.replace("#chathistory#", message)
+            content = content.replace("#user#", user)
+            content = content.replace("#style#", params.get("style", ""))
+            content = content.replace("#pervious_content#", previous_content)
+            
+            # 添加后缀内容
+            content += style_settings["suffix"]
+            
+            # 创建完整的消息结构
+            full_messages = [
+                {"role": "user", "content": content}
+            ]
+            
+            # 获取API配置
+            api_provider = style_settings["process_provider"]
+            model = style_settings["process_model"]
+            
+            # 从全局获取API配置
+            default_apis = ConcurrentorTools.get_default_apis()
+            api_config = {
+                "url": default_apis[api_provider]["url"],
+                "key": default_apis[api_provider]["key"]
+            }
+            
+            # 创建API请求处理器
+            print(full_messages[0]["content"])
+            self.requester = APIRequestHandler(api_config)
+            self.requester.request_completed.connect(self._handle_style_response)
+            self.requester.send_request(full_messages, model)
+        
+        except Exception as e:
+            print(f"创建风格转换请求时出错: {str(e)}")
+            self.style_finished.emit(f"风格转换出错: {str(e)}")
+    
+    def _handle_style_response(self, response_text):
+        """
+        处理风格转换API的响应
+        :param response_text: API返回的风格化文本
+        """
+        # 直接返回风格化后的结果
+        self.style_finished.emit(response_text)
+
+class CorrectionSender(QObject):
+    # 定义一个信号用于返回补正结果
+    correction_finished = pyqtSignal(str)  # 修正后的文本
+    
+    def run(self, styled_text, settings):
+        """
+        执行补正请求
+        :param styled_text: 风格化后的文本
+        :param settings: 设置字典，包含补正所需参数
+        """
+        # 构建补正提示词
+        mod_functions = settings.get("mod_functions", "优化语法错误，修正流畅度，调整表述使其更加自然")
+        content = settings["prefix"].replace("#mod_functions#", mod_functions)
+        content += styled_text
+        content += settings["suffix"]
+        
+        # 创建完整的消息结构
+        full_messages = [
+            {"role": "user", "content": content}
+        ]
+        
+        # 获取API配置
+        api_provider = settings["process_provider"]
+        model = settings["process_model"]
+        
+        default_apis = ConcurrentorTools.get_default_apis()
+        api_config = {
+            "url": default_apis[api_provider]["url"],
+            "key": default_apis[api_provider]["key"]
+        }
+        
+        # 创建API请求处理器
+        self.requester = APIRequestHandler(api_config)
+        # 连接完成信号
+        self.requester.request_completed.connect(self._handle_correction_response)
+        # 发送请求
+        self.requester.send_request(full_messages, model)
+    
+    def _handle_correction_response(self, response_text):
+        """
+        处理补正API的响应
+        :param response_text: API返回的文本响应
+        """
+        try:
+            # 尝试提取JSON格式的修正结果
+            if "{" in response_text:
+                # 查找并提取JSON内容
+                from jsonfinder import jsonfinder
+                for _, __, obj in jsonfinder(response_text, json_only=True):
+                    if isinstance(obj, dict) and "correction" in obj:
+                        corrected_text = obj["correction"]
+                        self.correction_finished.emit(corrected_text)
+                        return
+                    
+            # 如果没有找到JSON格式的修正结果，直接使用整个响应
+            self.correction_finished.emit(response_text)
+            
+        except Exception as e:
+            print(f"补正解析错误: {str(e)}")
+            self.correction_finished.emit("")
+
 class RequestDispatcher(QObject):
     """请求分发中转类，处理各层请求的分发"""
     layer_completed = pyqtSignal(dict, str)  # 数据, 完成的层名称
@@ -1176,7 +1392,7 @@ class RequestDispatcher(QObject):
     def dispatch_request(self, layer_name, params):
         """分派请求到指定层"""
         self.current_layer = layer_name
-        
+
         if layer_name == "concurrent":
             self._dispatch_concurrent(params)
         elif layer_name == "evaluation":
@@ -1298,81 +1514,6 @@ class RequestDispatcher(QObject):
         """更新当前处理的中间结果"""
         self.current_result = result
 
-class StyleSender(QObject):
-    # 定义信号用于返回风格化后的文本
-    style_finished = pyqtSignal(str)
-    
-    def __init__(self):
-        super().__init__()
-        self.requester = None
-        
-    def run(self, previous_content, style_settings, params):
-        """
-        执行风格转换请求
-        :param previous_content: 上一步的结果文本（通常是汇总层的输出）
-        :param style_settings: 风格层设置（包含前缀、后缀和模型信息）
-        :param params: 额外参数（包含用户消息、对话历史等上下文）
-        """
-        chathistory=params.get("messages", "")
-        user=params.get("user", "用户")
-        message=''
-        if type(chathistory)==list:
-            for item in chathistory:
-                if item["role"]=="user":
-                    message+=user+':\n'+item["content"]
-                elif item["role"]=="assistant":
-                    message+="AI(you)"+':\n'+item["content"]
-                elif item["role"]=="system":
-                    message+="背景设定"+':\n'+item["content"]
-
-
-        try:
-            # 构建提示词
-            content = style_settings["prefix"]
-            
-            # 替换提示词中的变量
-            content = content.replace("#chathistory#", message)
-            content = content.replace("#user#", user)
-            content = content.replace("#style#", params.get("style", ""))
-            content = content.replace("#pervious_content#", previous_content)
-            
-            # 添加后缀内容
-            content += style_settings["suffix"]
-            
-            # 创建完整的消息结构
-            full_messages = [
-                {"role": "user", "content": content}
-            ]
-            
-            # 获取API配置
-            api_provider = style_settings["process_provider"]
-            model = style_settings["process_model"]
-            
-            # 从全局获取API配置
-            default_apis = ConcurrentorTools.get_default_apis()
-            api_config = {
-                "url": default_apis[api_provider]["url"],
-                "key": default_apis[api_provider]["key"]
-            }
-            
-            # 创建API请求处理器
-            print(full_messages[0]("content"))
-            self.requester = APIRequestHandler(api_config)
-            self.requester.request_completed.connect(self._handle_style_response)
-            self.requester.send_request(full_messages, model)
-        
-        except Exception as e:
-            print(f"创建风格转换请求时出错: {str(e)}")
-            self.style_finished.emit(f"风格转换出错: {str(e)}")
-    
-    def _handle_style_response(self, response_text):
-        """
-        处理风格转换API的响应
-        :param response_text: API返回的风格化文本
-        """
-        # 直接返回风格化后的结果
-        self.style_finished.emit(response_text)
-
 class ConvergenceDialogueOptiProcessor(QWidget):
     PRESETS_PATH = "utils/global_presets/convergence_presets.json"
     
@@ -1385,9 +1526,9 @@ class ConvergenceDialogueOptiProcessor(QWidget):
         self.active_requests = 0
         self.presets = {
             "evaluation": {"prefix": "请根据要求对模型响应进行评分。要求：越贴近日常交流，越让人觉得自己在和活生生的人对话时，分数越高。对话内容：\n", "suffix": '\n返回j格式[{"text_id":a,"rating":xx},{"text_id":b,"rating":xx}]', "process_provider": "deepseek", "process_model": "deepseek-chat"},
-            "summary": {"prefix": "请总结以下多个模型响应的核心观点，可以抛弃评价较低的回复和观点:\n", "suffix": "\n\n要求: 生成简短的清晰总结。", "process_provider": "deepseek", "process_model": "deepseek-reasoner"},
-            "style": {"prefix": "先前的对话是：#chathistory#\n现在根据内容指导，回复#user#。```内容指导\n#pervious_content#```\n要求：回复风格为非常暴躁#style#", "suffix": "style:自然", "process_provider": "deepseek", "process_model": "deepseek-reasoner"},
-            "correction": {"prefix": "根据要求评估并返回响应的结果:\n#mod_functions#", "suffix": "回复时使用json", "process_provider": "deepseek", "process_model": "deepseek-reasoner"}
+            "summary": {"prefix": "请总结以下多个模型响应的核心观点，可以抛弃评价较低的回复和观点:\n", "suffix": "\n\n要求: 生成简短的清晰总结。无须解释原因。", "process_provider": "deepseek", "process_model": "deepseek-chat"},
+            "style": {"prefix": "先前的对话是：#chathistory#\n```内容指导\n#pervious_content#```\n现在在不超出指导内容的前提下（只能缩减，不能增加），回复#user#。要求：回复风格为#style#", "suffix": "style:自然", "process_provider": "deepseek", "process_model": "deepseek-chat"},
+            "correction": {"prefix": "根据要求评估并返回响应的结果:\n#mod_functions#", "suffix": "回复时使用json", "process_provider": "deepseek", "process_model": "deepseek-chat"}
         }
         
         self.model_responses = {}  # 存储模型响应 {slot: response_text}
@@ -1630,7 +1771,7 @@ class ConvergenceDialogueOptiProcessor(QWidget):
         self.settings_window.show()
         self.settings_window.raise_()
 
-if __name__ != "__main__":
+if __name__ == "__=main__":
     app = QApplication([])
     def printer(value):
         print(value)

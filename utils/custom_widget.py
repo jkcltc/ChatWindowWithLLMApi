@@ -2,6 +2,15 @@ from PyQt5.QtWidgets import *
 from PyQt5.QtCore import *
 from PyQt5.QtGui import *
 import sys
+import json
+import html
+import os
+from typing import Any, Dict, List, Tuple,Optional
+from urllib.parse import quote
+from pygments import highlight
+from pygments.lexers import get_lexer_by_name
+from pygments.formatters import HtmlFormatter
+import markdown,re
 
 #流动标签
 class GradientLabel(QLabel):
@@ -294,3 +303,854 @@ class SwitchButton(QPushButton):
         self.animation.setEndValue(QPoint(end_x, self._slider.y()))
         self.animation.start()
 
+#markdown重做
+class MarkdownProcessorThread(QThread):
+    processingFinished = pyqtSignal(str, int)  # 参数：处理后的HTML和请求ID
+
+    def __init__(self, raw_text, code_style, request_id, parent=None):
+        super().__init__(parent)
+        self.raw_text = raw_text
+        self.code_style = code_style
+        self.request_id = request_id
+        # 初始化代码格式化工具
+        self.code_formatter = HtmlFormatter(
+            style=self.code_style,
+            noclasses=True,
+            nobackground=True,
+            linenos=False
+        )
+
+    def run(self):
+        """执行Markdown处理"""
+        processed_html = ChatapiTextBrowser._process_markdown_internal(
+            self.raw_text, self.code_formatter
+        )
+        self.processingFinished.emit(processed_html, self.request_id)
+
+class ChatapiTextBrowser(QTextBrowser):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.init_settings()
+        self.current_request_id = 0  # 当前请求标识
+        self.setup_ui()
+
+    def setup_ui(self):
+        """界面样式设置"""
+        self.setStyleSheet("""
+            /* 原有样式保持不变 */
+        """)
+
+    def init_settings(self):
+        """初始化配置"""
+        self.code_style = "vs"
+        self.code_formatter = HtmlFormatter(
+            style=self.code_style,
+            noclasses=True,
+            nobackground=True,
+            linenos=False
+        )
+
+    def setMarkdown(self, text: str) -> None:
+        """启动线程处理Markdown"""
+        self.current_request_id += 1
+        current_id = self.current_request_id
+
+        # 创建并启动处理线程
+        thread = MarkdownProcessorThread(text, self.code_style, current_id, self)
+        thread.processingFinished.connect(
+            lambda html, rid: self.handle_processed_html(html, rid),
+            Qt.QueuedConnection  # 确保跨线程信号安全
+        )
+        thread.start()
+
+    def handle_processed_html(self, html_content: str, request_id: int):
+        """处理完成的HTML内容"""
+        if request_id != self.current_request_id:
+            return  # 忽略过期请求
+
+        super().setHtml(html_content)
+        # 自动滚动到底部
+        self.moveCursor(QTextCursor.End)
+        self.ensureCursorVisible()
+        #self.verticalScrollBar().setValue(
+        #    self.verticalScrollBar().maximum()
+        #)
+
+    @staticmethod
+    def _process_markdown_internal(raw_text: str, code_formatter) -> str:
+        """Markdown处理核心方法（线程安全）"""
+        code_blocks = []
+        def code_replacer(match):
+            code = match.group(0)
+            if not code.endswith('```'):
+                code += '```'
+            code_blocks.append(code)
+            return f"CODE_BLOCK_PLACEHOLDER_{len(code_blocks)-1}"
+
+        # 第一阶段：预处理代码块
+        temp_text = re.sub(r'```[\s\S]*?(?:```|$)', code_replacer, raw_text)
+
+        # 转义数字序号
+        temp_text = re.sub(
+            r'^(\d+)\. (.*[\u4e00-\u9fa5])',
+            r'<span class="fake-ol">\1.</span> \2',
+            temp_text,
+            flags=re.MULTILINE
+        )
+
+        # 转换基础Markdown
+        extensions = ['tables', 'fenced_code', 'md_in_html', 'nl2br']
+        html_content = markdown.markdown(temp_text, extensions=extensions)
+
+        # 处理代码块
+        for i, code in enumerate(code_blocks):
+            if code.startswith('```math') or code.startswith('```bash'):
+                content = code[7:-3].strip()
+                replacement = f'<div class="math-formula">{html.escape(content)}</div>'
+            else:
+                match = re.match(r'```(\w*)[\s\n]*([\s\S]*?)```', code, re.DOTALL)
+                if match:
+                    lang, code_content = match.group(1) or 'text', match.group(2).strip()
+                else:
+                    lang, code_content = 'text', code[3:-3].strip()
+                replacement = ChatapiTextBrowser.highlight_code(code_content, lang, code_formatter)
+            
+            html_content = html_content.replace(f"CODE_BLOCK_PLACEHOLDER_{i}", replacement)
+
+        # 处理行内公式
+        html_content = re.sub(
+            r'\$\$(.*?)\$\$',
+            lambda m: f'<span class="math-formula">{html.escape(m.group(1))}</span>',
+            html_content,
+            flags=re.DOTALL
+        )
+
+        return html_content
+
+    @staticmethod
+    def highlight_code(code: str, lang: str, code_formatter) -> str:
+        """代码高亮（线程安全）"""
+        try:
+            if lang == 'math':
+                return f'<div class="math-formula">{html.escape(code)}</div>'
+            lexer = get_lexer_by_name(lang, stripall=True)
+            return highlight(code, lexer, code_formatter)
+        except Exception:
+            return f'<div class="math-formula">{html.escape(code)}</div>'
+
+    def setSource(self, url):
+        """禁用自动链接导航"""
+        pass
+
+class MarkdownTextBrowser(ChatapiTextBrowser):
+    """自定义 Markdown 渲染文本框"""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        # 覆盖原有的样式表设置
+        self.setStyleSheet("")
+        # 气泡特定的设置
+        self.setFrameShape(QFrame.NoFrame)
+        self.setWordWrapMode(QTextOption.WrapAtWordBoundaryOrAnywhere)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.setOpenExternalLinks(False)
+        
+    def sizeHint(self):
+        """重写自适应高度逻辑"""
+        doc = self.document()
+        return QSize(0, int(doc.size().height()))
+
+class InfoPopup(QWidget):
+    """用于显示消息详情信息的悬浮窗"""
+    def __init__(self, parent=None):
+        super().__init__(parent, Qt.Popup | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        
+        # 主布局
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(6, 6, 6, 6)
+        layout.setSpacing(5)
+        
+        # 内容容器（带背景色）
+        self.container = QWidget()
+        self.container.setStyleSheet("background-color: #F0F0F0; border-radius: 4px;")
+        container_layout = QVBoxLayout(self.container)
+        container_layout.setContentsMargins(8, 8, 8, 8)
+        
+        # 标题
+        self.title_label = QLabel("消息详情")
+        font = self.title_label.font()
+        font.setBold(True)
+        self.title_label.setFont(font)
+        container_layout.addWidget(self.title_label)
+        
+        # 分隔线
+        separator = QFrame()
+        separator.setFrameShape(QFrame.HLine)
+        separator.setFrameShadow(QFrame.Sunken)
+        container_layout.addWidget(separator)
+        
+        # 详细信息区域
+        self.info_layout = QVBoxLayout()
+        self.info_layout.setSpacing(4)
+        container_layout.addLayout(self.info_layout)
+        
+        # 布局嵌套
+        layout.addWidget(self.container)
+        
+    def show_info(self, info_data, button_global_pos):
+        """显示信息悬浮窗"""
+        # 清空现有内容
+        while self.info_layout.count():
+            child = self.info_layout.takeAt(0).widget()
+            if child:
+                child.deleteLater()
+        
+        # 动态填充信息
+        if isinstance(info_data, dict):
+            for key, value in info_data.items():
+                if key == "tokens_details" or value is None:
+                    continue
+                    
+                # 创建行布局
+                row_layout = QHBoxLayout()
+                row_layout.setContentsMargins(0, 0, 0, 0)
+                
+                # 键标签
+                key_label = QLabel(f"{key}:")
+                key_label.setMinimumWidth(80)
+                key_label.setAlignment(Qt.AlignRight | Qt.AlignTop)
+                row_layout.addWidget(key_label)
+                
+                # 值显示
+                value_str = json.dumps(value, indent=2) if isinstance(value, dict) else str(value)
+                value_label = QLabel(value_str)
+                value_label.setAlignment(Qt.AlignLeft | Qt.AlignTop)
+                value_label.setWordWrap(True)
+                row_layout.addWidget(value_label)
+                
+                self.info_layout.addLayout(row_layout)
+        
+        # 调整大小并定位
+        self.adjustSize()
+        self.move(button_global_pos.x() - self.width()//2, 
+                 button_global_pos.y() + 10)
+        self.show()
+
+    def mousePressEvent(self, event):
+        """点击任意位置关闭弹窗"""
+        self.hide()
+        super().mousePressEvent(event)
+
+class EditWidget(QTextEdit):
+    """可编辑文本框"""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setFrameShape(QFrame.NoFrame)
+        self.setWordWrapMode(QTextOption.WrapAtWordBoundaryOrAnywhere)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        
+    def sizeHint(self):
+        doc = self.document()
+        return QSize(0, int(doc.size().height()))
+
+class ReasoningDisplay(MarkdownTextBrowser):
+    """思考内容显示控件"""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setFrameShape(QFrame.NoFrame)
+        self.setWordWrapMode(QTextOption.WrapAtWordBoundaryOrAnywhere)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.setVisible(False)
+
+class BubbleControlButtons(QWidget):
+    """气泡控制按钮组（带内部对齐控制）"""
+    regenerateClicked = pyqtSignal()
+    editToggleClicked = pyqtSignal(bool)  # bool: 是否进入编辑模式
+    detailToggleClicked = pyqtSignal(bool) # bool: 是否显示思考内容
+    infoClicked = pyqtSignal()
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        
+        # 主布局
+        self.main_layout = QHBoxLayout()
+        self.main_layout.setContentsMargins(0, 0, 0, 0)
+        self.main_layout.setSpacing(0)
+        self.setLayout(self.main_layout)
+        
+        # 内部容器用于控制对齐
+        self.inner_widget = QWidget()
+        self.layout = QHBoxLayout(self.inner_widget)
+        self.layout.setContentsMargins(0, 0, 0, 0)
+        self.layout.setSpacing(0)
+        
+        # 创建按钮
+        self.regenerate_button = QToolButton()
+        self.regenerate_button.setText("🔁")
+        self.regenerate_button.setToolTip("重新生成")
+        
+        self.copy_button = QToolButton()
+        self.copy_button.setText("📝")
+        self.copy_button.setToolTip("复制内容")
+        
+        self.edit_button = QToolButton()
+        self.edit_button.setText("🔧​​")
+        self.edit_button.setToolTip("编辑消息")
+        self.edit_button.setCheckable(True)
+
+        self.info_button = QToolButton()
+        self.info_button.setText("ℹ️")
+        self.info_button.setToolTip("消息详情")
+        
+        self.detail_button = QToolButton()
+        self.detail_button.setText("⋯")
+        self.detail_button.setToolTip("显示思考过程")
+        self.detail_button.setCheckable(True)
+        
+        # 添加按钮到内部布局
+        self.layout.addWidget(self.regenerate_button)
+        self.layout.addWidget(self.copy_button)
+        self.layout.addWidget(self.edit_button)
+        self.layout.addWidget(self.info_button)
+        self.layout.addWidget(self.detail_button)
+        self.layout.addStretch()
+        
+        # 添加内部容器到主布局
+        self.main_layout.addWidget(self.inner_widget)
+        
+        # 连接信号
+        self.regenerate_button.clicked.connect(self.regenerateClicked.emit)
+        self.edit_button.toggled.connect(self._on_edit_toggled)
+        self.detail_button.toggled.connect(self._on_detail_toggled)
+        self.info_button.clicked.connect(self.infoClicked.emit)
+        
+        # 默认状态
+        self.detail_button.setVisible(False)
+        
+    def set_alignment(self, align_left):
+        """设置内部控件的对齐方式"""
+        if align_left:
+            # 用户气泡：内部控件左贴靠
+            self.layout.setAlignment(Qt.AlignLeft)
+            self.main_layout.setAlignment(Qt.AlignLeft)
+        else:
+            # AI气泡：内部控件右贴靠
+            self.layout.setAlignment(Qt.AlignRight)
+            self.main_layout.setAlignment(Qt.AlignRight)
+            
+    def set_has_reasoning(self, has_reasoning):
+        """设置是否有思考内容"""
+        self.detail_button.setVisible(has_reasoning)
+        self.detail_button.setChecked(False)
+        
+    def set_editing(self, editing):
+        """设置编辑状态"""
+        self.edit_button.setChecked(editing)
+        
+    def _on_edit_toggled(self, checked):
+        """编辑按钮切换处理"""
+        if checked:
+            self.edit_button.setText("✅​")
+            self.edit_button.setToolTip("完成编辑")
+        else:
+            self.edit_button.setText("🔧")
+            self.edit_button.setToolTip("编辑消息")
+        self.editToggleClicked.emit(checked)
+        
+    def _on_detail_toggled(self, checked):
+        """详情按钮切换处理"""
+        self.detailToggleClicked.emit(checked)
+
+class ChatBubble(QWidget):
+    """聊天气泡控件"""
+    regenerateRequested = pyqtSignal(str)  # 参数: 消息ID
+    editFinished = pyqtSignal(str, str)    # 参数: 消息ID, 新内容
+    detailToggled = pyqtSignal(str, bool)   # 参数: 消息ID, 是否显示详情
+    avatarChanged = pyqtSignal(str, str)    # 参数: 消息ID, 新头像路径
+
+    def __init__(self, message_data, nickname=None, 
+                 avatar_path="", parent=None):
+        super().__init__(parent)
+        self.id = str(message_data['info']['id'])
+        self.role = message_data['role']
+        self.message_data = message_data
+        self.setMouseTracking(True)  # 启用鼠标跟踪
+        
+        # 使用GridLayout作为主布局
+        layout = QGridLayout()
+        layout.setContentsMargins(5, 5, 5, 5)
+        layout.setSpacing(0)
+        self.setLayout(layout)
+        
+        # 顶部信息栏（角色/昵称）
+        self.top_bar = QWidget()
+        self.top_bar_container = QWidget()
+        top_bar_layout = QHBoxLayout(self.top_bar_container)
+        top_bar_layout.setContentsMargins(0, 0, 0, 0)
+        top_bar_layout.addWidget(self.top_bar)
+
+        top_layout = QHBoxLayout()
+        top_layout.setContentsMargins(5, 0, 5, 5)
+        top_layout.setSpacing(5)
+        self.top_bar.setLayout(top_layout)
+        
+        # 头像处理
+        self.avatar = QPushButton()  # 改为按钮以支持点击
+        self.avatar.setFixedSize(24, 24)
+        self.avatar.setCursor(Qt.PointingHandCursor)  # 显示手型指针
+        self.avatar_path = avatar_path  # 存储头像路径
+        self._setup_avatar()
+        
+        # 创建角色标签
+        self.role_label = QLabel(nickname if nickname else self.role)
+        font = self.role_label.font()
+        font.setBold(True)
+        self.role_label.setFont(font)
+        
+        # 添加控制按钮
+        self.buttons = BubbleControlButtons()
+        
+        # 按钮占位空间
+        self.button_space = QWidget()
+        self.button_space.setFixedSize(self.buttons.sizeHint())
+        
+        # 根据角色决定布局方向
+        if self.role == "user":
+            # 用户消息：头像在右，按钮在左
+            top_layout.addWidget(self.buttons)
+            top_layout.addWidget(self.button_space)
+            top_layout.addStretch()
+            top_layout.addWidget(self.role_label)
+            top_layout.addWidget(self.avatar)
+            top_layout.setAlignment(Qt.AlignRight)
+            # 顶部栏贴靠右侧
+            layout.addWidget(self.top_bar_container, 0, 0, 1, 1, Qt.AlignRight | Qt.AlignTop)
+        else:
+            # AI消息：头像在左，按钮在右
+            top_layout.addWidget(self.avatar)
+            top_layout.addWidget(self.role_label)
+            top_layout.addStretch()
+            top_layout.addWidget(self.buttons)
+            top_layout.addWidget(self.button_space)
+            top_layout.setAlignment(Qt.AlignLeft)
+            # 顶部栏贴靠左侧
+            layout.addWidget(self.top_bar_container, 0, 0, 1, 1, Qt.AlignLeft | Qt.AlignTop)
+
+        self.button_space.setVisible(False)
+
+        # 内容区 - 使用自定义 Markdown 渲染控件
+        self.content = MarkdownTextBrowser()
+        self.content.setMarkdown(message_data['content'])
+        
+        # 编辑控件（初始隐藏）
+        self.editor = EditWidget()
+        self.editor.setVisible(False)
+        self.editor.setPlainText(message_data['content'])
+        
+        # 思考内容显示区（初始隐藏）
+        self.reasoning_display = ReasoningDisplay()
+        self.reasoning_display.setVisible(False)
+
+        # 创建内容容器（用于管理内容区和编辑区的切换）
+        self.content_container = QStackedWidget()
+        self.content_container.addWidget(self.content)
+        self.content_container.addWidget(self.editor)
+        self.content_container.setCurrentIndex(0)  # 默认显示内容区
+        
+        # 添加内容容器到网格布局
+        layout.addWidget(self.content_container, 1, 0, 1, 1)
+        
+        # 添加思考内容显示区
+        layout.addWidget(self.reasoning_display, 2, 0, 1, 1)
+
+        # 创建信息悬浮窗（初始隐藏）
+        self.info_popup = InfoPopup(self)
+        self.info_popup.setVisible(False)
+        
+        # 检查是否有思考内容数据
+        reasoning_content = message_data.get("reasoning", "")
+        if reasoning_content:
+            self.reasoning_display.setMarkdown(reasoning_content)
+            self.buttons.set_has_reasoning(True)
+        
+        # 连接信号
+        self._connect_signals()
+        
+        # 初始隐藏控制条
+        self.buttons.setVisible(False)
+
+    def _setup_avatar(self):
+        """设置头像显示（无圆形效果）"""
+        if self.avatar_path and os.path.exists(self.avatar_path):
+            pixmap = QPixmap(self.avatar_path)
+        else:
+            # 创建默认头像
+            pixmap = QPixmap(24, 24)
+            color = QColor("#4285F4") if self.role == "user" else QColor("#34A853")
+            pixmap.fill(color)
+            
+            # 添加简单文字标识
+            painter = QPainter(pixmap)
+            painter.setPen(Qt.white)
+            painter.setFont(QFont("Arial", 10, QFont.Bold))
+            painter.drawText(pixmap.rect(), Qt.AlignCenter, self.role[0].upper())
+            painter.end()
+            
+        # 缩放图片以适应显示大小
+        size = self.avatar.size()
+        scaled = pixmap.scaled(size.width(), size.height(), 
+                             Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        
+        self.avatar.setIcon(QIcon(scaled))
+        self.avatar.setIconSize(size)
+
+    def _connect_signals(self):
+        """连接所有信号槽"""
+        self.buttons.regenerateClicked.connect(
+            lambda: self.regenerateRequested.emit(self.id))
+        
+        # 连接复制按钮（使用内置方法）
+        self.buttons.copy_button.clicked.connect(self._handle_copy)
+        
+        self.buttons.editToggleClicked.connect(self._handle_edit_toggle)
+        self.buttons.detailToggleClicked.connect(self._handle_detail_toggle)
+        
+        # 连接头像点击信号
+        self.avatar.clicked.connect(self._on_avatar_clicked)
+
+        self.buttons.infoClicked.connect(self._show_info_popup)
+    
+    def _on_avatar_clicked(self):
+        """处理头像点击事件 - 弹出文件选择对话框"""
+        # 设置文件过滤器支持常见图片格式
+        filters = "Image Files (*.png *.jpg *.jpeg *.bmp *.gif)"
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, 
+            "选择头像图片", 
+            QStandardPaths.writableLocation(QStandardPaths.PicturesLocation),
+            filters
+        )
+        
+        if file_path:
+                
+            # 尝试加载图片验证有效性
+            pixmap = QPixmap(file_path)
+            if pixmap.isNull():
+                QMessageBox.warning(self, "无效图片", "无法加载该图片文件，请选择有效的图片格式")
+                return
+                
+            # 更新头像并发射信号
+            self.avatar_path = file_path
+            self._setup_avatar()
+            self.avatarChanged.emit(self.id, file_path)
+    
+    def _handle_copy(self):
+        """处理复制操作"""
+        if self.editor.isVisible():
+            text = self.editor.toPlainText()
+        else:
+            text = self.content.toPlainText()  # 获取纯文本内容
+            
+        QApplication.clipboard().setText(text)
+    
+    def _handle_edit_toggle(self, editing):
+        """处理编辑状态切换"""
+        if editing:
+            self.content_container.setCurrentIndex(1)  # 显示编辑器
+        else:
+            self.content_container.setCurrentIndex(0)  # 显示内容区
+            new_content = self.editor.toPlainText()
+            self.editFinished.emit(self.id, new_content)
+            self.content.setMarkdown(new_content)
+    
+    def _handle_detail_toggle(self, showing):
+        """处理详情显示切换"""
+        self.reasoning_display.setVisible(showing)
+        self.detailToggled.emit(self.id, showing)
+    
+    def _show_info_popup(self):
+        """显示信息悬浮窗"""
+        # 获取info_data（从消息数据的info字段）
+        info_data = self.message_data.get('info', {})
+        
+        # 获取info_button的全局位置
+        button_global_pos = self.buttons.info_button.mapToGlobal(QPoint(0, 0))
+        
+        # 显示悬浮窗
+        self.info_popup.show_info(info_data, button_global_pos)
+
+    def enterEvent(self, event):
+        """鼠标进入事件"""
+        self.buttons.setVisible(True)
+        self.button_space.setVisible(False)  # 隐藏占位空间
+        super().enterEvent(event)
+        
+    def leaveEvent(self, event):
+        """鼠标离开事件"""
+        if not self.buttons.edit_button.isChecked():
+            self.buttons.setVisible(False)
+            self.button_space.setVisible(True)  # 显示占位空间
+        super().leaveEvent(event)
+        
+    def update_nickname(self, new_nickname):
+        """更新昵称显示"""
+        self.role_label.setText(new_nickname)
+    
+    def update_avatar(self, new_path):
+        """更新头像路径并刷新显示"""
+        self.avatar_path = new_path
+        self._setup_avatar()
+    
+    def update_content(self, content_data):
+        """
+        更新内容显示
+        :param content_data: 包含 content 和 state 的字典
+        """
+        if self.buttons.edit_button.isChecked():  # 编辑状态下不更新
+            return
+            
+        content = content_data.get('content', '')
+        self.content.setMarkdown(content)
+        
+        # 更新编辑控件内容
+        if content_data.get('state') != 'streaming':
+            self.editor.setPlainText(content)
+
+    
+    def update_reasoning(self, reasoning_data):
+        """
+        更新思考内容
+        :param reasoning_data: 包含 reasoning_content 和 state 的字典
+        """
+        reasoning_content = reasoning_data.get('reasoning_content', '')
+        
+        if reasoning_content:
+            self.buttons.set_has_reasoning(True)
+            self.reasoning_display.setMarkdown(reasoning_content)
+        
+        # 如果是流式结束状态，确保内容刷新
+        if reasoning_data.get('state') == 'finished':
+            self.reasoning_display.setMarkdown(reasoning_content)
+    
+    def sizeHint(self):
+        """重写sizeHint以适应内容高度"""
+        height = self.top_bar.height() + self.content.sizeHint().height()
+        if self.reasoning_display.isVisible():
+            height += self.reasoning_display.sizeHint().height()
+        return QSize(super().sizeHint().width(), height)
+    
+    def mousePressEvent(self, event):
+        """点击气泡外部时关闭悬浮窗"""
+        if self.info_popup.isVisible():
+            self.info_popup.hide()
+        super().mousePressEvent(event)
+
+    def hideEvent(self, event):
+        """组件隐藏时关闭悬浮窗"""
+        self.info_popup.hide()
+        super().hideEvent(event)
+
+class ChatHistoryWidget(QWidget):
+    # 定义信号用于与主分发类通信
+    regenerateRequested = pyqtSignal(str)  # 消息ID
+    editFinished = pyqtSignal(str, str)    # 消息ID, 新内容
+    detailToggled = pyqtSignal(str, bool)   # 消息ID, 是否显示详情
+    avatarChanged = pyqtSignal(str, str)    # 消息ID, 新头像路径
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.bubbles = {}  # 存储气泡控件 {消息ID: 气泡实例}
+        self.nicknames = {'user': '用户', 'assistant': '助手'}  # 默认昵称
+        self.avatars = {'user': '', 'assistant': ''}  # 默认头像路径
+        
+        self.init_ui()
+        self.connect_signals()
+
+    def init_ui(self):
+        """初始化UI布局"""
+        self.setLayout(QVBoxLayout())
+        self.layout().setContentsMargins(0, 0, 0, 10)
+        self.layout().setSpacing(0)
+        
+        # 创建滚动区域
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setFrameShape(QFrame.NoFrame)
+        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        
+        # 内容容器
+        content_widget = QWidget()
+        self.content_layout = QVBoxLayout(content_widget)
+        self.content_layout.setContentsMargins(20, 10, 20, 20)
+        self.content_layout.setSpacing(15)
+        self.content_layout.setAlignment(Qt.AlignTop)
+        
+        # 设置滚动区域
+        scroll_area.setWidget(content_widget)
+        self.layout().addWidget(scroll_area)
+        
+        # 占位控件
+        self.spacer = QWidget()
+        self.spacer.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Expanding)
+        self.content_layout.addWidget(self.spacer)
+
+    def connect_signals(self):
+        """连接内部信号转发"""
+        # 连接编辑完成的信号转发
+        self.editFinished.connect(
+            lambda msg_id, content: self.update_bubble_content(
+                msg_id, {'content': content}
+            )
+        )
+        
+    def set_chat_history(self, history):
+        """设置完整的聊天历史记录"""
+        # 清除现有内容
+        self.clear_history()
+        
+        # 添加所有消息
+        for message in history:
+            self.add_message(message)
+    
+    def clear(self):
+        """清空聊天历史"""
+        # 移除所有气泡
+        for i in reversed(range(self.content_layout.count())):
+            item = self.content_layout.itemAt(i)
+            if item.widget() and item.widget() != self.spacer:
+                item.widget().deleteLater()
+        
+        # 重置气泡字典
+        self.bubbles = {}
+        
+        # 确保占位控件存在
+        self.content_layout.addWidget(self.spacer)
+
+    def add_message(self, message_data):
+        """添加单条消息到聊天历史"""
+        role = message_data['role']
+        if role not in ['user', 'assistant']:  # 跳过系统消息
+            return
+            
+        msg_id = str(message_data['info']['id'])
+        
+        # 创建气泡控件
+        bubble = ChatBubble(
+            message_data,
+            nickname=self.nicknames.get(role, role.capitalize()),
+            avatar_path=self.avatars.get(role, '')
+        )
+        
+        # 存储气泡引用
+        self.bubbles[msg_id] = bubble
+        
+        # 在占位控件前添加气泡
+        index = self.content_layout.indexOf(self.spacer)
+        self.content_layout.insertWidget(index, bubble)
+        
+        # 连接气泡的信号
+        bubble.regenerateRequested.connect(self.regenerateRequested.emit)
+        bubble.editFinished.connect(self.editFinished.emit)
+        bubble.detailToggled.connect(self.detailToggled.emit)
+        bubble.avatarChanged.connect(self.avatarChanged.emit)
+        
+        return bubble
+
+    def update_bubble_content(self, msg_id, content_data):
+        """更新特定气泡的内容"""
+        bubble = self.bubbles.get(msg_id)
+        if bubble:
+            bubble.update_content(content_data)
+    
+    def update_bubble_reasoning(self, msg_id, reasoning_data):
+        """更新特定气泡的思考内容"""
+        bubble = self.bubbles.get(msg_id)
+        if bubble:
+            bubble.update_reasoning(reasoning_data)
+    
+    def update_bubble_info(self, msg_id, info_data):
+        """更新气泡的元信息"""
+        bubble = self.bubbles.get(msg_id)
+        if bubble:
+            bubble.message_data['info'] = info_data
+    
+    def update_bubble(self,message='',msg_id=1, content=None, reasoning_content=None,info=None):
+        #处理输入方式为message
+        #输入方式为message，未初始化
+        if message and not message['id'] in self.bubbles:
+            self.add_message(message)
+            return
+        
+        #输入方式为message，已经初始化
+        if message and message['id'] in self.bubbles:
+            # 更新现有消息气泡
+            if 'content' in message:
+                self.update_bubble_content(message['id'], {'content': message['content']})
+            
+            if 'reasoning_content' in message:
+                self.update_bubble_reasoning(message['id'], 
+                    {'reasoning_content': message['reasoning_content']})
+            return
+        
+        #处理输入方式不是message
+        #输入方式不是message，未初始化
+        if not message and not msg_id in self.bubbles:
+            build_message = {
+                'role': 'assistant',  # 默认为assistant
+                'content': content,
+                'reasoning': reasoning_content,
+                'info': {'id': msg_id}
+            }
+            self.add_message(build_message)
+            return
+        
+        #输入方式不是message，已初始化
+        if not message and msg_id in self.bubbles:
+            if content:
+                self.update_bubble_content(msg_id,
+                        {'content':content})      
+            if reasoning_content:   
+                self.update_bubble_reasoning(msg_id, 
+                        {'reasoning_content': reasoning_content})
+            if info:
+                self.update_bubble_info(msg_id, 
+                        {'info': info})
+                return
+            
+            
+
+
+
+
+    def set_role_nickname(self, role, nickname):
+        """设置角色的昵称"""
+        if nickname!=self.nicknames[role]:
+            self.nicknames[role] = nickname
+            self.update_all_nicknames()
+    
+    def set_role_avatar(self, role, avatar_path):
+        """设置角色的头像"""
+        self.avatars[role] = avatar_path
+        self.update_all_avatars()
+    
+    def update_all_nicknames(self):
+        """更新所有气泡的昵称显示"""
+        for bubble in self.bubbles.values():
+            role = bubble.role
+            nickname = self.nicknames.get(role, role.capitalize())
+            bubble.update_nickname(nickname)
+    
+    def update_all_avatars(self):
+        """更新所有气泡的头像显示"""
+        for bubble in self.bubbles.values():
+            role = bubble.role
+            avatar_path = self.avatars.get(role, '')
+            bubble.update_avatar(avatar_path)
+
+    def scroll_to_bottom(self):
+        """滚动到底部"""
+        scroll_area = self.findChild(QScrollArea)
+        if scroll_area:
+            scroll_bar = scroll_area.verticalScrollBar()
+            scroll_bar.setValue(scroll_bar.maximum())

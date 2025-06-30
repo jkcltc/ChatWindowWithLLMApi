@@ -66,6 +66,31 @@ def install_packages():
             print(f"安装 {package} 时出错: {e}")
     messagebox.showinfo("提示", "程序初始化完成！")
 
+def delete_directory(dir_path):
+    """递归删除目录及其所有内容（仅使用 os 模块）"""
+    if not os.path.exists(dir_path):
+        return
+    
+    # 先删除目录中的所有文件和子目录
+    for entry in os.listdir(dir_path):
+        full_path = os.path.join(dir_path, entry)
+        
+        if os.path.isdir(full_path) and not os.path.islink(full_path):
+            # 递归删除子目录
+            delete_directory(full_path)
+        else:
+            # 删除文件或符号链接
+            try:
+                os.remove(full_path)
+            except:
+                pass  # 忽略删除错误
+    
+    # 当目录为空时，删除该目录
+    try:
+        os.rmdir(dir_path)
+    except:
+        pass  # 忽略删除错误
+
 try:    
     from PyQt5.QtWidgets import *
     from PyQt5.QtCore import *
@@ -1471,7 +1496,7 @@ class ChatapiTextBrowser(QTextBrowser):
         pass
 
 #api导入窗口
-class APIConfigDialogUpdateModelThread(QThread):
+class APIConfigDialogUpdateModelThread(QObject):
     """模型库更新线程"""
     started_signal = pyqtSignal()
     finished_signal = pyqtSignal()
@@ -1859,7 +1884,10 @@ class APIConfigWidget(QWidget):
         self.update_thread.finished_signal.connect(self._validate_and_save)
         self.update_thread.error_signal.connect(
             lambda msg: self.status_label.setText(f"更新出错: {msg}"))
-        self.update_thread.start()
+        runner = threading.Thread(target=self.update_thread.run)
+        self.threads=[runner]
+        runner.start()
+
 APIConfigDialog=APIConfigWidget
 
 #窗口大小过渡器
@@ -2318,11 +2346,9 @@ class StrTools:
         """
         if replace_from.startswith('re:#'):
             # 如果以 're:#' 开头，则使用正则表达式替换
-            #print("使用正则表达式替换")
             text = StrTools._re_replace(text, replace_from[4:], replace_to)
         else:
             # 否则使用普通字符串替换
-            #print("使用普通字符串替换")
             text = StrTools._for_replace(text, replace_from, replace_to)
         
         return text
@@ -2415,10 +2441,10 @@ class MessagePreprocessor:
         start=time.perf_counter()
         better_round = self._calculate_better_round()
         better_message = self._handle_system_messages(better_round)
-        message = self._process_special_styles(better_message)
+        message = self._purge_message(better_message)
+        message = self._process_special_styles(message)
         message = self._handle_web_search_results(message)
         message = self._fix_chat_history(message)
-        #message = self._clean_consecutive_messages(message)
         message = self._handle_long_chat_placement(message)
         message = self._handle_user_and_char(message)
         message = self._handle_mod_functions(message)
@@ -2447,6 +2473,9 @@ class MessagePreprocessor:
             better_round += 1
         return [history[0]] + history[-(better_round-1):]
 
+    def _purge_message(self,messages):
+        return [{"role": item["role"], "content": item["content"]} for item in messages]
+    
     def _process_special_styles(self, better_message):
         """处理特殊样式文本"""
         if (self.god.chathistory[-1]["role"] == "user" and self.god.temp_style != '') \
@@ -2692,10 +2721,10 @@ class ModConfiger(QTabWidget):
         self.creator_manager_layout.addWidget(self.enable_story_insert,0,0,1,1)
         self.main_story_creator_placeholder=GradientLabel('正在等待模型库更新...')
         self.creator_manager_layout.addWidget(self.main_story_creator_placeholder,1,0,1,1)
-
-        dialog = APIConfigDialog()
-        dialog.configUpdated.connect(self.finish_story_creator_init)
-        dialog.on_update_models()
+        self.finish_story_creator_init()
+        #dialog = APIConfigDialog()
+        #dialog.configUpdated.connect(self.finish_story_creator_init)
+        #dialog.on_update_models()
         
     def finish_story_creator_init(self):
         self.main_story_creator_placeholder.hide()
@@ -3142,6 +3171,7 @@ QPushButton:pressed {
         self.sysrule=self.init_sysrule()
         self.chathistory = []
         self.chathistory.append({'role': 'system', 'content': self.sysrule})
+        self.chathistory_detail=[]
         self.pause_flag = False
         self.update_response_signal.connect(self.receive_message)
         self.ai_response_signal.connect(self.update_ai_response_text)
@@ -3234,6 +3264,8 @@ QPushButton:pressed {
         self.think_update_timer = QTimer()
         self.think_update_timer.setSingleShot(True)
         self.think_update_timer.timeout.connect(self.perform_think_actual_update)
+
+        self.last_chat_info={}
 
     def init_mod_configer_page(self):
         self.mod_configer=ModConfiger()
@@ -3637,7 +3669,7 @@ QPushButton:pressed {
         if user_input == "/bye":
             self.close()
             return
-        self.chathistory.append({'role': 'user', 'content': user_input})
+        self.chathistory.append({'role': 'user', 'content': user_input,'info':{"id":random.randint(100000,999999)}})
         if self.stream_receive:
             self.response=None
             self.previous_response = None
@@ -3743,7 +3775,7 @@ QPushButton:pressed {
             content = content.replace('</think>', '')
     
             content = StrTools.combined_remove_var_vast_replace(self,content=content)
-            self.chathistory.append({'role': 'assistant', 'content': content})
+            self.chathistory.append({'role': 'assistant', 'content': content,'info':self.last_chat_info})
             #触发tts
             if self.tts_handler.enable_tts:
                 self.tts_handler.engage_chat_to_speech(content)
@@ -3802,6 +3834,32 @@ QPushButton:pressed {
                 self.think_response_signal.emit(self.think_response)
                 print(content.reasoning_content, end='', flush=True)
 
+        def to_serializable(obj):
+            """递归将对象转换为可序列化的基本类型（字典/列表/基本类型）"""
+            if isinstance(obj, (str, int, float, bool, type(None))):
+                return obj
+            
+            if isinstance(obj, dict):
+                return {k: to_serializable(v) for k, v in obj.items()}
+            
+            if isinstance(obj, list):
+                return [to_serializable(item) for item in obj]
+            
+            if hasattr(obj, '__dict__'):
+                # 处理普通对象
+                return to_serializable(vars(obj))
+            
+            if hasattr(obj, 'model_dump'):
+                # 处理Pydantic v2模型
+                return to_serializable(obj.model_dump())
+            
+            if hasattr(obj, 'dict'):
+                # 处理Pydantic v1模型
+                return to_serializable(obj.dict())
+            
+            # 其他不可识别类型
+            return str(obj)
+        request_id=random.randint(100000,999999)
         api_provider = self.api_var.currentText()
         client = openai.Client(
             api_key=self.api[api_provider][1],
@@ -3883,14 +3941,28 @@ QPushButton:pressed {
                 preprocessor = MessagePreprocessor(self)  # 创建预处理器实例
                 message, params = preprocessor.prepare_message(tools=True)
                 StrTools.debug_chathistory(message)
-                #print(message)
                 self.send_request(params)
                 return
                 
             except json.JSONDecodeError:
                 print("函数参数 JSON 解析失败:", chatting_tool_call["function"]["arguments"])
+        
+        if event.usage:
+            # 递归转换所有嵌套结构
+            usage_dict = to_serializable(event.usage)
+            if isinstance(usage_dict, dict):
+                pass
+            else:
+                # 如果转换后不是字典（如某些API返回的列表结构）
+                usage_dict = {'usage_data': usage_dict}
+        else:
+            usage_dict = {}
 
-
+        self.last_chat_info = {
+            **usage_dict,
+            "model": event.model,
+            "id":request_id
+        }
 
 
         print(f'\n返回长度：{len(self.full_response)}\n思考链长度: {len(self.think_response)}')
@@ -4233,6 +4305,7 @@ QPushButton:pressed {
                     json.dump(self.chathistory, file, ensure_ascii=False, indent=4)
                 print("聊天记录已保存到", file_path)
             except Exception as e:
+                print(self.chathistory)
                 QMessageBox.critical(self, "保存失败", f"保存聊天记录时发生错误：{e}")
         else:
             QMessageBox.warning(self, "取消保存", "未选择保存路径，聊天记录未保存。")
@@ -4522,7 +4595,6 @@ QPushButton:pressed {
             with lock:
                 if valid:
                     past_chats[file_name] = os.path.join(application_path, file_name)
-                    #print(f"Successfully imported: {file_name}")
                 else:
                     error_msg = f"Skipped {file_name}: {message}" if message else f"Skipped invalid file: {file_name}"
                     print(error_msg)
@@ -5077,8 +5149,6 @@ QPushButton:pressed {
             last_full_story=user_summary+pic_creater_input
         else:
             last_full_story=self.get_background_prompt_from_chathistory(user_summary)
-        #print('\n\n\n场景生成\n完整请求：\n\n')
-        #print(last_full_story)
         print('\n\n')
         messages=[
             {"role":"system","content":summary_prompt},
@@ -5495,7 +5565,8 @@ QPushButton:pressed {
             self.concurrent_model.show()
         else:
             self.concurrent_model.hide()
-if __name__ == "__main__":
+
+def start():
     app = QApplication(sys.argv)
     if sys.platform == 'win32':
         appid = 'chatapi.0.23.1'
@@ -5503,3 +5574,20 @@ if __name__ == "__main__":
     window = MainWindow()
     window.show()
     sys.exit(app.exec_())
+
+def clean_cache():
+    for root, dirs, files in os.walk('.', topdown=True):
+        if '__pycache__' in dirs:
+            cache_dir = os.path.join(root, '__pycache__')
+            print(f"Removing: {cache_dir}")
+            delete_directory(cache_dir)
+            dirs.remove('__pycache__')
+
+
+if __name__=="__main__":
+    try:
+        start()
+    except:
+        clean_cache()
+        start()
+    

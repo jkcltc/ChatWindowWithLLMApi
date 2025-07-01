@@ -386,7 +386,6 @@ class ChatapiTextBrowser(QTextBrowser):
                 code += '```'
             code_blocks.append(code)
             return f"CODE_BLOCK_PLACEHOLDER_{len(code_blocks)-1}"
-
         # 第一阶段：预处理代码块
         temp_text = re.sub(r'```[\s\S]*?(?:```|$)', code_replacer, raw_text)
 
@@ -451,13 +450,50 @@ class MarkdownTextBrowser(ChatapiTextBrowser):
         # 气泡特定的设置
         self.setFrameShape(QFrame.NoFrame)
         self.setWordWrapMode(QTextOption.WrapAtWordBoundaryOrAnywhere)
-        self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.setOpenExternalLinks(False)
+        self.anchorClicked.connect(lambda url: os.startfile(url.toString()))
+
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+
+        self._is_streaming = False
+
+        self.document().contentsChanged.connect(self._handle_contents_changed)
         
     def sizeHint(self):
-        """重写自适应高度逻辑"""
-        doc = self.document()
-        return QSize(0, int(doc.size().height()))
+        """
+        重写sizeHint，返回基于文档内容的理想尺寸。
+        """
+        # 获取文档的理想高度
+        doc_height = self.document().size().height()
+        
+        # 获取控件的边距 (通常是0，但最好包含以防万一)
+        margins = self.contentsMargins()
+
+        total_height = doc_height + margins.top() + margins.bottom()
+
+        # 返回尺寸，宽度可以保持默认，高度使用我们计算的值
+        return QSize(self.width(), int(total_height))
+
+    def setMarkdown(self, text, is_streaming=False):
+        """
+        设置Markdown内容，并根据流式状态决定是否立即更新几何尺寸。
+        :param text: Markdown 文本
+        :param is_streaming: bool, 是否处于流式更新中
+        """
+        self._is_streaming = is_streaming
+        super().setMarkdown(text) # 调用父类的方法来处理文本
+
+        # 如果流式传输已结束，手动触发一次最终的几何更新
+        if not self._is_streaming:
+            QTimer.singleShot(0, self.updateGeometry) # 使用 QTimer 确保在当前事件循环完成后执行
+    
+    def _handle_contents_changed(self):
+        """
+        仅在非流式状态下，根据内容变化更新几何尺寸。
+        """
+        if not self._is_streaming:
+            self.updateGeometry()
 
 class InfoPopup(QWidget):
     """用于显示消息详情信息的悬浮窗"""
@@ -562,6 +598,15 @@ class ReasoningDisplay(MarkdownTextBrowser):
         self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.setVisible(False)
 
+    def setMarkdown(self, text, is_streaming=False):
+        """
+        设置Markdown内容，并根据流式状态决定是否立即更新几何尺寸。
+        :param text: Markdown 文本
+        :param is_streaming: bool, 是否处于流式更新中
+        """
+        self._is_streaming = is_streaming
+        super().setMarkdown(text) # 调用父类的方法来处理文本
+
 class BubbleControlButtons(QWidget):
     """气泡控制按钮组（带内部对齐控制）"""
     regenerateClicked = pyqtSignal()
@@ -586,15 +631,15 @@ class BubbleControlButtons(QWidget):
         
         # 创建按钮
         self.regenerate_button = QToolButton()
-        self.regenerate_button.setText("🔁")
+        self.regenerate_button.setText("🔃")
         self.regenerate_button.setToolTip("重新生成")
         
         self.copy_button = QToolButton()
-        self.copy_button.setText("📝")
+        self.copy_button.setText("📋")
         self.copy_button.setToolTip("复制内容")
         
         self.edit_button = QToolButton()
-        self.edit_button.setText("🔧​​")
+        self.edit_button.setText("📝​​")
         self.edit_button.setToolTip("编辑消息")
         self.edit_button.setCheckable(True)
 
@@ -675,6 +720,8 @@ class ChatBubble(QWidget):
         self.role = message_data['role']
         self.message_data = message_data
         self.setMouseTracking(True)  # 启用鼠标跟踪
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.MinimumExpanding)
+        self.setObjectName('chatbubble')
         
         # 使用GridLayout作为主布局
         layout = QGridLayout()
@@ -711,14 +758,17 @@ class ChatBubble(QWidget):
         self.buttons = BubbleControlButtons()
         
         # 按钮占位空间
-        self.button_space = QWidget()
-        self.button_space.setFixedSize(self.buttons.sizeHint())
+        self.button_container = QStackedWidget()
+        self.button_container.addWidget(QWidget())  # 索引0: 一个空的占位符
+        self.button_container.addWidget(self.buttons)   # 索引1: 真实的按钮
+        self.button_container.setCurrentIndex(0) 
+        self.button_container.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
+
         
         # 根据角色决定布局方向
         if self.role == "user":
             # 用户消息：头像在右，按钮在左
-            top_layout.addWidget(self.buttons)
-            top_layout.addWidget(self.button_space)
+            top_layout.addWidget(self.button_container) 
             top_layout.addStretch()
             top_layout.addWidget(self.role_label)
             top_layout.addWidget(self.avatar)
@@ -730,13 +780,11 @@ class ChatBubble(QWidget):
             top_layout.addWidget(self.avatar)
             top_layout.addWidget(self.role_label)
             top_layout.addStretch()
-            top_layout.addWidget(self.buttons)
-            top_layout.addWidget(self.button_space)
+            top_layout.addWidget(self.button_container)
             top_layout.setAlignment(Qt.AlignLeft)
             # 顶部栏贴靠左侧
             layout.addWidget(self.top_bar_container, 0, 0, 1, 1, Qt.AlignLeft | Qt.AlignTop)
 
-        self.button_space.setVisible(False)
 
         # 内容区 - 使用自定义 Markdown 渲染控件
         self.content = MarkdownTextBrowser()
@@ -756,28 +804,27 @@ class ChatBubble(QWidget):
         self.content_container.addWidget(self.content)
         self.content_container.addWidget(self.editor)
         self.content_container.setCurrentIndex(0)  # 默认显示内容区
+        self.content_container.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
         
         # 添加内容容器到网格布局
-        layout.addWidget(self.content_container, 1, 0, 1, 1)
+        layout.addWidget(self.content_container, 2, 0, 1, 1)
         
         # 添加思考内容显示区
-        layout.addWidget(self.reasoning_display, 2, 0, 1, 1)
+        layout.addWidget(self.reasoning_display, 1, 0, 1, 1)
 
         # 创建信息悬浮窗（初始隐藏）
         self.info_popup = InfoPopup(self)
         self.info_popup.setVisible(False)
         
         # 检查是否有思考内容数据
-        reasoning_content = message_data.get("reasoning", "")
+        reasoning_content = message_data.get("reasoning_content", "")
         if reasoning_content:
             self.reasoning_display.setMarkdown(reasoning_content)
             self.buttons.set_has_reasoning(True)
         
         # 连接信号
         self._connect_signals()
-        
-        # 初始隐藏控制条
-        self.buttons.setVisible(False)
+
 
     def _setup_avatar(self):
         """设置头像显示（无圆形效果）"""
@@ -881,15 +928,13 @@ class ChatBubble(QWidget):
 
     def enterEvent(self, event):
         """鼠标进入事件"""
-        self.buttons.setVisible(True)
-        self.button_space.setVisible(False)  # 隐藏占位空间
+        self.button_container.setCurrentIndex(1) 
         super().enterEvent(event)
         
     def leaveEvent(self, event):
         """鼠标离开事件"""
         if not self.buttons.edit_button.isChecked():
-            self.buttons.setVisible(False)
-            self.button_space.setVisible(True)  # 显示占位空间
+            self.button_container.setCurrentIndex(0) 
         super().leaveEvent(event)
         
     def update_nickname(self, new_nickname):
@@ -908,36 +953,35 @@ class ChatBubble(QWidget):
         """
         if self.buttons.edit_button.isChecked():  # 编辑状态下不更新
             return
-            
+
         content = content_data.get('content', '')
-        self.content.setMarkdown(content)
+
+        # 获取流式状态，默认为 'finished' 如果没有提供
+        state = content_data.get('state', 'finished')
         
-        # 更新编辑控件内容
-        if content_data.get('state') != 'streaming':
+        # 将状态传递给 MarkdownTextBrowser
+        is_streaming = (state == 'streaming')
+        self.content.setMarkdown(content, is_streaming=is_streaming)
+
+        # 只有在流式传输非进行中时，才更新编辑器备用内容
+        if not is_streaming:
             self.editor.setPlainText(content)
 
     
     def update_reasoning(self, reasoning_data):
         """
         更新思考内容
-        :param reasoning_data: 包含 reasoning_content 和 state 的字典
+        :param reasoning_data: 包含 reasoning_content
         """
         reasoning_content = reasoning_data.get('reasoning_content', '')
-        
         if reasoning_content:
             self.buttons.set_has_reasoning(True)
             self.reasoning_display.setMarkdown(reasoning_content)
+            self.reasoning_display.setVisible(True)
         
         # 如果是流式结束状态，确保内容刷新
         if reasoning_data.get('state') == 'finished':
             self.reasoning_display.setMarkdown(reasoning_content)
-    
-    def sizeHint(self):
-        """重写sizeHint以适应内容高度"""
-        height = self.top_bar.height() + self.content.sizeHint().height()
-        if self.reasoning_display.isVisible():
-            height += self.reasoning_display.sizeHint().height()
-        return QSize(super().sizeHint().width(), height)
     
     def mousePressEvent(self, event):
         """点击气泡外部时关闭悬浮窗"""
@@ -962,6 +1006,12 @@ class ChatHistoryWidget(QWidget):
         self.bubbles = {}  # 存储气泡控件 {消息ID: 气泡实例}
         self.nicknames = {'user': '用户', 'assistant': '助手'}  # 默认昵称
         self.avatars = {'user': '', 'assistant': ''}  # 默认头像路径
+        self.setStyleSheet("""
+            QWidget {
+                background-color: rgba(255, 255, 255, 0);
+                border-radius: 5px;         
+            } 
+        """)
         
         self.init_ui()
         self.connect_signals()
@@ -969,7 +1019,7 @@ class ChatHistoryWidget(QWidget):
     def init_ui(self):
         """初始化UI布局"""
         self.setLayout(QVBoxLayout())
-        self.layout().setContentsMargins(0, 0, 0, 10)
+        self.layout().setContentsMargins(0, 0, 0, 0)
         self.layout().setSpacing(0)
         
         # 创建滚动区域
@@ -993,6 +1043,12 @@ class ChatHistoryWidget(QWidget):
         # 占位控件
         self.spacer = QWidget()
         self.spacer.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Expanding)
+        self.spacer.setStyleSheet("""
+            /* 添加半透明背景 */
+            QWidget {
+                background-color: rgba(255, 255, 255, 0);      
+            }
+        """)
         self.content_layout.addWidget(self.spacer)
 
     def connect_signals(self):
@@ -1013,6 +1069,9 @@ class ChatHistoryWidget(QWidget):
         for message in history:
             self.add_message(message)
     
+    def clear_history(self):
+        self.clear()
+
     def clear(self):
         """清空聊天历史"""
         # 移除所有气泡
@@ -1031,9 +1090,8 @@ class ChatHistoryWidget(QWidget):
         """添加单条消息到聊天历史"""
         role = message_data['role']
         if role not in ['user', 'assistant']:  # 跳过系统消息
-            return
-            
-        msg_id = str(message_data['info']['id'])
+            return      
+        msg_id = message_data['info']['id']
         
         # 创建气泡控件
         bubble = ChatBubble(
@@ -1075,7 +1133,7 @@ class ChatHistoryWidget(QWidget):
         if bubble:
             bubble.message_data['info'] = info_data
     
-    def update_bubble(self,message='',msg_id=1, content=None, reasoning_content=None,info=None):
+    def update_bubble(self,message='',msg_id=0, content='', reasoning_content='',info='',streaming='streaming'):
         #处理输入方式为message
         #输入方式为message，未初始化
         if message and not message['id'] in self.bubbles:
@@ -1095,33 +1153,35 @@ class ChatHistoryWidget(QWidget):
         
         #处理输入方式不是message
         #输入方式不是message，未初始化
-        if not message and not msg_id in self.bubbles:
+        if not message and not msg_id in self.bubbles.keys():
             build_message = {
                 'role': 'assistant',  # 默认为assistant
                 'content': content,
-                'reasoning': reasoning_content,
-                'info': {'id': msg_id}
+                'reasoning_content': reasoning_content,
+                'info': {'id': msg_id},
+                'streaming':streaming
             }
             self.add_message(build_message)
             return
         
         #输入方式不是message，已初始化
-        if not message and msg_id in self.bubbles:
+        if not message and msg_id in self.bubbles.keys():
             if content:
                 self.update_bubble_content(msg_id,
-                        {'content':content})      
+                        {'content':content,
+                'streaming':streaming
+                         })      
             if reasoning_content:   
                 self.update_bubble_reasoning(msg_id, 
-                        {'reasoning_content': reasoning_content})
+                        {'reasoning_content': reasoning_content,
+                'streaming':streaming})
             if info:
                 self.update_bubble_info(msg_id, 
-                        {'info': info})
+                        {'info': info,
+                'streaming':streaming})
                 return
-            
-            
 
-
-
+        QTimer.singleShot(10,self.scroll_to_bottom)
 
     def set_role_nickname(self, role, nickname):
         """设置角色的昵称"""
@@ -1154,3 +1214,9 @@ class ChatHistoryWidget(QWidget):
         if scroll_area:
             scroll_bar = scroll_area.verticalScrollBar()
             scroll_bar.setValue(scroll_bar.maximum())
+
+if __name__=='__main__':
+    app = QApplication(sys.argv)
+    window = ChatHistoryWidget()
+    window.show()
+    sys.exit(app.exec_())

@@ -3055,7 +3055,7 @@ QPushButton:pressed {
         self.send_message_shortcut.activated.connect(self.send_message)
         self.sysrule=self.init_sysrule()
         self.chathistory = []
-        self.chathistory.append({'role': 'system', 'content': self.sysrule})
+        self.chathistory.append({'role': 'system', 'content': self.sysrule,'info':{'id':999999}})
         self.chathistory_detail=[]
         self.pause_flag = False
         self.update_response_signal.connect(self.receive_message)
@@ -4097,7 +4097,7 @@ QPushButton:pressed {
     def clear_history(self):
         self.autosave_save_chathistory()
         self.chathistory = []
-        self.chathistory.append({'role': 'system', 'content': self.sysrule})
+        self.chathistory.append({'role': 'system', 'content': self.sysrule,'info':{'id':999999}})
         self.chat_history_bubbles.clear()
         self.ai_response_text.clear()
         self.new_chat_rounds=0
@@ -4111,7 +4111,7 @@ QPushButton:pressed {
             if self.chathistory and self.chathistory[0]['role'] == "system":
                 self.chathistory[0]['content'] = prompt
             else:
-                self.chathistory.insert(0, {'role': 'system', 'content': prompt})
+                self.chathistory.insert(0, {'role': 'system', 'content': prompt,'info':{'id':999999}})
             self.sysrule=prompt
         def get_system_prompt():
             if len(self.chathistory)>1:

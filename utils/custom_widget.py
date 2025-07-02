@@ -1139,10 +1139,7 @@ class ChatHistoryWidget(QWidget):
         
         # 检查新历史中的每条消息
         for new_msg in history:
-            
             msg_id = new_msg['info']['id']
-            if msg_id in old_ids:
-                print(old_ids[msg_id].getinfo(),new_msg['info'] != old_ids[msg_id].getinfo())
             # 如果消息在旧历史中存在且内容不同
             if msg_id in old_ids and (new_msg['content'] != old_ids[msg_id].getcontent() or new_msg['info'] != old_ids[msg_id].getinfo()):
                 to_update.append(new_msg)
@@ -1161,7 +1158,8 @@ class ChatHistoryWidget(QWidget):
             self.update_bubble(
                 msg_id=updated_msg['info']['id'],
                 content=updated_msg['content'],
-                reasoning_content=updated_msg.get('reasoning_content', '')
+                reasoning_content=updated_msg.get('reasoning_content', ''),
+                info=updated_msg['info']
             )
         
         # 找出要添加的新消息
@@ -1271,7 +1269,10 @@ class ChatHistoryWidget(QWidget):
             self.bubbles[msg_id].setMaximumHeight(target_height)
         else:
             if hasattr(self, '_last_max_height_bubble') and self._last_max_height_bubble:
-                self._last_max_height_bubble.setMaximumHeight(99999)
+                try:
+                    self._last_max_height_bubble.setMaximumHeight(99999)
+                except:
+                    pass
             
             bubble.setMaximumHeight(target_height)
             
@@ -1347,6 +1348,8 @@ class ChatHistoryWidget(QWidget):
                 'streaming':streaming})
             return
 
+        if info:  # 确保info更新被处理
+            self.update_bubble_info(msg_id, info)
     def set_role_nickname(self, role, nickname):
         """设置角色的昵称"""
         if nickname!=self.nicknames[role]:

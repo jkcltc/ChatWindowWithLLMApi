@@ -2607,10 +2607,6 @@ class ModConfiger(QTabWidget):
         self.creator_manager_layout.addWidget(self.enable_story_insert,0,0,1,1)
         self.main_story_creator_placeholder=GradientLabel('正在等待模型库更新...')
         self.creator_manager_layout.addWidget(self.main_story_creator_placeholder,1,0,1,1)
-        self.finish_story_creator_init()
-        #dialog = APIConfigDialog()
-        #dialog.configUpdated.connect(self.finish_story_creator_init)
-        #dialog.on_update_models()
         
     def finish_story_creator_init(self):
         self.main_story_creator_placeholder.hide()
@@ -2618,7 +2614,6 @@ class ModConfiger(QTabWidget):
         StoryCreatorGlobalVar.MODEL_MAP=MODEL_MAP
         self.story_creator=MainStoryCreaterInstruction.mod_configer()
         self.creator_manager_layout.addWidget(self.story_creator,1,0,1,1)
-
 
     def status_monitor_handle_new_message(self,message):
         if type(message)==dict:
@@ -2681,6 +2676,8 @@ class MainWindow(QMainWindow):
 
         #function call
         self.init_function_call()
+
+        self.init_concurrenter()
 
         #从存档载入设置并覆盖
         ConfigManager.init_settings(self, exclude=['application_path','temp_style','full_response','think_response'])
@@ -2958,7 +2955,7 @@ class MainWindow(QMainWindow):
         hislabel.setMaximumHeight(20)
 
         #完整/极简切换
-        self.hide_extra_items=SwitchButton(texta="切换至完整 ",textb=" 切换至极简")
+        self.hide_extra_items=SwitchButton(texta="完整    ",textb="    极简")
         self.hide_extra_items.clicked.connect(self.handle_hide_extra_items_toggle)
 
         self.past_chat_frame_layout.addWidget(self.stat_tab_widget,         0,0,1,5)
@@ -3127,6 +3124,10 @@ QPushButton:pressed {
         self.name_user="用户"
         self.name_ai=""
 
+        #对话储存点
+        self.think_response=''
+        self.full_response=''
+
     def init_response_manager(self):
         # AI响应更新控制
         self.ai_last_update_time = 0
@@ -3166,8 +3167,8 @@ QPushButton:pressed {
 
         #0.25.1 更新
         #聊天历史气泡
-        bubble_background=QTextBrowser()
-        self.main_layout.addWidget(bubble_background, 3, 2, 4, 3)
+        self.bubble_background=QTextBrowser()
+        self.main_layout.addWidget(self.bubble_background, 3, 2, 4, 3)
         self.chat_history_bubbles = ChatHistoryWidget()
         self.main_layout.addWidget(self.chat_history_bubbles, 3, 2, 4, 3)
         self.main_layout.addWidget(self.display_full_chat_history, 2, 4, 1, 1)
@@ -3177,7 +3178,26 @@ QPushButton:pressed {
         self.chat_history_bubbles.regenerateRequested.connect(self.resend_message)
         self.chat_history_bubbles.editFinished.connect(self.edit_chathistory_by_index)
         
-        
+    def init_concurrenter(self):
+        self.concurrent_model=ConvergenceDialogueOptiProcessor()
+        self.concurrent_model.concurrentor_content.connect(self.concurrentor_content_receive)
+        self.concurrent_model.concurrentor_reasoning.connect(self.concurrentor_reasoning_receive)
+        self.concurrent_model.concurrentor_finish.connect(self.concurrentor_finish_receive)
+
+    def concurrentor_content_receive(self,msg_id,content):
+        self.full_response=content
+        self.update_ai_response_text(msg_id,content)
+
+    def concurrentor_reasoning_receive(self,msg_id,content):
+        self.think_response=content
+        self.thinked=True
+        self.update_think_response_text(msg_id,content)
+
+    def concurrentor_finish_receive(self,msg_id,content):
+        self.last_chat_info = self.concurrent_model.get_concurrentor_info()
+        self.full_response=content
+        self.receive_message(msg_id,content)
+
     def init_sysrule(self):
         # 定义文件路径
         file_path = "utils/system_prompt_presets/当前对话.json"
@@ -3534,8 +3554,9 @@ QPushButton:pressed {
             self.response=None
             self.previous_response = None
             self.temp_full_response = ''
-            thread1 = threading.Thread(target=self.send_message_thread_stream)
-            thread1.start()
+            self.send_message_thread_stream()
+            #thread1 = threading.Thread(target=self.send_message_thread_stream)
+            #thread1.start()
         else:
             try:
                 threading.Thread(target=self.send_message_thread).start()
@@ -3589,6 +3610,9 @@ QPushButton:pressed {
     #实施更新
     def perform_ai_actual_update(self,request_id):
         # 更新界面和滚动条
+        print('actual update',request_id)
+        print('actual update cont',self.full_response)
+        print('actual update think',self.think_response)
         actual_response = StrTools.combined_remove_var_vast_replace(self)
 
         self.ai_response_text.setMarkdown(actual_response)
@@ -3672,6 +3696,9 @@ QPushButton:pressed {
             self.return_message = f"Error in preparing message: {e}"
             self.update_response_signal.emit(100000,self.return_message)
             return
+        
+        self.concurrent_model.start_workflow(params)
+        return
 
         # 发送请求并处理响应
         try:
@@ -3734,6 +3761,27 @@ QPushButton:pressed {
             
             # 其他不可识别类型
             return str(obj)
+        
+        def update_info():
+            if event.usage:
+                # 递归转换所有嵌套结构
+                usage_dict = to_serializable(event.usage)
+                if isinstance(usage_dict, dict):
+                    pass
+                else:
+                    # 如果转换后不是字典（如某些API返回的列表结构）
+                    usage_dict = {'usage_data': usage_dict}
+            else:
+                usage_dict = {}
+            
+            self.last_chat_info = {
+                **usage_dict,
+                "model": event.model,
+                "id":request_id
+            }
+            return self.last_chat_info
+
+
         request_id=random.randint(100000,999999)
         self.thinked=False
         api_provider = self.api_var.currentText()
@@ -3812,8 +3860,16 @@ QPushButton:pressed {
                 }
                 if not isinstance(tool_result, str):
                     tool_result = json.dumps(tool_result, ensure_ascii=False)
-                self.chathistory.append({"role":"assistant","content":self.full_response,'tool_calls':[full_function_call]})
-                self.chathistory.append({"role":"tool","tool_call_id":chatting_tool_call["id"],"content":tool_result})
+                self.chathistory.append({"role":"assistant",
+                                         "content":self.full_response,
+                                         'tool_calls':[full_function_call],
+                                         'reasoning_content':self.think_response,
+                                         'info':update_info()})
+                self.chathistory.append({"role":"tool",
+                                         "tool_call_id":chatting_tool_call["id"],
+                                         "content":tool_result,
+                                         'info':full_function_call})
+                
                 preprocessor = MessagePreprocessor(self)  # 创建预处理器实例
                 message, params = preprocessor.prepare_message(tools=True)
                 StrTools.debug_chathistory(message)
@@ -3823,23 +3879,8 @@ QPushButton:pressed {
             except json.JSONDecodeError:
                 print("函数参数 JSON 解析失败:", chatting_tool_call["function"]["arguments"])
         
-        if event.usage:
-            # 递归转换所有嵌套结构
-            usage_dict = to_serializable(event.usage)
-            if isinstance(usage_dict, dict):
-                pass
-            else:
-                # 如果转换后不是字典（如某些API返回的列表结构）
-                usage_dict = {'usage_data': usage_dict}
-        else:
-            usage_dict = {}
-
-        self.last_chat_info = {
-            **usage_dict,
-            "model": event.model,
-            "id":request_id
-        }
-
+        
+        update_info()
 
         print(f'\n返回长度：{len(self.full_response)}\n思考链长度: {len(self.think_response)}')
         self.update_response_signal.emit(request_id,self.full_response)
@@ -4027,10 +4068,17 @@ QPushButton:pressed {
                 name: (data["url"], data["key"])
                 for name, data in config_data.items()
             }
+        pervious_api_var=self.api_var.currentText()
+        pervious_model=self.model_combobox.currentText()
         self.api_var.clear()
         self.api_var.addItems(MODEL_MAP.keys())
         self.model_combobox.clear()
         self.model_combobox.addItems(MODEL_MAP[self.api_var.currentText()])
+        if pervious_api_var in MODEL_MAP.keys():
+            self.api_var.setCurrentText(pervious_api_var)
+        if pervious_model in MODEL_MAP[self.api_var.currentText()]:
+            self.model_combobox.setCurrentText(pervious_model)
+        self.mod_configer.finish_story_creator_init()
 
     #清除聊天记录
     def clear_history(self):
@@ -5404,15 +5452,17 @@ QPushButton:pressed {
             self.chat_history_bubbles  .hide()
             #self.stat_tab_widget.hide()
             self.viewbutton         .hide()
+            self.bubble_background  .hide()
             self.main_layout.setColumnStretch(0, 1)
             self.main_layout.setColumnStretch(1, 1)
             self.main_layout.setColumnStretch(2, 0)
             self.main_layout.setColumnStretch(3, 0)
             WindowAnimator.animate_resize(self, QSize(self.width(),self.height()), QSize(int(self.height()/2),self.height()-100))
         else:
-            self.chat_history_label .show()
-            self.chat_history_bubbles  .show()
-            #self.stat_tab_widget    .show()
+            self.chat_history_label     .show()
+            self.chat_history_bubbles   .show()
+            #self.stat_tab_widget       .show()
+            self.bubble_background      .show()
             self.main_layout.setColumnStretch(0, 1)
             self.main_layout.setColumnStretch(1, 1)
             self.main_layout.setColumnStretch(2, 1)

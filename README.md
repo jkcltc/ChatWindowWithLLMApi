@@ -12,7 +12,7 @@
 ## ✨ 功能特性
  
 - **长上下文优化**  
-  通过自迭代摘要技术，  
+  通过自迭代摘要，  
   支持将数万字的对话内容截断至数千字（可调）后发送至 API，AI 仍能保留截断点之前的记忆。  
   显著节省长篇角色扮演场景中的 token 消耗。  
  
@@ -24,7 +24,7 @@
  
 - **本地与在线模型支持**  
   支持来自 Ollama 的本地模型  
-  支持来自 Deepseek、百度、Siliconflow、腾讯的 API 模型  
+  支持兼容Openai标准的API模型
  
 - **多模态生成**  
   支持对话过程中同步生成 **文本** 和 **图像**  
@@ -44,9 +44,10 @@
 ```bash
 # 克隆仓库
 git clone https://github.com/jkcltc/ChatWindowWithLLMApi.git
-```
+``` 
 
-###启用语音合成（TTS）  
+### 启用语音合成（TTS）
+#### cosyvoice2
 - 将 chatapi_tts_server.py 和 start_chatapi_tts_server.bat 移动至 CosyVoice 安装目录
 - 准备音频文件并重命名为 2342.wav，放置于 CosyVoice 安装目录
 - 在主窗口中编辑 TTS 设置（Ctrl+Q 打开设置，左侧标签页第 3 页）

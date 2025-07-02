@@ -2704,6 +2704,19 @@ class MainWindow(QMainWindow):
         initial_api = self.api_var.currentText()
         self.update_model_combobox(initial_api)
 
+        if hasattr(self, 'saved_api_provider'):
+            index = self.api_var.findText(self.saved_api_provider)
+            if index >= 0:
+                self.api_var.setCurrentIndex(index)
+        
+        if hasattr(self, 'saved_model_name'):
+            index = self.model_combobox.findText(self.saved_model_name)
+            if index >= 0:
+                self.model_combobox.setCurrentIndex(index)
+        
+        self.api_var.currentTextChanged.connect(lambda text: setattr(self, 'saved_api_provider', text))
+        self.model_combobox.currentTextChanged.connect(lambda text: setattr(self, 'saved_model_name', text))
+
 
         #轮换模型
         self.use_muti_model=QCheckBox("使用轮换模型")
@@ -3086,6 +3099,8 @@ QPushButton:pressed {
         self.new_chat_rounds = 0
         self.last_summary = ''
         self.full_response = ''
+        self.saved_api_provider = ''
+        self.saved_model_name = ''  
 
         # 长度限制设置
         self.max_total_length = 8000
@@ -3512,7 +3527,6 @@ QPushButton:pressed {
         # 清空界面元素
         if clear and not new_msg:
             self.user_input_text.clear()
-            self.chat_history_bubbles.clear()
 
         buffer = []
         append = buffer.append
@@ -3554,9 +3568,11 @@ QPushButton:pressed {
             self.response=None
             self.previous_response = None
             self.temp_full_response = ''
-            self.send_message_thread_stream()
-            #thread1 = threading.Thread(target=self.send_message_thread_stream)
-            #thread1.start()
+            if self.use_concurrent_model.isChecked():
+                self.send_message_thread_stream()
+            else:
+                thread1 = threading.Thread(target=self.send_message_thread_stream)
+                thread1.start()
         else:
             try:
                 threading.Thread(target=self.send_message_thread).start()
@@ -3610,9 +3626,6 @@ QPushButton:pressed {
     #实施更新
     def perform_ai_actual_update(self,request_id):
         # 更新界面和滚动条
-        print('actual update',request_id)
-        print('actual update cont',self.full_response)
-        print('actual update think',self.think_response)
         actual_response = StrTools.combined_remove_var_vast_replace(self)
 
         self.ai_response_text.setMarkdown(actual_response)
@@ -3696,9 +3709,9 @@ QPushButton:pressed {
             self.return_message = f"Error in preparing message: {e}"
             self.update_response_signal.emit(100000,self.return_message)
             return
-        
-        self.concurrent_model.start_workflow(params)
-        return
+        if self.use_concurrent_model.isChecked():
+            self.concurrent_model.start_workflow(params)
+            return
 
         # 发送请求并处理响应
         try:

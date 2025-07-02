@@ -8,45 +8,37 @@ import threading
 import openai
 
 class StoryCreatorGlobalVar:
-    DEFAULT_APIS = {
-        "baidu": {
-            "url": "https://qianfan.baidubce.com/v2",
-            "key": "unknown"
-        },
-        "deepseek": {
-            "url": "https://api.deepseek.com/v1",
-            "key": "unknown"
-        },
-        "siliconflow": {
-            "url": "https://api.siliconflow.cn/v1",
-            "key": "unknown"
-        },
-        "tencent": {
-            "url": "https://api.lkeap.cloud.tencent.com/v1",
-            "key": "unknown"
-        },
-        "novita":{
-            "url": "https://api.novita.ai/v3",
-            "key": "unknown"
-        }
-    }
-    MODEL_MAP = {
-        "baidu": [
-    "ernie-4.5-turbo-32k",
-    "deepseek-r1",
-    "deepseek-v3",
-    "ernie-4.5-8k-preview",
-    "ernie-4.0-8k",
-    "ernie-3.5-8k",
-    "ernie-speed-pro-128k",
-    "ernie-4.0-turbo-8k",
-    "qwq-32b",
-    "ernie-4.5-turbo-vl-32k",
-    "qwen3-0.6b",
-    ],
-        "deepseek": ["deepseek-chat", "deepseek-reasoner"],
-        "tencent": ["deepseek-r1", "deepseek-v3"]
-    }
+    def __init__(self):
+        self.DEFAULT_APIS=self._read_api_config()
+        self.MODEL_MAP=self._update_model_map()
+
+    def _read_api_config(self):
+        """读取api_config.ini文件并返回配置字典"""
+        import configparser
+        
+        script_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        config_path = os.path.join(script_dir, "api_config.ini")
+        
+        if not os.path.exists(config_path):
+            print(f"配置文件不存在: {config_path}")
+            return {}
+
+        config = configparser.ConfigParser()
+        config.read(config_path)
+        
+        api_configs = {}
+        for section in config.sections():
+            try:
+                url = config.get(section, "url").strip()
+                key = config.get(section, "key").strip()
+                api_configs[section] = {"url": url, "key": key}
+            except (configparser.NoOptionError, configparser.NoSectionError) as e:
+                print(f"配置解析错误[{section}]: {str(e)}")
+        return api_configs
+    
+    def _update_model_map(self):
+        with open(r'utils/global_presets/MODEL_MAP.json', 'r', encoding='utf-8') as f:
+            return json.load(f)
 
 class Ui_story_manager(QWidget):
     def setupUi(self, story_manager):
@@ -658,9 +650,9 @@ class StoryManagerBackend(QWidget):
         top = (screen_geometry.height() - height) // 4
         
         self.setGeometry(left, top, width, height)
-        
-        self.default_apis = StoryCreatorGlobalVar.DEFAULT_APIS
-        self.model_map = StoryCreatorGlobalVar.MODEL_MAP
+        self.story_global=StoryCreatorGlobalVar()
+        self.default_apis = self.story_global.DEFAULT_APIS
+        self.model_map = self.story_global.MODEL_MAP
         self.current_config = {
             "create_provider": "baidu",
             "create_model": "",
@@ -717,6 +709,9 @@ class StoryManagerBackend(QWidget):
 
     def _load_default_models(self):
         """加载默认模型到下拉框"""
+        self.story_global.__init__()
+        self.default_apis = self.story_global.DEFAULT_APIS
+        self.model_map = self.story_global.MODEL_MAP
         self._update_model_combo(
             provider=self.current_config["create_provider"],
             combo=self.ui.story_create_model,
@@ -762,6 +757,7 @@ class StoryManagerBackend(QWidget):
 
         #树状图点击
         self.ui.story_treeview.itemClicked.connect(self.on_story_treeview_item_clicked)
+
 
     def _on_create_provider_changed(self, index: int):
         """处理提供商选择变化"""

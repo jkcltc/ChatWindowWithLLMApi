@@ -193,16 +193,16 @@ QTextEdit {
     background-color: rgba(255, 255, 255, 0.2);
     border-radius: 8px;
     border: 1px solid #d0d8e0;
-    padding: 10px;
-    font-size: 14px;
+    padding: 6px;
+    font-size: 18px;
 }
 
 QTextBrowser {
     background-color: rgba(255, 255, 255, 0.2);
     border-radius: 8px;
     border: 1px solid #d0d8e0;
-    padding: 10px;
-    font-size: 14px;
+    padding: 6px;
+    font-size: 18px;
 }
 
 /* ====== QListWidget 样式 ====== */
@@ -303,4 +303,94 @@ QGroupBox::title {
     subcontrol-position: top center;
     padding: 0 10px;
     background-color: transparent;
+}
+/* ====== QToolButton 样式 ====== */
+QToolButton {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+        stop:0 #1a2980, stop:1 #26d0ce);
+    color: white;
+    border: none;
+    border-radius: 1px;
+    margin: 1px;       /* 最小化外边距 */
+    font-weight: bold;
+    min-width: 0;      /* 允许宽度缩小 */
+    min-height: 24;     /* 只能24 */
+}
+
+QToolButton:hover {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+        stop:0 #2334a3, stop:1 #3de0de);
+}
+
+QToolButton:pressed {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+        stop:0 #121f5e, stop:1 #1db3b1);
+}
+
+QToolButton:disabled {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+        stop:0 #a0a0a0, stop:1 #c0c0c0);
+    color: #393939;
+}
+
+
+/* 带菜单指示器样式 */
+QToolButton::menu-button {
+    background: transparent;
+}
+
+QScrollBar:vertical {
+    background: rgba(240, 244, 248, 0.7);
+    width: 12px;
+    margin: 0;
+    border-radius: 4px;
+}
+
+QScrollBar::handle:vertical {
+    background: rgb(67, 123, 179); /* 中性灰蓝色 */
+    border-radius: 4px;
+    min-height: 24px;
+}
+
+QScrollBar::add-line:vertical, 
+QScrollBar::sub-line:vertical {
+    height: 0px; /* 隐藏箭头按钮 */
+    background: none;
+}
+
+/* 水平滚动条 */
+QScrollBar:horizontal {
+    background: rgb(67, 123, 179);
+    height: 9px;
+    margin: 0;
+    border-radius: 4px;
+}
+
+QScrollBar::handle:horizontal {
+    background:rgb(73, 138, 202);
+    border-radius: 4px;
+    min-width: 24px;
+}
+
+/* 悬停效果 */
+QScrollBar::handle:vertical:hover,
+QScrollBar::handle:horizontal:hover {
+    background:rgb(63, 103, 150); /* 稍暗的灰色 */
+}
+
+/* 按压效果 */
+QScrollBar::handle:vertical:pressed,
+QScrollBar::handle:horizontal:pressed {
+    background:rgb(18, 50, 97);
+}
+
+/* 滑块周围的空白区域 */
+QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal,
+QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
+    background:rgba(59, 88, 133, 0.2);
+    border-radius: 4px;
+}
+
+ChatBubble{
+    background: rgba(255,255,255,0.5);
 }

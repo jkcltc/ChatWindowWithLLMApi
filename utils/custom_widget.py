@@ -746,7 +746,8 @@ class ChatBubble(QWidget):
     avatarChanged = pyqtSignal(str, str)    # 参数: 消息ID, 新头像路径
 
     def __init__(self, message_data, nickname=None, 
-                 avatar_path="", parent=None):
+                 avatar_path="", parent=None,
+                 msg_id=None):
         super().__init__(parent)
         self.id = str(message_data['info']['id'])
         self.role = message_data['role']
@@ -755,6 +756,7 @@ class ChatBubble(QWidget):
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.MinimumExpanding)
         self.setObjectName('chatbubble')
         self.manual_expand_reasoning=False
+        self.msg_id=msg_id
         
         # 使用GridLayout作为主布局
         layout = QGridLayout()
@@ -981,6 +983,14 @@ class ChatBubble(QWidget):
         """更新昵称显示"""
         self.role_label.setText(new_nickname)
     
+    def getcontent(self):
+        """获取当前消息内容"""
+        return self.message_data['content']
+
+    def getinfo(self):
+        if 'info' in self.message_data:
+            return self.message_data['info']
+
     def update_avatar(self, new_path):
         """更新头像路径并刷新显示"""
         self.avatar_path = new_path
@@ -991,6 +1001,7 @@ class ChatBubble(QWidget):
         更新内容显示
         :param content_data: 包含 content 和 state 的字典
         """
+
         if self.buttons.edit_button.isChecked():  # 编辑状态下不更新
             return
         if not self.content.isVisible():
@@ -1050,6 +1061,7 @@ class ChatHistoryWidget(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.bubbles = {}  # 存储气泡控件 {消息ID: 气泡实例}
+        self.bubble_list = []
         self.nicknames = {'user': '用户', 'assistant': '助手'}  # 默认昵称
         self.avatars = {'user': '', 'assistant': ''}  # 默认头像路径
         self.setStyleSheet("""
@@ -1099,7 +1111,6 @@ class ChatHistoryWidget(QWidget):
 
     def connect_signals(self):
         """连接内部信号转发"""
-        # 连接编辑完成的信号转发
         self.editFinished.connect(
             lambda msg_id, content: self.update_bubble_content(
                 msg_id, {'content': content}
@@ -1107,18 +1118,95 @@ class ChatHistoryWidget(QWidget):
         )
         
     def set_chat_history(self, history):
-        """设置完整的聊天历史记录"""
-        # 清除现有内容
-        self.clear_history()
+        """
+        设置完整的聊天历史记录，高效更新UI
+        :param history: 新的聊天历史记录列表
+        """
+        # 创建新历史记录的ID到内容的映射
+        new_ids = {msg['info']['id']: msg for msg in history}
         
-        # 添加所有消息
-        for message in history:
-            self.add_message(message)
-        msg_id=message['info']['id']
+        old_ids = {bubble.msg_id: bubble for bubble in self.bubble_list}
+        
+        # 存储当前扩展状态（思考内容是否展开）
+        expanded_states = {}
+        for bubble in self.bubble_list:
+            if bubble.reasoning_display.isVisible():
+                expanded_states[bubble.msg_id] = True
+        
+        # 识别要更新的消息和要删除的消息
+        to_update = []
+        to_remove = []
+        
+        # 检查新历史中的每条消息
+        for new_msg in history:
+            
+            msg_id = new_msg['info']['id']
+            if msg_id in old_ids:
+                print(old_ids[msg_id].getinfo(),new_msg['info'] != old_ids[msg_id].getinfo())
+            # 如果消息在旧历史中存在且内容不同
+            if msg_id in old_ids and (new_msg['content'] != old_ids[msg_id].getcontent() or new_msg['info'] != old_ids[msg_id].getinfo()):
+                to_update.append(new_msg)
+        
+        # 检查旧历史中哪些消息不再存在
+        for msg_id in old_ids:
+            if msg_id not in new_ids:
+                to_remove.append(msg_id)
+        
+        # 移除不再需要的消息
+        for msg_id in to_remove:
+            self.pop_bubble(msg_id)
+        
+        # 更新内容不同的消息
+        for updated_msg in to_update:
+            self.update_bubble(
+                msg_id=updated_msg['info']['id'],
+                content=updated_msg['content'],
+                reasoning_content=updated_msg.get('reasoning_content', '')
+            )
+        
+        # 找出要添加的新消息
+        existing_msg_ids = [bubble.msg_id for bubble in self.bubble_list]
+        new_messages = [msg for msg in history if msg['info']['id'] not in existing_msg_ids]
+        
+        # 添加新消息
+        for new_msg in new_messages:
+            self.add_message(new_msg)
+            
+        # 确保气泡按历史顺序排列
+        self._reorder_bubbles(history)
+
+        msg_id=history[-1]['info']['id']
         self.bubbles[msg_id].setMaximumHeight(int(self.height()*1.2))
         self.updateGeometry()
         self.content_layout.update()
-        QTimer.singleShot(100,self.scroll_to_bottom)
+
+        QTimer.singleShot(100, self.scroll_to_bottom)
+
+    def _reorder_bubbles(self, history):
+        """
+        按历史顺序重新排列气泡
+        :param history: 排序后的历史记录列表
+        """
+        # 创建新的气泡列表（按历史顺序）
+        new_bubble_list = []
+        for msg in history:
+            msg_id = msg['info']['id']
+            if msg_id in self.bubbles:
+                new_bubble_list.append(self.bubbles[msg_id])
+        
+        # 如果顺序没有变化则提前返回
+        if new_bubble_list == self.bubble_list:
+            return
+        
+        # 从布局中移除所有气泡
+        for bubble in self.bubble_list:
+            self.content_layout.removeWidget(bubble)
+        
+        # 按新顺序添加气泡
+        for bubble in new_bubble_list:
+            self.content_layout.addWidget(bubble)
+        
+        self.bubble_list = new_bubble_list
     
     def clear_history(self):
         self.clear()
@@ -1133,11 +1221,25 @@ class ChatHistoryWidget(QWidget):
         
         # 重置气泡字典
         self.bubbles = {}
+        self.bubble_list = []
         
         # 确保占位控件存在
         self.content_layout.addWidget(self.spacer)
 
-    def add_message(self, message_data):
+    def pop_bubble(self, msg_id):
+        if msg_id in self.bubbles:
+            # 获取气泡实例
+            bubble = self.bubbles[msg_id]
+            
+            # 从布局中移除并删除控件
+            self.content_layout.removeWidget(bubble)
+            bubble.deleteLater()
+            
+            # 清理数据结构中的引用
+            del self.bubbles[msg_id]
+            self.bubble_list = [b for b in self.bubble_list if b.msg_id != msg_id]
+
+    def add_message(self, message_data,streaming=False):
         """添加单条消息到聊天历史"""
         role = message_data['role']
         if role not in ['user', 'assistant','tool']:  # 跳过系统消息
@@ -1148,10 +1250,12 @@ class ChatHistoryWidget(QWidget):
         bubble = ChatBubble(
             message_data,
             nickname=self.nicknames.get(role, role.capitalize()),
-            avatar_path=self.avatars.get(role, '')
+            avatar_path=self.avatars.get(role, ''),
+            msg_id=msg_id
         )
         
         # 存储气泡引用
+        self.bubble_list.append(bubble)
         self.bubbles[msg_id] = bubble
         
         self.content_layout.addWidget(bubble)
@@ -1161,7 +1265,18 @@ class ChatHistoryWidget(QWidget):
         bubble.editFinished.connect(self.editFinished.emit)
         bubble.detailToggled.connect(self.detailToggled.emit)
         bubble.avatarChanged.connect(self.avatarChanged.emit)
-        
+
+        target_height = int(self.height() * 1.2)
+        if streaming:
+            self.bubbles[msg_id].setMaximumHeight(target_height)
+        else:
+            if hasattr(self, '_last_max_height_bubble') and self._last_max_height_bubble:
+                self._last_max_height_bubble.setMaximumHeight(99999)
+            
+            bubble.setMaximumHeight(target_height)
+            
+            self._last_max_height_bubble = bubble
+
         return bubble
 
     def update_bubble_content(self, msg_id, content_data):
@@ -1183,11 +1298,11 @@ class ChatHistoryWidget(QWidget):
             bubble.message_data['info'] = info_data
     
     def update_bubble(self,message='',msg_id=0, content='', reasoning_content='',info='',streaming='streaming'):
+        QTimer.singleShot(100,self.scroll_to_bottom)
         #处理输入方式为message
         #输入方式为message，未初始化
         if message and not message['id'] in self.bubbles:
             self.add_message(message)
-            self.bubbles[message['id']].setMaximumHeight(int(self.height()*1.2))
             return
         
         #输入方式为message，已经初始化
@@ -1195,7 +1310,6 @@ class ChatHistoryWidget(QWidget):
             # 更新现有消息气泡
             if 'content' in message:
                 self.update_bubble_content(message['id'], {'content': message['content']})
-                self.bubbles[message['id']].setMaximumHeight(int(self.height()*1.2))
             
             if 'reasoning_content' in message:
                 self.update_bubble_reasoning(message['id'], 
@@ -1213,7 +1327,7 @@ class ChatHistoryWidget(QWidget):
                 'streaming':streaming
             }
             self.add_message(build_message)
-            self.bubbles[msg_id].setMaximumHeight(int(self.height()*1.2))
+
             return
         
         #输入方式不是message，已初始化
@@ -1231,10 +1345,7 @@ class ChatHistoryWidget(QWidget):
                 self.update_bubble_info(msg_id, 
                         {'info': info,
                 'streaming':streaming})
-            self.bubbles[msg_id].setMaximumHeight(int(self.height()*1.2))
             return
-
-        QTimer.singleShot(10,self.scroll_to_bottom)
 
     def set_role_nickname(self, role, nickname):
         """设置角色的昵称"""

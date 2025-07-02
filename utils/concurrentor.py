@@ -46,7 +46,15 @@ class ConcurrentorTools:
         return api_configs
     @staticmethod
     def get_model_map():
-        file_path = "utils/global_presets/MODEL_MAP.json"
+        current_path = os.path.abspath(__file__)
+        parent_dir = os.path.dirname(os.path.dirname(current_path))
+
+        file_path = os.path.join(parent_dir,"utils")
+        file_path = os.path.join(file_path,"global_presets")
+        file_path = os.path.join(file_path,"MODEL_MAP.json")
+        if not os.path.exists(file_path):
+            print(f"配置文件不存在: {file_path}")
+            return {}
         with open(file_path, 'r', encoding='utf-8') as f:
             return json.load(f)
 
@@ -507,6 +515,7 @@ class ConvergenceSettingsWindow(QWidget):
     def __init__(self, processor, parent=None):
         super().__init__(parent)
         self.processor = processor
+        self.MODEL_MAP=ConcurrentorTools.get_model_map()
         self.setWindowTitle("汇流对话优化设置")
         self.resize(800, 600)
         
@@ -592,13 +601,13 @@ class ConvergenceSettingsWindow(QWidget):
         provider_layout = QHBoxLayout()
         provider_layout.addWidget(QLabel("供应商:"))
         self.evaluation_provider = QComboBox()
-        self.evaluation_provider.addItems(MODEL_MAP.keys())
+        self.evaluation_provider.addItems(self.MODEL_MAP.keys())
         provider_layout.addWidget(self.evaluation_provider)
         model_layout.addLayout(provider_layout)
         
         model_layout.addWidget(QLabel("模型:"))
         self.evaluation_model = QComboBox()
-        self.evaluation_model.addItems(MODEL_MAP[self.evaluation_provider.currentText()])
+        self.evaluation_model.addItems(self.MODEL_MAP[self.evaluation_provider.currentText()])
         model_layout.addWidget(self.evaluation_model)
         
         # 更新模型列表当供应商变化
@@ -647,13 +656,13 @@ class ConvergenceSettingsWindow(QWidget):
         provider_layout = QHBoxLayout()
         provider_layout.addWidget(QLabel("供应商:"))
         self.summary_provider = QComboBox()
-        self.summary_provider.addItems(MODEL_MAP.keys())
+        self.summary_provider.addItems(self.MODEL_MAP.keys())
         provider_layout.addWidget(self.summary_provider)
         model_layout.addLayout(provider_layout)
         
         model_layout.addWidget(QLabel("模型:"))
         self.summary_model = QComboBox()
-        self.summary_model.addItems(MODEL_MAP[self.summary_provider.currentText()])
+        self.summary_model.addItems(self.MODEL_MAP[self.summary_provider.currentText()])
         model_layout.addWidget(self.summary_model)
         
         # 更新模型列表当供应商变化
@@ -702,13 +711,13 @@ class ConvergenceSettingsWindow(QWidget):
         provider_layout = QHBoxLayout()
         provider_layout.addWidget(QLabel("供应商:"))
         self.style_provider = QComboBox()
-        self.style_provider.addItems(MODEL_MAP.keys())
+        self.style_provider.addItems(self.MODEL_MAP.keys())
         provider_layout.addWidget(self.style_provider)
         model_layout.addLayout(provider_layout)
         
         model_layout.addWidget(QLabel("模型:"))
         self.style_model = QComboBox()
-        self.style_model.addItems(MODEL_MAP[self.style_provider.currentText()])
+        self.style_model.addItems(self.MODEL_MAP[self.style_provider.currentText()])
         model_layout.addWidget(self.style_model)
         
         # 更新模型列表当供应商变化
@@ -767,13 +776,13 @@ class ConvergenceSettingsWindow(QWidget):
         provider_layout = QHBoxLayout()
         provider_layout.addWidget(QLabel("供应商:"))
         self.correction_provider = QComboBox()
-        self.correction_provider.addItems(MODEL_MAP.keys())
+        self.correction_provider.addItems(self.MODEL_MAP.keys())
         provider_layout.addWidget(self.correction_provider)
         model_layout.addLayout(provider_layout)
         
         model_layout.addWidget(QLabel("模型:"))
         self.correction_model = QComboBox()
-        self.correction_model.addItems(MODEL_MAP[self.correction_provider.currentText()])
+        self.correction_model.addItems(self.MODEL_MAP[self.correction_provider.currentText()])
         model_layout.addWidget(self.correction_model)
         
         # 更新模型列表当供应商变化
@@ -805,7 +814,7 @@ class ConvergenceSettingsWindow(QWidget):
     def update_model_combo(self, provider, combo_box):
         """更新模型下拉框的选项"""
         combo_box.clear()
-        combo_box.addItems(MODEL_MAP.get(provider, []))
+        combo_box.addItems(self.MODEL_MAP.get(provider, []))
     
     def load_presets_to_ui(self):
         """将处理器的预设加载到UI控件"""
@@ -1174,6 +1183,7 @@ class RatingSender(QObject):
 class SummarySender(QObject):
     # 定义信号用于返回汇总结果
     summary_finished = pyqtSignal(str)
+    summary_response = pyqtSignal(str)
     
     def __init__(self):
         super().__init__()
@@ -1228,6 +1238,9 @@ class SummarySender(QObject):
             # 创建API请求处理器
             self.requester = APIRequestHandler(api_config)
             self.requester.request_completed.connect(self._handle_summary_response)
+            self.requester.response_received.connect(self.summary_response.emit)
+            self.requester.reasoning_response_received.connect(self.summary_response.emit)
+
             self.requester.send_request(full_messages, model)
         
         except Exception as e:
@@ -1471,6 +1484,9 @@ class RequestDispatcher(QObject):
         self.summary_sender.summary_finished.connect(
             lambda summary: self.layer_completed.emit({"summary": summary}, "summary")
         )
+        self.summary_sender.summary_response.connect(
+            lambda summary: self.layer_response.emit({"text": summary}, "summary")
+        )
         
         # 确保传入有效的params，即使为空字典
         self.summary_sender.run(messages, ratings, summary_settings, params or {})
@@ -1552,31 +1568,13 @@ class ConvergenceDialogueOptiProcessor(QWidget):
         self.active_requests = 0
         self.presets = {
             "evaluation": {"prefix": "请根据要求对模型响应进行评分。要求：越贴近日常交流，越让人觉得自己在和活生生的人对话时，分数越高。对话内容：\n", "suffix": '\n返回j格式[{"text_id":a,"rating":xx},{"text_id":b,"rating":xx}]', "process_provider": "deepseek", "process_model": "deepseek-chat"},
-            "summary": {"prefix": "请总结以下多个模型响应的核心观点，可以抛弃评价较低的回复和观点:\n", "suffix": "\n\n要求: 生成简短的清晰总结。无须解释原因。", "process_provider": "deepseek", "process_model": "deepseek-chat"},
+            "summary": {"prefix": "请总结以下多个模型响应的核心观点，可以抛弃评价较低的回复和观点:\n", "suffix": "\n\n要求: 生成简短的清晰总结。不要补充或解释原因。", "process_provider": "deepseek", "process_model": "deepseek-chat"},
             "style": {"prefix": "先前的对话是：#chathistory#\n```内容指导\n#pervious_content#```\n现在在不超出指导内容的前提下（只能缩减，不能增加），回复#user#。要求：回复风格为#style#", "suffix": "style:自然", "process_provider": "deepseek", "process_model": "deepseek-chat"},
             "correction": {"prefix": "根据要求评估并返回响应的结果:\n#mod_functions#", "suffix": "回复时使用json", "process_provider": "deepseek", "process_model": "deepseek-chat"}
         }
         
         self.model_responses = {}  # 存储模型响应 {slot: response_text}
         self.load_presets()
-        self.test()
-    def printer(self,*args):
-        print('dispatcher.layer_completed',*args)
-    def printer1(self,*args):
-        print('dispatcher.layer_response',*args)
-    def printer2(self,*args):
-        print('concurrentor_reasoning',*args)
-    def printer3(self,*args):
-        print('concurrentor_content',*args)
-    def printer4(self,*args):
-        print('concurrentor_finish',*args)
-    def test(self):
-        self.dispatcher.layer_completed.connect(self.printer)
-        self.dispatcher.layer_response.connect (self.printer1)
-        self.concurrentor_reasoning .connect(self.printer2)
-        self.concurrentor_content   .connect(self.printer3)
-        self.concurrentor_finish    .connect(self.printer4)
-        pass
 
     def init_ui(self):
         layout = QVBoxLayout()
@@ -1852,6 +1850,7 @@ class ConvergenceDialogueOptiProcessor(QWidget):
             'id':self.msg_id,
             'model':models
         }
+
 if __name__ == "__22=main__":
     app = QApplication([])
     def printer(value):

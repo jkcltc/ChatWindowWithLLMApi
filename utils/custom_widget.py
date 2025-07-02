@@ -235,73 +235,102 @@ class AspectRatioButton(QPushButton):
 
 #滑动按钮
 class SwitchButton(QPushButton):
+    # 定义类常量
+    MARGIN = 4             # 控件外边距
+    SPACING = 8            # 滑块与文本间距
+    SLIDER_MARGIN = 2      # 滑块内边距
+    HEIGHT = 30            # 推荐高度
+
     def __init__(self, texta='on', textb='off'):
         super().__init__()
         self.texta = texta
         self.textb = textb
         self.setCheckable(True)
-        #self.setStyleSheet("""
-        #    SwitchButton {
-        #        border: 2px solid #ccc;
-        #        border-radius: 15px;
-        #        background-color: #ccc;
-        #        height: 30px;
-        #    }
-        #    SwitchButton:checked {
-        #        background-color: #4CAF50;
-        #    }
-        #""")
-
-        # 计算文本所需宽度
+        self.setSizePolicy(QSizePolicy.MinimumExpanding, QSizePolicy.Fixed)
+        
+        # 计算文本所需尺寸
         font = self.font()
         fm = QFontMetrics(font)
-        self.texta_width = fm.width(texta)
-        self.textb_width = fm.width(textb)
-        self.max_text_width = max(self.texta_width, self.textb_width)
-
-        # 初始化滑块
+        self.texta_width = fm.width(texta) + self.SPACING
+        self.textb_width = fm.width(textb) + self.SPACING
+        
+        # 计算滑块尺寸（根据文本高度）
+        slider_height = self.HEIGHT - 2 * self.SLIDER_MARGIN
+        slider_width = slider_height  # 保持正方形滑块
+        
+        # 创建滑块按钮
         self._slider = QPushButton(self)
-        self._slider.setFixedSize(28, 28)
-        #self._slider.setStyleSheet("""
-        #    QPushButton {
-        #        border-radius: 14px;
-        #        background-color: white;
-        #    }
-        #""")
-        slider_width = self._slider.width()
-        # 计算总宽度：滑块宽度 + 左右边距(各2px) + 文本最大宽度
-        total_width = slider_width + 4 + self.max_text_width
-        self.setFixedSize(total_width, 30)
-        self._slider.move(2, 1)
+        self._slider.setFixedSize(slider_width, slider_height)
+        self._slider.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        
+        # 创建文本标签
+        self._label = QLabel(self)
+        self._label.setAlignment(Qt.AlignCenter)
+        self._label.setFixedHeight(self.HEIGHT)
+        
+        # 初始状态
+        self._updateLabelPosition()
+        self.setLabelText()
 
-        # 初始化标签
-        self._label = QLabel(textb, self)
-        #self._label.setStyleSheet("QLabel { color: white; font-weight: bold; }")
-        self._label.setFixedSize(self.max_text_width, 30)
-        self._label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        # 初始位置在右侧
-        self._label.move(self.width() - self.max_text_width - 2, 0)
-
+        # 动画设置
         self.animation = QPropertyAnimation(self._slider, b"pos")
         self.animation.setDuration(200)
-        self.clicked.connect(self.toggle)
+        self.clicked.connect(self.animateSlider)
 
-    def toggle(self):
+    def sizeHint(self):
+        """计算推荐尺寸"""
+        slider_width = self._slider.width()
+        max_text_width = max(self.texta_width, self.textb_width)
+        width = 2 * self.MARGIN + slider_width + max_text_width
+        return QSize(width, self.HEIGHT)
+
+    def _updateLabelPosition(self):
+        """更新标签位置（避开滑块区域）"""
         slider_width = self._slider.width()
         if self.isChecked():
-            # 滑块移至右侧，显示texta
-            end_x = self.width() - slider_width - 2
-            self._label.setText(self.texta)
-            self._label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-            self._label.move(2, 0)
+            # 滑块在右侧，标签在左侧
+            self._label.setGeometry(
+                self.MARGIN, 0,
+                self.width() - slider_width - 2 * self.MARGIN - self.SPACING, 
+                self.height()
+            )
         else:
-            # 滑块移至左侧，显示textb
-            end_x = 2
-            self._label.setText(self.textb)
-            self._label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-            self._label.move(self.width() - self.max_text_width - 2, 0)
+            # 滑块在左侧，标签在右侧
+            self._label.setGeometry(
+                slider_width + self.SPACING + self.MARGIN, 0,
+                self.width() - slider_width - 2 * self.MARGIN - self.SPACING, 
+                self.height()
+            )
+
+    def setLabelText(self):
+        """根据状态设置文本"""
+        self._label.setText(self.texta if self.isChecked() else self.textb)
+
+    def animateSlider(self):
+        """执行滑块动画"""
+        end_x = self.width() - self._slider.width() - self.MARGIN if self.isChecked() else self.MARGIN
         self.animation.setEndValue(QPoint(end_x, self._slider.y()))
         self.animation.start()
+        self.setLabelText()
+        self._updateLabelPosition()
+
+    def resizeEvent(self, event):
+        """处理尺寸变化事件"""
+        super().resizeEvent(event)
+        self._updateLabelPosition()
+        # 更新滑块垂直位置（保持居中）
+        ypos = (self.height() - self._slider.height()) // 2
+        self._slider.move(self._slider.x(), ypos)
+        
+    def setChecked(self, checked):
+        """设置选中状态并更新界面"""
+        super().setChecked(checked)
+        # 立即更新位置（不使用动画）
+        end_x = self.width() - self._slider.width() - self.MARGIN if checked else self.MARGIN
+        ypos = (self.height() - self._slider.height()) // 2
+        self._slider.move(end_x, ypos)
+        self.setLabelText()
+        self._updateLabelPosition()
 
 #markdown重做
 class MarkdownProcessorThread(QThread):
@@ -445,8 +474,7 @@ class MarkdownTextBrowser(ChatapiTextBrowser):
     """自定义 Markdown 渲染文本框"""
     def __init__(self, parent=None):
         super().__init__(parent)
-        # 覆盖原有的样式表设置
-        self.setStyleSheet("")
+
         # 气泡特定的设置
         self.setFrameShape(QFrame.NoFrame)
         self.setWordWrapMode(QTextOption.WrapAtWordBoundaryOrAnywhere)
@@ -459,12 +487,14 @@ class MarkdownTextBrowser(ChatapiTextBrowser):
         self._is_streaming = False
 
         self.document().contentsChanged.connect(self._handle_contents_changed)
+
         
     def sizeHint(self):
         """
         重写sizeHint，返回基于文档内容的理想尺寸。
         """
         # 获取文档的理想高度
+
         doc_height = self.document().size().height()
         
         # 获取控件的边距 (通常是0，但最好包含以防万一)
@@ -472,7 +502,6 @@ class MarkdownTextBrowser(ChatapiTextBrowser):
 
         total_height = doc_height + margins.top() + margins.bottom()
 
-        # 返回尺寸，宽度可以保持默认，高度使用我们计算的值
         return QSize(self.width(), int(total_height))
 
     def setMarkdown(self, text, is_streaming=False):
@@ -597,6 +626,9 @@ class ReasoningDisplay(MarkdownTextBrowser):
         self.setWordWrapMode(QTextOption.WrapAtWordBoundaryOrAnywhere)
         self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.setVisible(False)
+        min_height=min(QApplication.primaryScreen().availableGeometry().height() * 0.1,100)
+        self.setMinimumHeight(min_height)
+
 
     def setMarkdown(self, text, is_streaming=False):
         """
@@ -644,11 +676,11 @@ class BubbleControlButtons(QWidget):
         self.edit_button.setCheckable(True)
 
         self.info_button = QToolButton()
-        self.info_button.setText("ℹ️")
+        self.info_button.setText("🔍")
         self.info_button.setToolTip("消息详情")
         
         self.detail_button = QToolButton()
-        self.detail_button.setText("⋯")
+        self.detail_button.setText("💡")
         self.detail_button.setToolTip("显示思考过程")
         self.detail_button.setCheckable(True)
         
@@ -698,7 +730,7 @@ class BubbleControlButtons(QWidget):
             self.edit_button.setText("✅​")
             self.edit_button.setToolTip("完成编辑")
         else:
-            self.edit_button.setText("🔧")
+            self.edit_button.setText("📝")
             self.edit_button.setToolTip("编辑消息")
         self.editToggleClicked.emit(checked)
         
@@ -722,6 +754,7 @@ class ChatBubble(QWidget):
         self.setMouseTracking(True)  # 启用鼠标跟踪
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.MinimumExpanding)
         self.setObjectName('chatbubble')
+        self.manual_expand_reasoning=False
         
         # 使用GridLayout作为主布局
         layout = QGridLayout()
@@ -789,6 +822,7 @@ class ChatBubble(QWidget):
         # 内容区 - 使用自定义 Markdown 渲染控件
         self.content = MarkdownTextBrowser()
         self.content.setMarkdown(message_data['content'])
+        self.content.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
         
         # 编辑控件（初始隐藏）
         self.editor = EditWidget()
@@ -804,7 +838,7 @@ class ChatBubble(QWidget):
         self.content_container.addWidget(self.content)
         self.content_container.addWidget(self.editor)
         self.content_container.setCurrentIndex(0)  # 默认显示内容区
-        self.content_container.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
+        self.content_container.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
         
         # 添加内容容器到网格布局
         layout.addWidget(self.content_container, 2, 0, 1, 1)
@@ -821,6 +855,11 @@ class ChatBubble(QWidget):
         if reasoning_content:
             self.reasoning_display.setMarkdown(reasoning_content)
             self.buttons.set_has_reasoning(True)
+
+        if not message_data['content']:
+            self.content.hide()
+            if reasoning_content:
+                self.reasoning_display.setVisible(True)
         
         # 连接信号
         self._connect_signals()
@@ -912,6 +951,7 @@ class ChatBubble(QWidget):
     
     def _handle_detail_toggle(self, showing):
         """处理详情显示切换"""
+        self.manual_expand_reasoning=True
         self.reasoning_display.setVisible(showing)
         self.detailToggled.emit(self.id, showing)
     
@@ -953,7 +993,10 @@ class ChatBubble(QWidget):
         """
         if self.buttons.edit_button.isChecked():  # 编辑状态下不更新
             return
-
+        if not self.content.isVisible():
+            self.content.show()
+        if not self.manual_expand_reasoning:
+            self.reasoning_display.hide()
         content = content_data.get('content', '')
 
         # 获取流式状态，默认为 'finished' 如果没有提供
@@ -967,7 +1010,6 @@ class ChatBubble(QWidget):
         if not is_streaming:
             self.editor.setPlainText(content)
 
-    
     def update_reasoning(self, reasoning_data):
         """
         更新思考内容
@@ -978,12 +1020,16 @@ class ChatBubble(QWidget):
             self.buttons.set_has_reasoning(True)
             self.reasoning_display.setMarkdown(reasoning_content)
             self.reasoning_display.setVisible(True)
+            if not self.content.toPlainText().strip():
+                self.content.hide()
+            else:
+                self.content.show()
         
         # 如果是流式结束状态，确保内容刷新
         if reasoning_data.get('state') == 'finished':
             self.reasoning_display.setMarkdown(reasoning_content)
     
-    def mousePressEvent(self, event):
+    def mousePressEvent(self, event):   
         """点击气泡外部时关闭悬浮窗"""
         if self.info_popup.isVisible():
             self.info_popup.hide()
@@ -1034,14 +1080,14 @@ class ChatHistoryWidget(QWidget):
         self.content_layout = QVBoxLayout(content_widget)
         self.content_layout.setContentsMargins(20, 10, 20, 20)
         self.content_layout.setSpacing(15)
-        self.content_layout.setAlignment(Qt.AlignTop)
+        self.content_layout.setAlignment(Qt.AlignBottom)
         
         # 设置滚动区域
         scroll_area.setWidget(content_widget)
         self.layout().addWidget(scroll_area)
         
         # 占位控件
-        self.spacer = QWidget()
+        self.spacer = QLabel()
         self.spacer.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Expanding)
         self.spacer.setStyleSheet("""
             /* 添加半透明背景 */
@@ -1049,7 +1095,7 @@ class ChatHistoryWidget(QWidget):
                 background-color: rgba(255, 255, 255, 0);      
             }
         """)
-        self.content_layout.addWidget(self.spacer)
+        self.content_layout.addWidget(self.spacer,stretch=0)
 
     def connect_signals(self):
         """连接内部信号转发"""
@@ -1068,6 +1114,11 @@ class ChatHistoryWidget(QWidget):
         # 添加所有消息
         for message in history:
             self.add_message(message)
+        msg_id=message['info']['id']
+        self.bubbles[msg_id].setMaximumHeight(int(self.height()*1.2))
+        self.updateGeometry()
+        self.content_layout.update()
+        QTimer.singleShot(100,self.scroll_to_bottom)
     
     def clear_history(self):
         self.clear()
@@ -1089,8 +1140,8 @@ class ChatHistoryWidget(QWidget):
     def add_message(self, message_data):
         """添加单条消息到聊天历史"""
         role = message_data['role']
-        if role not in ['user', 'assistant']:  # 跳过系统消息
-            return      
+        if role not in ['user', 'assistant','tool']:  # 跳过系统消息
+            return
         msg_id = message_data['info']['id']
         
         # 创建气泡控件
@@ -1103,9 +1154,7 @@ class ChatHistoryWidget(QWidget):
         # 存储气泡引用
         self.bubbles[msg_id] = bubble
         
-        # 在占位控件前添加气泡
-        index = self.content_layout.indexOf(self.spacer)
-        self.content_layout.insertWidget(index, bubble)
+        self.content_layout.addWidget(bubble)
         
         # 连接气泡的信号
         bubble.regenerateRequested.connect(self.regenerateRequested.emit)
@@ -1138,6 +1187,7 @@ class ChatHistoryWidget(QWidget):
         #输入方式为message，未初始化
         if message and not message['id'] in self.bubbles:
             self.add_message(message)
+            self.bubbles[message['id']].setMaximumHeight(int(self.height()*1.2))
             return
         
         #输入方式为message，已经初始化
@@ -1145,6 +1195,7 @@ class ChatHistoryWidget(QWidget):
             # 更新现有消息气泡
             if 'content' in message:
                 self.update_bubble_content(message['id'], {'content': message['content']})
+                self.bubbles[message['id']].setMaximumHeight(int(self.height()*1.2))
             
             if 'reasoning_content' in message:
                 self.update_bubble_reasoning(message['id'], 
@@ -1162,6 +1213,7 @@ class ChatHistoryWidget(QWidget):
                 'streaming':streaming
             }
             self.add_message(build_message)
+            self.bubbles[msg_id].setMaximumHeight(int(self.height()*1.2))
             return
         
         #输入方式不是message，已初始化
@@ -1179,7 +1231,8 @@ class ChatHistoryWidget(QWidget):
                 self.update_bubble_info(msg_id, 
                         {'info': info,
                 'streaming':streaming})
-                return
+            self.bubbles[msg_id].setMaximumHeight(int(self.height()*1.2))
+            return
 
         QTimer.singleShot(10,self.scroll_to_bottom)
 

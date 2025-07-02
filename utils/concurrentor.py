@@ -1,4 +1,4 @@
-import sys,threading,openai,os,configparser,json
+import sys,threading,openai,os,configparser,json,random
 from PyQt5.QtWidgets import *
 from PyQt5.QtCore import *
 from PyQt5.QtGui import *
@@ -964,6 +964,7 @@ class GodVarStock:
 class APIRequestHandler(QObject):
     # 定义信号用于跨线程通信
     response_received = pyqtSignal(str)  # 接收到部分响应
+    reasoning_response_received = pyqtSignal(str)
     request_completed = pyqtSignal(str)  # 请求完成
     error_occurred = pyqtSignal(str)  # 发生错误
     
@@ -1019,14 +1020,15 @@ class APIRequestHandler(QObject):
                                       )
                 if special_block_handler_result["starter"] and special_block_handler_result["ender"]:#如果思考链结束
                     self.full_response+= content.content
+                    self.reasoning_response_received.emit(content.content)
                     self.full_response.replace('</think>\n\n', '')
                 elif not (special_block_handler_result["starter"]):#如果没有思考链
                     self.full_response += content.content
-                print(content.content, end='', flush=True)
+                    self.response_received.emit(content.content)
                         # 处理思考链内容
             if hasattr(content, "reasoning_content") and content.reasoning_content:
                 self.think_response += content.reasoning_content
-                print(content.reasoning_content, end='', flush=True)
+                self.reasoning_response_received.emit(content.reasoning_content)
         #try:
         client = openai.Client(
             api_key=self.api_config['key'],  # 替换为实际的 API 密钥
@@ -1037,9 +1039,6 @@ class APIRequestHandler(QObject):
             self.response = client.chat.completions.create(
                     model=model,
                     messages=messages,
-                    #response_format={
-                    #    'type': 'json_object'
-                    #},
                     stream=True,  # 启用流式响应
                 )
             self.full_response = ""
@@ -1246,11 +1245,13 @@ class SummarySender(QObject):
 class StyleSender(QObject):
     # 定义信号用于返回风格化后的文本
     style_finished = pyqtSignal(str)
+    style_thinking = pyqtSignal(str)
+    style_response = pyqtSignal(str)
     
     def __init__(self):
         super().__init__()
         self.requester = None
-        
+
     def run(self, previous_content, style_settings, params):
         """
         执行风格转换请求
@@ -1304,6 +1305,8 @@ class StyleSender(QObject):
             print(full_messages[0]["content"])
             self.requester = APIRequestHandler(api_config)
             self.requester.request_completed.connect(self._handle_style_response)
+            self.requester.response_received.connect(self.style_response.emit)
+            self.requester.reasoning_response_received.connect(self.style_thinking.emit)
             self.requester.send_request(full_messages, model)
         
         except Exception as e:
@@ -1321,6 +1324,8 @@ class StyleSender(QObject):
 class CorrectionSender(QObject):
     # 定义一个信号用于返回补正结果
     correction_finished = pyqtSignal(str)  # 修正后的文本
+    correction_thinking = pyqtSignal(str)
+    correction_response = pyqtSignal(str)
     
     def run(self, styled_text, settings):
         """
@@ -1353,6 +1358,8 @@ class CorrectionSender(QObject):
         self.requester = APIRequestHandler(api_config)
         # 连接完成信号
         self.requester.request_completed.connect(self._handle_correction_response)
+        self.requester.response_received.connect(self.correction_response.emit)
+        self.requester.reasoning_response_received.connect(self.correction_thinking.emit)
         # 发送请求
         self.requester.send_request(full_messages, model)
     
@@ -1375,20 +1382,23 @@ class CorrectionSender(QObject):
             # 如果没有找到JSON格式的修正结果，直接使用整个响应
             self.correction_finished.emit(response_text)
             
+            
         except Exception as e:
             print(f"补正解析错误: {str(e)}")
             self.correction_finished.emit("")
 
 class RequestDispatcher(QObject):
     """请求分发中转类，处理各层请求的分发"""
-    layer_completed = pyqtSignal(dict, str)  # 数据, 完成的层名称
+    layer_completed =       pyqtSignal(dict, str)  # 数据, 完成的层名称
+    layer_response =        pyqtSignal(dict, str)
     
     def __init__(self, processor):
         super().__init__()
         self.processor = processor
         self.current_layer = None
         self.current_result = {}
-    
+
+
     def dispatch_request(self, layer_name, params):
         """分派请求到指定层"""
         self.current_layer = layer_name
@@ -1491,6 +1501,13 @@ class RequestDispatcher(QObject):
         self.style_sender.style_finished.connect(
             lambda styled: self.layer_completed.emit({"styled_text": styled}, "style")
         )
+        self.style_sender.style_response.connect(
+            lambda styled: self.layer_response.emit({"text": styled,'type':'content'}, "style")
+        )
+        self.style_sender.style_thinking.connect(
+            lambda styled: self.layer_response.emit({"text": styled,'type':'reasoning_content'}, "style")
+        )
+
         self.style_sender.run(previous_content, style_settings, params or {})
     
     def _dispatch_correction(self):
@@ -1508,6 +1525,12 @@ class RequestDispatcher(QObject):
         self.correction_sender.correction_finished.connect(
             lambda corrected: self.layer_completed.emit({"corrected_text": corrected}, "correction")
         )
+        self.correction_sender.correction_response.connect(
+            lambda styled: self.layer_response.emit({"text": styled,'type':'content'}, "style")
+        )
+        self.correction_sender.correction_thinking.connect(
+            lambda styled: self.layer_response.emit({"text": styled,'type':'reasoning_content'}, "style")
+        )
         self.correction_sender.run(styled_text, correction_settings)
     
     def set_current_result(self, result):
@@ -1516,6 +1539,9 @@ class RequestDispatcher(QObject):
 
 class ConvergenceDialogueOptiProcessor(QWidget):
     PRESETS_PATH = "utils/global_presets/convergence_presets.json"
+    concurrentor_reasoning=pyqtSignal(int,str)
+    concurrentor_content=pyqtSignal(int,str)
+    concurrentor_finish=pyqtSignal(int,str)
     
     def __init__(self):
         super().__init__()
@@ -1533,7 +1559,25 @@ class ConvergenceDialogueOptiProcessor(QWidget):
         
         self.model_responses = {}  # 存储模型响应 {slot: response_text}
         self.load_presets()
-    
+        self.test()
+    def printer(self,*args):
+        print('dispatcher.layer_completed',*args)
+    def printer1(self,*args):
+        print('dispatcher.layer_response',*args)
+    def printer2(self,*args):
+        print('concurrentor_reasoning',*args)
+    def printer3(self,*args):
+        print('concurrentor_content',*args)
+    def printer4(self,*args):
+        print('concurrentor_finish',*args)
+    def test(self):
+        self.dispatcher.layer_completed.connect(self.printer)
+        self.dispatcher.layer_response.connect (self.printer1)
+        self.concurrentor_reasoning .connect(self.printer2)
+        self.concurrentor_content   .connect(self.printer3)
+        self.concurrentor_finish    .connect(self.printer4)
+        pass
+
     def init_ui(self):
         layout = QVBoxLayout()
         layout.addWidget(self.ui)
@@ -1541,13 +1585,19 @@ class ConvergenceDialogueOptiProcessor(QWidget):
         self.setWindowTitle("汇流对话优化")
         self.resize(1000, 800)
     
+    def init_content_container(self):
+        self.reasoning_content=''
+        self.content=''
+        self.msg_id=random.randint(100000,999999)
+    
     def connect_signals(self):
         self.ui.settings_btn.clicked.connect(self.open_settings)
         self.dispatcher.layer_completed.connect(self.handle_layer_completed)
+        self.dispatcher.layer_response.connect(self._handle_layer_response)
     
     def start_workflow(self, params):
         """启动整个工作流"""
-        # 1. 发送并发请求
+        self.init_content_container()
         self.workflow_params = params
         self.dispatcher.dispatch_request("concurrent", params)
     
@@ -1586,7 +1636,7 @@ class ConvergenceDialogueOptiProcessor(QWidget):
             sender.request_finished.connect(self.on_request_finished)
             sender.run()
             self.thread_keeper.append(sender)
-    
+
     def on_request_finished(self, result):
         """处理单个并发请求完成"""
         slot = result["slot"]
@@ -1620,7 +1670,14 @@ class ConvergenceDialogueOptiProcessor(QWidget):
             self.dispatcher.layer_completed.emit({
                 "messages": [msg for msg in self.model_responses.values() if msg]
             }, "concurrent")
-    
+            full_concurrent_text_result=''
+            for i in [msg for msg in self.model_responses.values() if msg]:
+                full_concurrent_text_result+='单模型响应：'+i+'\n'
+            self.dispatcher.layer_response.emit({
+                'text':full_concurrent_text_result
+            },"concurrent"
+            )
+
     def handle_layer_completed(self, result, layer_name):
         """处理某一层处理完成"""
         # 更新当前层结果
@@ -1677,6 +1734,7 @@ class ConvergenceDialogueOptiProcessor(QWidget):
                 self.dispatcher.layer_completed.emit(
                     {"final_result": result.get("styled_text", "")}, "end"
                 )
+                self.concurrentor_finish.emit(self.msg_id,result.get("styled_text", ""))
         
         elif layer_name == "correction":
             # 更新补正层UI
@@ -1686,8 +1744,8 @@ class ConvergenceDialogueOptiProcessor(QWidget):
             self.dispatcher.layer_completed.emit(
                 {"final_result": result.get("corrected_text", "")}, "end"
             )
+            self.concurrentor_finish.emit(self.msg_id,result.get("corrected_text", ""))
 
-    
     def _update_rating_ui(self, result):
         """更新评价层UI"""
         if "error" in result:
@@ -1712,7 +1770,7 @@ class ConvergenceDialogueOptiProcessor(QWidget):
         
         summary = result.get("summary", "")
         self.ui.summary_text.setPlainText(summary)
-    
+
     def _update_style_ui(self, result):
         """更新风格层UI"""
         if "error" in result:
@@ -1731,7 +1789,18 @@ class ConvergenceDialogueOptiProcessor(QWidget):
         corrected_text = result.get("corrected_text", "")
         self.ui.correction_text.setPlainText(corrected_text)
     
-    # 以下是原有的方法，仅做部分调整
+    def _handle_layer_response(self,result,layer_name):
+        layer_count = self.ui.layer_spin.value()
+        # 统一处理 content 和 reasoning_content
+        if result.get('type','') == 'content' and not (layer_name == "style" and layer_count > 4):
+            self.content += result["text"]
+            self.concurrentor_content.emit(self.msg_id, self.content)
+        else:
+            # 默认处理 reasoning_content
+            self.reasoning_content += result["text"]
+            self.concurrentor_reasoning.emit(self.msg_id, self.reasoning_content)
+
+
     def update_preset(self, layer_name, prefix, suffix, process_provider='', process_model=''):
         if layer_name in self.presets:
             self.presets[layer_name] = {
@@ -1771,7 +1840,19 @@ class ConvergenceDialogueOptiProcessor(QWidget):
         self.settings_window.show()
         self.settings_window.raise_()
 
-if __name__ == "__=main__":
+    def get_concurrentor_info(self):
+        models={}
+        models['concurrentor']=[]
+        for _, group in enumerate(self.ui.model_groups):
+            model_combo = group.property("model")
+            models['concurrentor'] += [model_combo.currentText()]
+        for key,value in self.presets.items():
+            models[key]=value['process_model']
+        return{
+            'id':self.msg_id,
+            'model':models
+        }
+if __name__ == "__22=main__":
     app = QApplication([])
     def printer(value):
         print(value)
@@ -1799,6 +1880,9 @@ if __name__ == "__main__":
     params={
         "messages":TestLib().chathistory
     }
+    processor.concurrentor_reasoning.connect(print)
+    processor.concurrentor_content.connect(print)
+    processor.concurrentor_finish.connect(print)
     
     # 模拟外部调用启动请求（通常在UI中有触发按钮）
     def trigger_requests():

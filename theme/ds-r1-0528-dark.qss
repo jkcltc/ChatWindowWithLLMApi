@@ -19,12 +19,12 @@ QMainWindow {
 QGroupBox {
     background-color: rgba(30, 36, 40, 0.5);
     border: 1px solid rgba(76, 175, 80, 0.3);
+    margin-top: 10px;
     border-radius: 12px;
-    margin-top: 20px;
-    padding-top: 30px;
-    padding-bottom: 15px;
-    padding-left: 15px;
-    padding-right: 15px;
+    padding-top: 10px;
+    padding-bottom: 5px;
+    padding-left: 5px;
+    padding-right: 5px;
     font-weight: bold;
     color: #4CAF50;
 }
@@ -34,11 +34,10 @@ QGroupBox::title {
     subcontrol-position: top left;
     background-color: rgba(30, 36, 40, 0.9);
     color: #C8E6C9;
-    border-top-left-radius: 8px;
-    border-top-right-radius: 8px;
-    padding: 4px 15px;
+    border-radius: 8px;
+    padding: 0px 15px;
     left: 20px;
-    top: -12px;
+    top: 0px;
     font-weight: 600;
     font-size: 11pt;
     border: 1px solid rgba(76, 175, 80, 0.3);
@@ -141,9 +140,8 @@ QTabBar::tab {
     color: #B0B0B0;
     border: 1px solid rgba(76, 175, 80, 0.15);
     border-bottom: none;
-    border-top-left-radius: 8px;
-    border-top-right-radius: 8px;
-    padding: 8px 24px;
+    border-radius: 8px;
+    padding: 8px 8px;
     margin-left: 3px;
     margin-right: 3px;
     font-weight: 500;
@@ -195,34 +193,13 @@ QTabBar QToolButton:hover {
     background: rgba(76, 175, 80, 0.2);
 }
 
-/* ================== 通用样式 ================== */
-
-/* 容器组件 */
-QFrame[objectName="mainContainer"] {
-    background-color: rgba(30, 36, 40, 0.8);
-    border-radius: 20px;
-    border: 1px solid rgba(255, 255, 255, 0.05);
-    padding: 10px;
-}
-
-/* 标题栏 */
-QFrame[objectName="headerFrame"] {
-    background-color: rgba(30, 36, 40, 0.9);
-    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-    border-top-left-radius: 20px;
-    border-top-right-radius: 20px;
-    padding: 12px 16px;
-}
-
 
 /* 按钮样式 */
 QPushButton {
     background-color: rgba(76, 175, 80, 0.15);
     border: 1px solid rgba(76, 175, 80, 0.3);
     border-radius: 16px;
-    padding: 8px 16px;
-    min-width: 80px;
-    min-height: 36px;
+    padding: 8px 3px;
     font-weight: 600;
     color: #E0E0E0;
 }
@@ -236,28 +213,6 @@ QPushButton:pressed {
     background-color: rgba(76, 175, 80, 0.35);
 }
 
-QPushButton[objectName="primaryButton"] {
-    background: linear-gradient(135deg, #4CAF50, #388E3C);
-    box-shadow: 0 4px 15px rgba(76, 175, 80, 0.4);
-    color: white;
-}
-
-QPushButton[objectName="primaryButton"]:hover {
-    background: linear-gradient(135deg, #5cb860, #439c46);
-}
-
-QPushButton[objectName="iconButton"] {
-    border-radius: 21px;
-    min-width: 42px;
-    min-height: 42px;
-    padding: 0;
-    background: rgba(255, 255, 255, 0.07);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-}
-
-QPushButton[objectName="iconButton"]:hover {
-    background: rgba(76, 175, 80, 0.2);
-}
 
 /* 输入框 */
 QLineEdit {
@@ -306,66 +261,13 @@ QTextEdit {
     padding: 8px;
 }
 
-/* 聊天消息气泡样式 */
-QFrame[objectName="aiMessage"] {
-    background-color: rgba(38, 45, 50, 0.7);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 18px;
-    border-bottom-left-radius: 5px;
-    padding: 14px 18px;
-    margin-bottom: 8px;
-    max-width: 85%;
-    align-self: flex-start;
-}
-
-QFrame[objectName="userMessage"] {
-    background-color: rgba(76, 175, 80, 0.15);
-    border: 1px solid rgba(76, 175, 80, 0.3);
-    border-radius: 18px;
-    border-bottom-right-radius: 5px;
-    padding: 14px 18px;
-    margin-bottom: 8px;
-    max-width: 85%;
-    align-self: flex-end;
-}
 
 QLabel {
     background-color: rgba(30, 36, 40, 0.4); /* 半透明背景 */
     border-radius: 8px;
-    padding: 6px 10px;
     margin: 2px;
 }
 
-/* 标题样式 */
-QLabel[objectName="titleLabel"] {
-    font-weight: 700;
-    font-size: 20px;
-    background: linear-gradient(to right, #ffffff, #C8E6C9);
-    color: transparent;
-    background-clip: text;
-    padding-left: 5px;
-    background-color: transparent; /* 标题无背景 */
-    border-radius: 0;
-}
-
-QLabel[objectName="subtitleLabel"] {
-    color: #B0B0B0;
-    font-size: 11px;
-    background-color: transparent; /* 副标题无背景 */
-}
-
-/* 状态指示器 */
-QFrame[objectName="statusIndicator"] {
-    background-color: #66BB6A;
-    border-radius: 4px;
-    min-width: 8px;
-    min-height: 8px;
-}
-
-QLabel[objectName="statusText"] {
-    color: #B0B0B0;
-    font-size: 11px;
-}
 
 /* 工具栏 */
 QToolBar {
@@ -380,8 +282,7 @@ QComboBox {
     background-color: rgba(20, 25, 28, 0.7);
     border: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: 16px;
-    padding: 6px 16px;
-    min-height: 36px;
+    padding: 6px 5px;
     color: #E0E0E0;
 }
 
@@ -463,4 +364,45 @@ QProgressBar {
 QProgressBar::chunk {
     background: linear-gradient(to right, #4CAF50, #66BB6A);
     border-radius: 7px;
+}
+
+/* ================== SpinBox ================== */
+QSpinBox {
+    background-color: rgba(20, 25, 28, 0.7);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 5px;
+    color: #E0E0E0;
+    font-size: 14px;
+}
+
+QSpinBox:hover {
+    border-color: rgba(76, 175, 80, 0.3);
+}
+
+QSpinBox:focus {
+    border: 1px solid rgba(76, 175, 80, 0.5);
+}
+
+/* 上下按钮区域 */
+QSpinBox::up-button, 
+QSpinBox::down-button {
+    background-color: rgba(30, 36, 40, 0.7);
+    border: 1px solid rgba(76, 175, 80, 0.15);
+    border-radius: 2px;
+}
+
+QSpinBox::up-button:hover, 
+QSpinBox::down-button:hover {
+    background-color: rgba(76, 175, 80, 0.25);
+}
+
+QSpinBox::up-button:pressed, 
+QSpinBox::down-button:pressed {
+    background-color: rgba(76, 175, 80, 0.4);
+}
+
+/* 禁用状态 */
+QSpinBox:disabled {
+    color: rgba(255, 255, 255, 0.25);
+    background-color: rgba(30, 36, 40, 0.4);
 }

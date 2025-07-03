@@ -2644,7 +2644,7 @@ class MainWindow(QMainWindow):
     update_background_signal= pyqtSignal(str)
 
     def setupUi(self):
-        self.theme_selector = ThemeSelector(parent=self)
+        self.theme_selector = ThemeSelector()
         self.theme_selector.apply_saved_theme(init_path=None)
 
     def __init__(self):
@@ -2766,7 +2766,8 @@ class MainWindow(QMainWindow):
         self.opti_frame.hide()
 
         self.stat_tab_widget = QTabWidget()
-        self.stat_tab_widget.setMaximumHeight(135)
+        self.stat_tab_widget.setSizePolicy(QSizePolicy.Preferred,QSizePolicy.Minimum)
+        #self.stat_tab_widget.setMaximumHeight(135)
         api_page = QWidget()
         api_page_layout = QGridLayout(api_page)
 
@@ -5508,6 +5509,7 @@ QPushButton:pressed {
         self.update_opti_bar()
         
     def show_theme_settings(self):
+        self.theme_selector.hide()
         self.theme_selector.show()
 
     def show_concurrent_model(self,show=False):

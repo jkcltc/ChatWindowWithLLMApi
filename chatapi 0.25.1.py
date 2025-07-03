@@ -97,7 +97,7 @@ except ImportError as e:
 
 # 常量定义
 
-if not os.path.exists("API_CONFIG_FILE"):
+if not os.path.exists(API_CONFIG_FILE):
     with open("api_config.ini", "w") as f:
         f.write('')
 
@@ -126,7 +126,6 @@ DEFAULT_APIS = {
 MODEL_MAP = ModelMapManager().get_model_map()
 NOVITA_MODEL_OPTIONS = NovitaModelManager().get_model_options()
 #同步模型
-
 def _create_default_config():
     """创建默认配置文件并返回默认API配置"""
     config = configparser.ConfigParser()
@@ -1554,7 +1553,7 @@ class APIConfigWidget(QWidget):
             
         config = configparser.ConfigParser()
         try:
-            config.read("api_config.ini")
+            config.read("api_config.ini",encoding='utf-8')
             
             # 处理预设API
             for api_name in self.preset_apis:
@@ -3606,11 +3605,12 @@ class MainWindow(QMainWindow):
             return
 
         # 发送请求并处理响应
-        try:
+        #try:
+        if True:
             self.send_request(params)
-        except Exception as e:
-            self.return_message = f"Error in sending request: {e}"
-            self.update_response_signal.emit(100000,self.return_message)
+        #except Exception as e:
+        #    self.return_message = f"Error in sending request: {e}"
+        #    self.update_response_signal.emit(100000,self.return_message)
 
     def send_request(self, params):
         """发送请求并处理流式响应"""
@@ -3804,11 +3804,12 @@ class MainWindow(QMainWindow):
             return
 
         # 发送请求并处理响应
-        try:
+        #try:
+        if True:
             self.send_request(params)
-        except Exception as e:
-            self.return_message = f"Error in sending request: {e}"
-            self.update_response_signal.emit(100000,self.return_message)
+        #except Exception as e:
+        #    self.return_message = f"Error in sending request: {e}"
+        #    self.update_response_signal.emit(100000,self.return_message)
 
     #检查当前消息数是否是否触发最大对话数
     def fix_max_message_rounds(self,max_round_bool=True,max_round=0):

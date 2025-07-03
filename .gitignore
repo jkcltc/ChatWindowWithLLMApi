@@ -4,3 +4,5 @@ history/**/*.json
 config.ini
 background.jpg
 /pics
+background.jpg
+utils/config.ini

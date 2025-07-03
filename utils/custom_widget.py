@@ -11,7 +11,29 @@ from pygments import highlight
 from pygments.lexers import get_lexer_by_name
 from pygments.formatters import HtmlFormatter
 import markdown,re
-
+#窗口大小过渡器
+class WindowAnimator:
+    @staticmethod
+    def animate_resize(window: QWidget, 
+                      start_size: QSize, 
+                      end_size: QSize, 
+                      duration: int = 300):
+        """
+        窗口尺寸平滑过渡动画
+        :param window: 要应用动画的窗口对象
+        :param start_size: 起始尺寸（QSize）
+        :param end_size: 结束尺寸（QSize）
+        :param duration: 动画时长（毫秒，默认300）
+        """
+        # 创建并配置动画
+        anim = QPropertyAnimation(window, b"size", window)
+        anim.setDuration(duration)
+        anim.setStartValue(start_size)
+        anim.setEndValue(end_size)
+        anim.setEasingCurve(QEasingCurve.InOutQuad)  # 平滑过渡
+        
+        # 启动动画
+        anim.start()
 #流动标签
 class GradientLabel(QLabel):
     def __init__(self, text="", parent=None):
@@ -1152,7 +1174,10 @@ class ChatHistoryWidget(QWidget):
         :param history: 新的聊天历史记录列表
         """
         # 创建新历史记录的ID到内容的映射
-        new_ids = {msg['info']['id']: msg for msg in history}
+        try:
+            new_ids = {msg['info']['id']: msg for msg in history}
+        except:
+            print(history)
         
         old_ids = {bubble.msg_id: bubble for bubble in self.bubble_list}
         

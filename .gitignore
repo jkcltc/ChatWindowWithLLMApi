@@ -2,3 +2,5 @@ history/**/*.json
 *.ini
 *.pyc
 config.ini
+background.jpg
+/pics

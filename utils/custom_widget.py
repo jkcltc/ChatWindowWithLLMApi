@@ -911,8 +911,6 @@ class ChatBubble(QWidget):
 
         if not message_data['content']:
             self.content.hide()
-            if reasoning_content:
-                self.reasoning_display.setVisible(True)
         
         # 连接信号
         self._connect_signals()
@@ -1004,9 +1002,10 @@ class ChatBubble(QWidget):
     
     def _handle_detail_toggle(self, showing):
         """处理详情显示切换"""
-        self.manual_expand_reasoning=True
-        self.reasoning_display.setVisible(showing)
-        self.detailToggled.emit(self.id, showing)
+        real_showing=(not self.reasoning_display.isVisible())
+        self.manual_expand_reasoning=real_showing
+        self.reasoning_display.setVisible(real_showing)
+        self.detailToggled.emit(self.id, real_showing)
     
     def _show_info_popup(self):
         """显示信息悬浮窗"""
@@ -1057,8 +1056,7 @@ class ChatBubble(QWidget):
             return
         if not self.content.isVisible():
             self.content.show()
-        if not self.manual_expand_reasoning:
-            self.reasoning_display.hide()
+        self.reasoning_display.setVisible(self.manual_expand_reasoning)
         content = content_data.get('content', '')
 
         # 获取流式状态，默认为 'finished' 如果没有提供
@@ -1181,11 +1179,6 @@ class ChatHistoryWidget(QWidget):
         
         old_ids = {bubble.msg_id: bubble for bubble in self.bubble_list}
         
-        # 存储当前扩展状态（思考内容是否展开）
-        expanded_states = {}
-        for bubble in self.bubble_list:
-            if bubble.reasoning_display.isVisible():
-                expanded_states[bubble.msg_id] = True
         
         # 识别要更新的消息和要删除的消息
         to_update = []
@@ -1249,7 +1242,7 @@ class ChatHistoryWidget(QWidget):
         # 如果顺序没有变化则提前返回
         if new_bubble_list == self.bubble_list:
             return
-        
+
         # 从布局中移除所有气泡
         for bubble in self.bubble_list:
             self.content_layout.removeWidget(bubble)
@@ -1387,15 +1380,15 @@ class ChatHistoryWidget(QWidget):
         
         #输入方式不是message，已初始化
         if not message and msg_id in self.bubbles.keys():
+            if reasoning_content:   
+                self.update_bubble_reasoning(msg_id, 
+                        {'reasoning_content': reasoning_content,
+                'streaming':streaming})
             if content:
                 self.update_bubble_content(msg_id,
                         {'content':content,
                 'streaming':streaming
                          })      
-            if reasoning_content:   
-                self.update_bubble_reasoning(msg_id, 
-                        {'reasoning_content': reasoning_content,
-                'streaming':streaming})
             if info:
                 self.update_bubble_info(msg_id, 
                         {'info': info,
@@ -1404,6 +1397,7 @@ class ChatHistoryWidget(QWidget):
 
         if info:  # 确保info更新被处理
             self.update_bubble_info(msg_id, info)
+
     def set_role_nickname(self, role, nickname):
         """设置角色的昵称"""
         if nickname!=self.nicknames[role]:

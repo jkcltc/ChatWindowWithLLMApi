@@ -96,8 +96,8 @@ except ImportError as e:
     print('主线生成器未挂载')
 
 # 常量定义
-
-if not os.path.exists(API_CONFIG_FILE):
+API_CONFIG_FILE = "api_config.ini"
+if not os.path.exists("api_config.ini"):
     with open("api_config.ini", "w") as f:
         f.write('')
 
@@ -1553,7 +1553,7 @@ class APIConfigWidget(QWidget):
             
         config = configparser.ConfigParser()
         try:
-            config.read("api_config.ini",encoding='utf-8')
+            config.read("api_config.ini")
             
             # 处理预设API
             for api_name in self.preset_apis:
@@ -1988,9 +1988,9 @@ class ConfigManager:
 
         if os.path.exists(filename):
             try:
-                config.read(filename, encoding='utf-8')
-            except:
                 config.read(filename)
+            except:
+                config.read(filename,encoding='utf=8')
             for section in config.sections():
                 for option in config[section]:
                     if option in exclude_set:  # 跳过被排除的属性
@@ -2259,8 +2259,13 @@ class MessagePreprocessor:
 
     def _purge_message(self,messages):
         new_message=[]
+        not_needed=['info','reasoning_content']
         for item in messages:
-            new_message+=[{k: v for k, v in item.items() if (k != 'info' or k!='reasoning_content')}]
+            temp_dict={}
+            for key,value in item.items():
+                if not key in not_needed:
+                    temp_dict[key]=value
+            new_message+=[temp_dict]
         return new_message
     
     
@@ -3605,12 +3610,11 @@ class MainWindow(QMainWindow):
             return
 
         # 发送请求并处理响应
-        #try:
-        if True:
+        try:
             self.send_request(params)
-        #except Exception as e:
-        #    self.return_message = f"Error in sending request: {e}"
-        #    self.update_response_signal.emit(100000,self.return_message)
+        except Exception as e:
+            self.return_message = f"Error in sending request: {e}"
+            self.update_response_signal.emit(100000,self.return_message)
 
     def send_request(self, params):
         """发送请求并处理流式响应"""
@@ -3804,12 +3808,11 @@ class MainWindow(QMainWindow):
             return
 
         # 发送请求并处理响应
-        #try:
-        if True:
+        try:
             self.send_request(params)
-        #except Exception as e:
-        #    self.return_message = f"Error in sending request: {e}"
-        #    self.update_response_signal.emit(100000,self.return_message)
+        except Exception as e:
+            self.return_message = f"Error in sending request: {e}"
+            self.update_response_signal.emit(100000,self.return_message)
 
     #检查当前消息数是否是否触发最大对话数
     def fix_max_message_rounds(self,max_round_bool=True,max_round=0):
@@ -4392,7 +4395,7 @@ class MainWindow(QMainWindow):
         # 创建配置文件对象
         config = configparser.ConfigParser()
         # 读取文件
-        config.read('hot_key.ini', encoding='utf-8')
+        config.read('hot_key.ini')
         # 读取变量值
         try:
             if 'HotkeyConfig' in config:

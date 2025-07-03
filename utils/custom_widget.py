@@ -537,7 +537,7 @@ class InfoPopup(QWidget):
         
         # 内容容器（带背景色）
         self.container = QWidget()
-        self.container.setStyleSheet("background-color: #F0F0F0; border-radius: 4px;")
+        self.container.setStyleSheet(self.init_style_sheet())
         container_layout = QVBoxLayout(self.container)
         container_layout.setContentsMargins(8, 8, 8, 8)
         
@@ -561,7 +561,36 @@ class InfoPopup(QWidget):
         
         # 布局嵌套
         layout.addWidget(self.container)
+    def init_style_sheet(self):
+        label_style = QApplication.instance().styleSheet()
+        is_transparent = (
+            "rgba" in label_style or 
+            "transparent" in label_style.lower() or 
+            "hsla" in label_style
+        )
         
+        # 如果包含透明元素，设置为字体颜色的反色且不透明
+        if is_transparent:
+            # 获取默认 label 的字体颜色
+            default_color = QLabel().palette().color(QPalette.Text)
+            # 计算反色
+            inverted_color = QColor(
+                255 - default_color.red(),
+                255 - default_color.green(),
+                255 - default_color.blue()
+            )
+            container_style = f"""
+                background-color: rgba({inverted_color.red()}, 
+                {inverted_color.green()}, 
+                {inverted_color.blue()}, 255);
+                border-radius: 4px;
+                color: rgba({default_color.red()}, 
+                       {default_color.green()}, 
+                       {default_color.blue()}, 255);
+            """
+        
+        return container_style
+
     def show_info(self, info_data, button_global_pos):
         """显示信息悬浮窗"""
         # 清空现有内容

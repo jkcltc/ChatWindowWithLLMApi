@@ -6,18 +6,14 @@ from PyQt5.QtCore import *
 from PyQt5.QtGui import *
 
 class ThemeSelector(QWidget):
-    def __init__(self, parent=None, init_path=None):
-        super().__init__(parent)
-        self.parent_ui = parent
+    def __init__(self, init_path=None):
+        super().__init__()
         self.current_theme = ""
         self.applied_theme = ""  # 记录已应用的主题路径
         self.init_path = init_path
         self.setWindowTitle("主题选择器")
         self.setMinimumSize(800, 600)
-        
-        # 设置窗口标志，使其具有对话框行为
-        self.setWindowFlags(Qt.Window | Qt.WindowCloseButtonHint | Qt.WindowMinimizeButtonHint)
-        
+
         # 创建主布局
         main_layout = QHBoxLayout()
         self.setLayout(main_layout)
@@ -174,7 +170,7 @@ class ThemeSelector(QWidget):
 
     def apply_theme(self):
         """将主题应用到整个应用程序"""
-        if self.current_theme and self.parent_ui:
+        if self.current_theme:
             try:
                 with open(self.current_theme, "r", encoding="utf-8") as f:
                     qss = f.read()
@@ -222,7 +218,6 @@ class ThemeSelector(QWidget):
     def apply_saved_theme(init_path=None):
         """
         静态方法：应用保存的主题到主UI
-        :param parent_ui: 要应用主题的主UI
         :param init_path: 主题目录的基础路径
         """
         # 确定主题目录

@@ -197,7 +197,7 @@ class StatusMonitorWindow(QWidget):
                 ai_update_text = ''
                 for key, value in variables.items():  # Fixed: use .items() for dictionary iteration
                     ai_update_text += f'{key}={value},\n'
-                variables = '在回复的同时更新变量组，只更新下述内容，保持格式：\n变量组开始\n{' + ai_update_text + '}变量组结束\n'
+                variables = '在回复的同时更新变量组，只更新下述内容，保持下述格式：\n变量组开始\n{' + ai_update_text + '}变量组结束\n'
             else:
                 variables = ''
         

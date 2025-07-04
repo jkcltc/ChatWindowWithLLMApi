@@ -11,7 +11,7 @@ import os
 from collections import defaultdict
 
 class TokenAnalyzer:
-    """独立于UI的Token分析逻辑类"""
+    """Token分析逻辑类"""
     
     def __init__(self):
         self.reset()
@@ -368,7 +368,7 @@ class TokenAnalysisWidget(QWidget):
             QThread.msleep(50)  # 短暂延迟确保进度条可见
             self.analyze_current_data()
         else:
-            QMessageBox.information(self, "无数据", "请先通过set_data()方法设置数据")
+            QMessageBox.information(self, "无数据", "请先设置数据")
     
     def analyze_current_data(self):
         """分析当前数据"""
@@ -393,7 +393,7 @@ class TokenAnalysisWidget(QWidget):
         2. 文件夹路径 (str)
         3. 字典 (聊天记录数据)
         """
-        if isinstance(data, dict):
+        if isinstance(data, list):
             # 直接设置字典数据
             self.current_data = data
             self.path_input.setText("实时数据 - 准备分析")
@@ -414,9 +414,10 @@ class TokenAnalysisWidget(QWidget):
                     self.path_input.setEnabled(False)
                     self.analyze_realtime()
                 except json.JSONDecodeError:
+                    self.last_analyzed_path=''
                     QMessageBox.warning(self, "无效输入", "输入的字符串既不是有效路径，也不是有效的JSON数据")
         else:
-            QMessageBox.warning(self, "无效输入", "只接受文件路径、文件夹路径或字典类型的数据")
+            QMessageBox.warning(self, "无效输入", "只接受文件路径、文件夹路径或聊天历史数据")
     
     def on_analysis_finished(self, results):
         """分析完成处理"""
@@ -546,17 +547,3 @@ if __name__ == "__main__":
     window = TokenAnalysisWidget()
     window.show()
     app.exec_()
-'''
-基于pyqt5为该聊天记录写一个token用量分析widget，分步实现以下需求：
-1.提供方法实时接受python字典，也同时允许用户自己选择分析文件的路径。
-2.能够一次性分析整个文件夹的.json历史记录。
-
-现在完成第一步：创建单个聊天记录的分析类。实现时满足以下需求：
-1.从提供的示例可以看出，info参数是多变的，需要有相应处理。
-2.尽可能多的对相同元素进行相加或聚合分析。
-3.content和reasoning_content字数统计
-4.尝试提取高频词汇
-现在实现第二步：分析制定文件夹。满足以下需求：
-1.只分析json文件，而且判断是否符合当前提供的openai兼容消息格式（比如判断是否是'role':'xx','content':'xx'，可以有多余因为外部程序逻辑增加了用于信息保存的字段）
-2.响应要方便UI界面读取
-3.允许指定文件夹'''

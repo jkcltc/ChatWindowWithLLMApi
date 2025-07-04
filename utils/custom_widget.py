@@ -828,7 +828,7 @@ class ChatBubble(QWidget):
         self.top_bar.setLayout(top_layout)
         
         # 头像处理
-        self.avatar = QPushButton()  # 改为按钮以支持点击
+        self.avatar = QPushButton()
         self.avatar.setFixedSize(24, 24)
         self.avatar.setCursor(Qt.PointingHandCursor)  # 显示手型指针
         self.avatar_path = avatar_path  # 存储头像路径

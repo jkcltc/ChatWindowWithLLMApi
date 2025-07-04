@@ -1221,7 +1221,8 @@ class ChatHistoryWidget(QWidget):
         self._reorder_bubbles(history)
 
         msg_id=history[-1]['info']['id']
-        self.bubbles[msg_id].setMaximumHeight(int(self.height()*1.2))
+        if not msg_id=='999999':#猴子补丁，999999是system prompt气泡编号
+            self.bubbles[msg_id].setMaximumHeight(int(self.height()*1.2))
         self.updateGeometry()
         self.content_layout.update()
 

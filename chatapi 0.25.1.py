@@ -2225,13 +2225,13 @@ class MessagePreprocessor:
         start=time.perf_counter()
         better_round = self._calculate_better_round()
         better_message = self._handle_system_messages(better_round)
-        message = self._purge_message(better_message)
-        message = self._process_special_styles(message)
+        message = self._process_special_styles(better_message)
         message = self._handle_web_search_results(message)
         message = self._fix_chat_history(message)
         message = self._handle_long_chat_placement(message)
         message = self._handle_user_and_char(message)
         message = self._handle_mod_functions(message)
+        message = self._purge_message(message)
         params = self._build_request_params(message,stream=self.stream,tools=tools)
         print(f'发送长度: {len(str(message))}')
         print(f'处理时间:{(time.perf_counter()-start)*1000:.2f}ms')
@@ -2267,8 +2267,7 @@ class MessagePreprocessor:
                     temp_dict[key]=value
             new_message+=[temp_dict]
         return new_message
-    
-    
+
     def _process_special_styles(self, better_message):
         """处理特殊样式文本"""
         if (self.god.chathistory[-1]["role"] == "user" and self.god.temp_style != '') \

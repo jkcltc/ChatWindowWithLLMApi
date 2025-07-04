@@ -73,6 +73,7 @@ from utils.theme_manager import ThemeSelector
 from utils.function_manager import *
 from utils.concurrentor import ConvergenceDialogueOptiProcessor
 from utils.preset_data import *
+from utils.usage_analysis import TokenAnalysisWidget
 
 #自定义插件初始化
 try:
@@ -2213,7 +2214,6 @@ class ChatHistoryTools:
             lines.append(f"{message['content']}")
         return '\n'.join(lines)
 
-
 #发送消息前处理器
 class MessagePreprocessor:
     def __init__(self, god_class):
@@ -3249,6 +3249,7 @@ class MainWindow(QMainWindow):
             {"上级名称": "记录", "按钮变量名": "self.save_button", "提示语": "保存记录", "执行函数": "self.save_chathistory"},
             {"上级名称": "记录", "按钮变量名": "self.load_button", "提示语": "导入记录", "执行函数": "self.load_chathistory"},
             {"上级名称": "记录", "按钮变量名": "self.edit_button", "提示语": "修改当前聊天", "执行函数": "self.edit_chathistory"},
+            {"上级名称": "记录", "按钮变量名": "self.analysis_window_button", "提示语": "对话分析", "执行函数": "self.show_analysis_window"},
             {"上级名称": "对话", "按钮变量名": "self.chat_lenth", "提示语": "对话设置", "执行函数": "self.open_max_send_lenth_window"},
             {"上级名称": "对话", "按钮变量名": "self.enforce_chat_opti", "提示语": "强制触发长对话优化", "执行函数": "self.long_chat_improve"},
             {"上级名称": "对话", "按钮变量名": "self.trigger_function_call_window", "提示语": "函数调用", "执行函数": "self.show_function_call_window"},
@@ -3571,11 +3572,12 @@ class MainWindow(QMainWindow):
                 self.last_chat_info={
                     'id':request_id,
                     'WARNING':'not a normal message',
+                    'time':time.strftime("%Y-%m-%d %H:%M:%S")
                 }
             last_message={
                 'role': 'assistant', 
                 'content': content,
-                'info':self.last_chat_info
+                'info':self.last_chat_info,
                 }
             if getattr(self,'thinked'):
                 last_message['reasoning_content']=self.think_response
@@ -3686,7 +3688,8 @@ class MainWindow(QMainWindow):
             self.last_chat_info = {
                 **usage_dict,
                 "model": event.model,
-                "id":request_id
+                "id":request_id,
+                'time':time.strftime("%Y-%m-%d %H:%M:%S")
             }
             return self.last_chat_info
 
@@ -4644,10 +4647,9 @@ class MainWindow(QMainWindow):
             self.last_summary=return_story
             print('长对话处理一次,历史记录第一位更新为：',self.chathistory[0]["content"])
             self.autosave_save_chathistory()
-            self.update_response_signal.emit(random.randint(100000,999999),f"Error:")
         except Exception as e:
             # 如果线程中发生异常，也通过信号通知主线程
-            self.update_response_signal.emit(random.randint(100000,999999),f"Error: {str(e)}")
+            self.update_response_signal.emit(random.randint(10000,99999),f"Error: {str(e)}")
             print('长对话优化报错，Error code:',e)
 
     #对话设置
@@ -4940,7 +4942,7 @@ class MainWindow(QMainWindow):
             except Exception as e:
                 print('novita api init:',e)
         summary_prompt=BackGroundPersetVars.summary_prompt
-        user_summary=MainWindowPresetVars.user_summary
+        user_summary=BackGroundPersetVars.user_summary
         if mode=="chathistory":
             last_full_story=self.get_background_prompt_from_chathistory(user_summary)
         elif mode=="pic_creater":
@@ -4954,10 +4956,10 @@ class MainWindow(QMainWindow):
         ]
         if self.back_ground_update_provider:
             api_provider=self.back_ground_update_provider
-            print("场景生成 自定义提供商：",api_provider,type(api_provider))
+            print("场景生成 自定义提供商：",api_provider)
         else:
             api_provider = self.api_var.currentText()
-            print("场景生成 默认供商：",api_provider)
+            print("场景生成 默认提供商：",api_provider)
         if self.back_ground_update_model:
             model = self.back_ground_update_model
             print("场景生成 自定义模型：",model)
@@ -4973,15 +4975,14 @@ class MainWindow(QMainWindow):
             completion = client.chat.completions.create(
                 model=model,
                 messages=messages,
-                #temperature=0
             )
             content = completion.choices[0].message
             return_prompt = completion.choices[0].message.content
 
             reasoning_content = None
-            if hasattr(content, "reasoning_content"):  # 优先检查直接属性[2](@ref)
+            if hasattr(content, "reasoning_content"):
                 reasoning_content = content.reasoning_content
-            elif hasattr(content, "model_extra"):     # 备选检查扩展字段[4](@ref)
+            elif hasattr(content, "model_extra"):
                 reasoning_content = content.model_extra.get("reasoning_content", None)
 
             print("场景生成：prompt请求完成。\n返回长度:",len(return_prompt),
@@ -5366,6 +5367,14 @@ class MainWindow(QMainWindow):
             self.concurrent_model.show()
         else:
             self.concurrent_model.hide()
+
+    def show_analysis_window(self):
+        if not hasattr(self,'token_analyzer'):
+            self.token_analyzer=TokenAnalysisWidget()
+        self.token_analyzer.show()
+        self.token_analyzer.raise_()
+        self.token_analyzer.activateWindow()
+        self.token_analyzer.set_data(self.chathistory)
 
 def start():
     app = QApplication(sys.argv)

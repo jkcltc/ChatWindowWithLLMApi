@@ -320,10 +320,10 @@ class FunctionLibrary:
                 exec(code, {})  # 在独立环境中执行代码
             captured_output = output_buffer.getvalue().strip()
             if len(captured_output)>10000:
-                return '部分执行'+captured_output[0:10000]+"\n部分执行\ntoo many output!\nthe rest is abandoned"
+                return '执行完成，响应过长。'+captured_output[0:10000]+"\nWARNING:\ntoo many output!\nthe rest is abandoned."
             if len(captured_output) == 0:
-                return '执行成功，无输出内容'
-            return f"执行成功，输出内容：\n{captured_output}"
+                return '执行完成，无打印内容'
+            return f"执行完成，打印内容：\n{captured_output}"
         except Exception as e:
             return f"执行失败：{str(e)}"
 

@@ -96,6 +96,16 @@ try:
 except ImportError as e:
     print('主线生成器未挂载')
 
+
+#路径初始化
+if getattr(sys, 'frozen', False):
+    # 打包后的程序
+    application_path = os.path.dirname(sys.executable)
+    temp_path = sys._MEIPASS
+else:
+    # 普通 Python 脚本
+    application_path = os.path.dirname(os.path.abspath(__file__))
+
 # 常量定义
 API_CONFIG_FILE = "api_config.ini"
 if not os.path.exists("api_config.ini"):
@@ -180,7 +190,6 @@ if not os.path.exists('background.jpg'):
     with open('background.jpg', 'wb') as f:
         f.write(think_img)
 # 全局变量
-application_path = None
 temp_path = None
 api = api_init()
 user_input = ''
@@ -351,14 +360,6 @@ class ModelListUpdater:
         ModelListUpdater.update_model_map(update_ollama=ollama_alive)
     
 
-#路径初始化
-if getattr(sys, 'frozen', False):
-    # 打包后的程序
-    application_path = os.path.dirname(sys.executable)
-    temp_path = sys._MEIPASS
-else:
-    # 普通 Python 脚本
-    application_path = os.path.dirname(os.path.abspath(__file__))
 
 ##支持类
 #Novita Api 下的图像生成
@@ -2610,20 +2611,6 @@ class MainWindow(QMainWindow):
         initial_api = self.api_var.currentText()
         self.update_model_combobox(initial_api)
 
-        if hasattr(self, 'saved_api_provider'):
-            index = self.api_var.findText(self.saved_api_provider)
-            if index >= 0:
-                self.api_var.setCurrentIndex(index)
-        
-        if hasattr(self, 'saved_model_name'):
-            index = self.model_combobox.findText(self.saved_model_name)
-            if index >= 0:
-                self.model_combobox.setCurrentIndex(index)
-        
-        self.api_var.currentTextChanged.connect(lambda text: setattr(self, 'saved_api_provider', text))
-        self.model_combobox.currentTextChanged.connect(lambda text: setattr(self, 'saved_model_name', text))
-
-
         #轮换模型
         self.use_muti_model=QCheckBox("使用轮换模型")
         self.use_muti_model.toggled.connect(lambda checked: (
@@ -2957,6 +2944,8 @@ class MainWindow(QMainWindow):
         self.bind_enter_key()
         self.update_opti_bar()
 
+        #UI状态恢复
+        self.recover_ui_status()
         #UI创建后
         self.init_post_ui_creation()
 
@@ -3152,6 +3141,26 @@ class MainWindow(QMainWindow):
 
     def show_mod_configer(self):
         self.mod_configer.show()
+
+    def recover_ui_status(self):
+        """
+        恢复API提供商和模型选择的UI状态（如果有保存的值）。
+        如果存在已保存的值，则设置对应下拉框的当前选项。
+        同时连接下拉框的currentTextChanged信号，在用户更改选择时更新保存的值。
+        """
+        if hasattr(self, 'saved_api_provider'):
+            index = self.api_var.findText(self.saved_api_provider)
+            if index >= 0:
+                self.api_var.setCurrentIndex(index)
+        
+        if hasattr(self, 'saved_model_name'):
+            index = self.model_combobox.findText(self.saved_model_name)
+            if index >= 0:
+                self.model_combobox.setCurrentIndex(index)
+        
+        self.api_var.currentTextChanged.connect(lambda text: setattr(self, 'saved_api_provider', text))
+        self.model_combobox.currentTextChanged.connect(lambda text: setattr(self, 'saved_model_name', text))
+
 
     #svg图标渲染器
     def render_svg_to_icon(self, svg_data):

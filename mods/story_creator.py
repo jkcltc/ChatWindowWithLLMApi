@@ -449,7 +449,7 @@ AI扮演的角色负责提供信息和引导。
         if pervious_result:
             user_prompt += f"结合之前的结果：{pervious_result},请根据要求“{prompt}”,生成剧情。"
         else:
-            user_prompt += f"请根据这个要求生成剧情{prompt}"
+            user_prompt += f"请根据要求生成剧情：{prompt}"
         messages = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt}
@@ -468,10 +468,14 @@ AI扮演的角色负责提供信息和引导。
         """
 
         try:
+            print('主线接受，正在解析')
             from jsonfinder import jsonfinder
             for _, __, obj in jsonfinder(response, json_only=True):
                 if isinstance(obj, list):  # 确保我们提取到的是JSON数组
                     self.request_completed.emit(obj)
+                    print('主线解析发现结果')
+            else:
+                print('主线解析结束')
         except json.JSONDecodeError:
             print("无法解析JSON:", response)
             self.request_completed.emit(['failed to parse json'])
@@ -893,6 +897,7 @@ class StoryManagerBackend(QWidget):
     def update_story_treeview(self, story_nodes: list):
         """更新剧情树视图"""
         # 获取story_treeview控件
+        print('主线显示屏开始更新')
         tree = self.ui.story_treeview
         
         # 清除现有内容
@@ -930,6 +935,7 @@ class StoryManagerBackend(QWidget):
         self.ui.ai_create_story.stop_animation()
         self.ui.request_modify.setEnabled(True)
         self.ui.request_modify.stop_animation()
+        print('主线显示屏更新结束')
     
     def highlight_story_treeview(self, node_id: str):
         """选中剧情树视图中的指定节点"""

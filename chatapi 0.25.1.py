@@ -74,6 +74,7 @@ from utils.function_manager import *
 from utils.concurrentor import ConvergenceDialogueOptiProcessor
 from utils.preset_data import *
 from utils.usage_analysis import TokenAnalysisWidget
+from utils.chat_history_manager import *
 
 #自定义插件初始化
 try:
@@ -2179,42 +2180,6 @@ class StrTools:
             actual_response = StrTools.remove_var(actual_response)
         return actual_response
 
-class ChatHistoryTools:
-    @staticmethod
-    def locate_chat_index(chathistory, request_id):
-        for i, msg in enumerate(chathistory):
-            info = msg.get('info', {})
-            if str(info.get('id')) == str(request_id):
-                return i
-        return None
-    
-    @staticmethod
-    def patch_history_0_25_1(chathistory):
-        request_id=100001
-        for item in chathistory:
-            if not "info" in item:
-                item['info']={'id':request_id}
-                request_id+=1
-        return chathistory
-    
-    @staticmethod
-    def clean_history(chathistory,unnecessary_items=['info']):
-        exclude = set(unnecessary_items)
-        return [
-            {key: value for key, value in item.items() if key not in exclude}
-            for item in chathistory
-        ]
-    
-    @staticmethod
-    def to_readable_str(chathistory):
-        lines = []
-        for message in chathistory:
-            if message['role']=='system':
-                continue
-            lines.append(f"{message['role']}:")
-            lines.append(f"{message['content']}")
-        return '\n'.join(lines)
-
 #发送消息前处理器
 class MessagePreprocessor:
     def __init__(self, god_class):
@@ -2822,9 +2787,9 @@ class MainWindow(QMainWindow):
     }
 """)
 
-        self.load_stories_chat_list=QPushButton('🗺')
-        self.load_stories_chat_list.clicked.connect(self.load_stories_from_chat)
-        self.load_stories_chat_list.setToolTip("载入世界观")
+        self.load_stories_chat_list=QPushButton('📊')
+        self.load_stories_chat_list.clicked.connect(self.analysis_past_chat)
+        self.load_stories_chat_list.setToolTip("分析用量")
         self.load_stories_chat_list.setStyleSheet("""
     QPushButton {
         font-size: 18px;
@@ -2966,6 +2931,7 @@ class MainWindow(QMainWindow):
         self.stream_receive = True
         self.firstrun_do_not_load = True
         self.long_chat_improve_var = True
+        self.enable_lci_system_prompt=True
         self.hotkey_sysrule_var = True
         self.back_ground_update_var = True
         self.web_search_enabled=False
@@ -3051,9 +3017,8 @@ class MainWindow(QMainWindow):
     def init_chat_history_bubbles(self):
         # 聊天历史文本框
         self.chat_history_label = QLabel("聊天历史")
-        self.display_full_chat_history=QPushButton("完整记录")
+        self.display_full_chat_history=QPushButton("纯文本")
         self.display_full_chat_history.clicked.connect(self.display_full_chat_history_window)
-        self.display_full_chat_history.hide()
         self.chat_history_text = ChatapiTextBrowser()
         self.chat_history_text.anchorClicked.connect(lambda url: os.startfile(url.toString()))
         self.chat_history_text.setOpenExternalLinks(False)
@@ -3391,35 +3356,13 @@ class MainWindow(QMainWindow):
 
     #超长文本显示优化
     def display_full_chat_history_window(self):
-    # 创建子窗口
-        history_window = QDialog(self)
-        history_window.setWindowTitle("Full Chat History")
-        history_window.setMinimumSize(650, 500)
-        
-        # 使用QTextBrowser提升性能
-        text_browser = QTextBrowser()
-        text_browser.setOpenExternalLinks(True)
-        
-        buffer = []
-        append = buffer.append  # 局部变量加速访问
-        for msg in self.chathistory:
-            if msg['role'] == 'system':
-                continue
-            append(f"\n## {msg['role']} \n{msg['content']}\n")
-        
-        # 单次设置内容（提升渲染性能）
-        text_browser.setMarkdown('\n'.join(buffer))
-        
-        # 自动滚动到底部（避免重复计算）
-        #scroll_bar = text_browser.verticalScrollBar()
-        #scroll_bar.setValue(scroll_bar.maximum())
-        
-        # 优化布局参数
-        layout = QVBoxLayout(history_window)
-        layout.setContentsMargins(8, 8, 8, 8)
-        layout.addWidget(text_browser)
-        
-        history_window.exec_()
+        history_text_view = ChatHistoryTextView(
+        self, 
+        self.chathistory, 
+        self.name_user, 
+        self.name_ai
+    )
+        history_text_view.exec_()
 
     #更新聊天记录框，会清除用户和AI的输入框
     def update_chat_history(self, clear=True, new_msg=None,msg_id=''):
@@ -4011,6 +3954,7 @@ class MainWindow(QMainWindow):
         self.new_background_rounds=0
         self.last_summary=''
         self.update_opti_bar()
+        self.update_chat_history()
 
     #打开设置窗口
     def open_system_prompt(self, show_at_call=True):
@@ -4186,132 +4130,21 @@ class MainWindow(QMainWindow):
             if True:
                 with open(file_path, "r", encoding="utf-8") as file:
                     self.chathistory = json.load(file)
-                ChatHistoryTools.patch_history_0_25_1(self.chathistory)
+                self.chathistory=ChatHistoryTools.patch_history_0_25_1(self.chathistory)
                 self.update_chat_history()  # 更新聊天历史显示
                 print("聊天记录已导入，当前聊天记录：", self.chathistory[-1]['content'])
                 self.new_chat_rounds=min(self.max_message_rounds,len(self.chathistory))
                 self.new_background_rounds=min(self.max_background_rounds,len(self.chathistory))
                 self.last_summary=''
                 self.update_opti_bar()
-            #except json.JSONDecodeError:
-            #    QMessageBox.critical(self, "格式错误", "JSON 格式不正确或来源非对话\n注意，需要点击“清空”后才不会触发API报错")
-            #except Exception as e:
-            #    QMessageBox.critical(self, "导入失败", f"导入聊天记录时发生错误：{e}")
 
     #编辑记录
     def edit_chathistory(self):
-        # 创建子窗口
-        edit_window = QDialog(self)
-        edit_window.setWindowTitle("编辑聊天记录")
-        edit_window.resize(self.width(), self.height())
+        editor = ChatHistoryEditor(self.chathistory, self)
+        editor.editCompleted.connect(lambda new_history: setattr(self, 'chathistory', new_history))
+        editor.editCompleted.connect(self.update_chat_history)
+        editor.exec_()
 
-        # 创建布局
-        layout = QVBoxLayout()
-        edit_window.setLayout(layout)
-
-        # 标签
-        note_label = QLabel("在文本框中修改内容，AI的回复也可以修改")
-        layout.addWidget(note_label)
-
-        # 创建文本编辑框
-        text_edit = QTextEdit()
-        layout.addWidget(text_edit)
-
-        # 将 chathistory 转为 JSON 并添加到文本编辑框
-        text_edit.setText(json.dumps(self.chathistory, ensure_ascii=False, indent=4))
-
-        # 定义完成按钮的回调函数
-        def on_complete():
-            try:
-                # 获取文本框中的内容
-                edited_json = text_edit.toPlainText().strip()
-                # 将 JSON 字符串转为 Python 对象
-                new_chathistory = json.loads(edited_json)
-                # 验证是否是列表且每个元素都是字典
-                if isinstance(new_chathistory, list) and all(isinstance(item, dict) for item in new_chathistory):
-                    self.chathistory = new_chathistory  # 更新全局变量
-                    QMessageBox.information(self, "成功", "聊天记录已更新！")
-                    self.update_chat_history()  # 更新聊天历史显示
-                    edit_window.accept()
-                else:
-                    QMessageBox.critical(self, "格式错误", "聊天记录必须是一个包含字典的列表！")
-            except json.JSONDecodeError as e:
-                QMessageBox.critical(self, "格式错误", f"JSON 格式错误：{e}")
-
-        def delete_last_message():
-            edited_json = text_edit.toPlainText().strip()
-            # 将 JSON 字符串转为 Python 对象
-            new_chathistory = json.loads(edited_json)
-            if new_chathistory and new_chathistory[-1]["role"] != "system":
-                new_chathistory.pop()
-                text_edit.setText(json.dumps(new_chathistory, ensure_ascii=False, indent=4))
-
-        # 批量替换
-        def show_replace_dialog():
-            # 创建临时对话框，使用edit_window作为父窗口
-            dialog = QDialog(edit_window)
-            dialog.setWindowTitle("替换内容")
-
-            old_edit = QLineEdit()
-            new_edit = QLineEdit()
-            btn = QPushButton('执行替换')
-
-            layout = QVBoxLayout()
-            layout.addWidget(old_edit)
-            layout.addWidget(new_edit)
-            layout.addWidget(btn)
-            dialog.setLayout(layout)
-
-            def execute_replace():
-                old = old_edit.text()
-                new_text = new_edit.text()
-                if not old:
-                    QMessageBox.warning(dialog, "警告", "替换内容不能为空")
-                    return
-
-                # 获取当前编辑框中的内容并处理
-                current_text = text_edit.toPlainText().strip()
-                try:
-                    current_history = json.loads(current_text)
-                    if not (isinstance(current_history, list) and all(isinstance(item, dict) for item in current_history)):
-                        raise ValueError("无效的聊天记录结构")
-
-                    for msg in current_history:
-                        if "content" in msg:
-                            msg["content"] = msg["content"].replace(old, new_text)
-                    # 更新文本框内容
-                    text_edit.setText(json.dumps(current_history, ensure_ascii=False, indent=4))
-                    dialog.close()
-                    QMessageBox.information(edit_window, "完成", "替换操作已完成")
-                except Exception as e:
-                    QMessageBox.critical(dialog, "错误", f"替换失败：{str(e)}")
-
-            btn.clicked.connect(execute_replace)
-            dialog.exec_()
-
-        # 创建功能按钮区域
-        grid_func = QGroupBox("快捷编辑")
-        grid_func_layout = QGridLayout()
-        grid_func.setLayout(grid_func_layout)
-
-        delete_last_message_button = QPushButton("删除上一条")
-        delete_last_message_button.clicked.connect(delete_last_message)
-
-        replace_button = QPushButton("替换")
-        # 连接信号时不需要传递参数
-        replace_button.clicked.connect(show_replace_dialog)
-
-        complete_button = QPushButton("完成")
-        complete_button.clicked.connect(on_complete)
-
-        grid_func_layout.addWidget(delete_last_message_button, 0, 0)
-        grid_func_layout.addWidget(replace_button, 0, 1)
-
-        layout.addWidget(grid_func)
-        layout.addWidget(complete_button)
-
-        # 显示子窗口
-        edit_window.exec_()
     def edit_chathistory_by_index(self,id,text):
         index=ChatHistoryTools.locate_chat_index(self.chathistory,id)
         self.chathistory[index]['content']=text
@@ -4680,7 +4513,8 @@ class MainWindow(QMainWindow):
             'autoreplace_from': self.autoreplace_from,
             'autoreplace_to': self.autoreplace_to,
             'name_user': self.name_user,
-            'name_ai': self.name_ai
+            'name_ai': self.name_ai,
+            'enable_lci_system_prompt':self.enable_lci_system_prompt,
         }
         if not hasattr(self,"main_setting_window"):
             self.main_setting_window=MainSettingWindow(config=config)
@@ -4689,6 +4523,7 @@ class MainWindow(QMainWindow):
         self.main_setting_window.config=config
         self.main_setting_window.update_api_provider_combo()
         self.main_setting_window.show()
+        self.main_setting_window.raise_()
 
     def _connect_signal_mcsw_window(self):
         if hasattr(self, "main_setting_window"):
@@ -4698,6 +4533,8 @@ class MainWindow(QMainWindow):
             # 长对话优化设置
             self.main_setting_window.long_chat_improve_changed.connect(
                 lambda state: setattr(self, 'long_chat_improve_var', state))
+            self.main_setting_window.include_system_prompt_changed.connect(
+                lambda state: setattr(self, 'enable_lci_system_prompt', state))
             self.main_setting_window.long_chat_placement_changed.connect(
                 lambda text: setattr(self, 'long_chat_placement', text))
             self.main_setting_window.long_chat_api_provider_changed.connect(
@@ -4762,13 +4599,15 @@ class MainWindow(QMainWindow):
         )
 
         import_action = context_menu.addAction("导入system prompt")
+        import_action.setToolTip('从过去的中获取系统提示文本并覆盖掉\n当前对话中的系统提示。')
         import_action.triggered.connect(
             lambda: self.load_sys_pmt_from_past_record()
         )
 
-        world_view_action = context_menu.addAction("载入世界观")
+        world_view_action = context_menu.addAction("分析")
+        world_view_action.setToolTip('打开分析窗口')
         world_view_action.triggered.connect(
-            lambda: self.load_stories_from_chat()
+            lambda: self.analysis_past_chat()
         )
 
 
@@ -4792,15 +4631,8 @@ class MainWindow(QMainWindow):
             if os.path.exists(file_path):
                 os.remove(file_path)
             else:
-                # 文件不存在时询问是否继续
-                choice = QMessageBox.question(
-                    self,
-                    "文件不存在",
-                    "关联文件已丢失，是否从列表中移除该记录？",
-                    QMessageBox.Yes | QMessageBox.No
-                )
-                if choice != QMessageBox.Yes:
-                    return
+                QMessageBox.warning("错误",
+                                    "文件不存在")
         except PermissionError:
             QMessageBox.critical(self, "错误", "没有文件删除权限")
             return
@@ -4859,8 +4691,16 @@ class MainWindow(QMainWindow):
             print(f"An error occurred: {e}")
             self.chathistory = []
 
-    def load_stories_from_chat(self):
-        QMessageBox.information(self, "懒得写了", "没写完，不想写")
+    def analysis_past_chat(self):
+        item = self.past_chat_list.currentItem()
+        if not item:
+            print("No item selected.")
+            return
+        filename = os.path.basename(item.text())
+        
+        # 构建完整的文件路径
+        file_path = os.path.join(self.history_path, filename)
+        self.show_analysis_window(file_path)
 
     #背景更新：触发线程
     def back_ground_update(self,mode='chathistory',pic_creater_input=''):
@@ -5376,18 +5216,20 @@ class MainWindow(QMainWindow):
         else:
             self.concurrent_model.hide()
 
-    def show_analysis_window(self):
+    def show_analysis_window(self,data=None):
+        if not data:
+            data=self.chathistory
         if not hasattr(self,'token_analyzer'):
             self.token_analyzer=TokenAnalysisWidget()
         self.token_analyzer.show()
         self.token_analyzer.raise_()
         self.token_analyzer.activateWindow()
-        self.token_analyzer.set_data(self.chathistory)
+        self.token_analyzer.set_data(data)
 
 def start():
     app = QApplication(sys.argv)
     if sys.platform == 'win32':
-        appid = 'chatapi.0.23.1'
+        appid = 'chatapi.0.25.1'
         ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(appid)
     window = MainWindow()
     window.show()
@@ -5404,9 +5246,3 @@ def clean_cache():
 
 if __name__=="__main__":
     start()
-    #try:
-    #    start()
-    #except:
-    #    clean_cache()
-    #    start()
-    

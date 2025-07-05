@@ -59,6 +59,7 @@ class MainSettingWindow(QWidget):
     assistant_name_changed = pyqtSignal(str)
     window_closed = pyqtSignal()
     stream_receive_changed= pyqtSignal(bool)
+    include_system_prompt_changed=pyqtSignal(bool)
 
     def __init__(self, parent=None, config=None):
         super().__init__(parent)
@@ -119,6 +120,12 @@ class MainSettingWindow(QWidget):
         self.placement_combo.setCurrentText(self.config.get('long_chat_placement', '系统提示'))
         grid_layout.addWidget(self.placement_combo, row, 1, 1, 1)
         
+        row+=1
+
+        self.include_system_prompt=QCheckBox("挂载系统提示")
+        self.include_system_prompt.setChecked(self.config.get('enable_lci_system_prompt', True))
+        grid_layout.addWidget(self.include_system_prompt,row,1,1,1)
+
         row+=1
 
         grid_layout.addWidget(QLabel("长对话优化指定api"), row, 0)
@@ -235,6 +242,9 @@ class MainSettingWindow(QWidget):
         # 长对话优化
         self.long_chat_checkbox.stateChanged.connect(
             lambda state: self.long_chat_improve_changed.emit(state == Qt.Checked))
+        
+        self.include_system_prompt.stateChanged.connect(self.include_system_prompt_changed.emit)
+
         
         self.placement_combo.currentTextChanged.connect(
             self.long_chat_placement_changed.emit)

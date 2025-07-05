@@ -79,6 +79,7 @@ QLineEdit {
     padding: 3px 6px;
     font-size: 14px;
     min-height: 20px;
+    qproperty-toolTip: "点击输入文本";
 }
 
 QLineEdit:focus {
@@ -195,6 +196,7 @@ QTextEdit {
     border: 1px solid #d0d8e0;
     padding: 6px;
     font-size: 18px;
+    qproperty-toolTip: "点击输入文本";
 }
 
 QTextBrowser {
@@ -241,6 +243,7 @@ QComboBox {
     border-radius: 4px;
     padding: 2px 4px;
     font-size: 12px;
+    qproperty-toolTip: "点击后展开";
     color: #333333;
 }
 

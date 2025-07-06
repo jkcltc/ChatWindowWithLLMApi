@@ -90,7 +90,7 @@ class LongChatImprovePersetVars:
     summary_merge_prompt='将两段内容的信息组合。1.禁止缺少或省略信息。\n2.格式符合[背景要求]。\n3.不要做出推断，保留原事件内容。\n内容1：\n'
     summary_merge_prompt_and='\n\n内容2：\n'
 
-class BackGroundPersetVars:
+class BackGroundPresetVars:
     style_hint='风格：'
     scene_hint='**当前场景**\n'
     system_prompt_hint='\n\n**人物背景**\n（供参考，不一定与当前场景有关）\n\n'
@@ -138,3 +138,48 @@ class BackGroundPersetVars:
     user_summary='''
 以stable diffusion的prompt形式描述当前场景。
 '''  
+
+class NovitaModelPresetVars:
+    model_list_path=r'\utils\global\NOVITA_MODEL_OPTIONS.json'
+
+
+class AvatarCreatorText:
+    # 窗口名
+    WINDOW_TITLE= '自定义头像'
+    # 模式选择
+    MODE_COMBO = ["手动选择", "AI生成"]
+    
+    # 按钮文本
+    BUTTON_SELECT_IMAGE = "选择图片"
+    BUTTON_GENERATE_AVATAR = "生成头像"
+    BUTTON_CONFIRM_USE = "确认使用"
+    
+    # 提示文本
+    TOOLTIP_SELECT_IMAGE = "从本地文件系统选择一张头像图片"
+    TOOLTIP_PROVIDER_COMBO = "等待开放其他供应商"
+    PLACEHOLDER_STYLE_EDIT = "输入风格描述..."
+    TOOLTIP_STYLE_EDIT = "描述您希望生成的风格，例如'卡通风格'或'像素风格'"
+    TOOLTIP_GENERATE_BUTTON = "根据描述生成头像图片"
+    STATUS_WAITING_REQUEST = "等待请求发送..."
+    
+    # 标签文本
+    LABEL_CHARACTER_SOURCE = "形象生成自"
+    LABEL_PROVIDER = "供应商"
+    LABEL_MODEL = "模型"
+    LABEL_STYLE = "指定风格"
+    LABEL_ORIGINAL_PREVIEW = "原始图片"
+    LABEL_RESULT_PREVIEW = "处理结果"
+    LABEL_SETTINGS = "设置"
+    LABEL_CREATE_MODE = "创建模式"
+    LABEL_ROLE = "角色"
+    LABEL_PREVIEW_AREA = "预览区域"
+    LABEL_ORIGINAL_IMAGE = "原始图像"
+    LABEL_PROCESSED_IMAGE = "处理后图像"
+    
+    # 复选框文本
+    CHECKBOX_INCLUDE_SYSPROMPT = "携带系统提示"
+    
+    # 下拉选项
+    SOURCE_OPTIONS = ["完整对话", "选择的对话"]
+    PROVIDER_OPTIONS = ["Novita"]
+

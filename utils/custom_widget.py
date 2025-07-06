@@ -794,7 +794,7 @@ class ChatBubble(QWidget):
     regenerateRequested = pyqtSignal(str)  # 参数: 消息ID
     editFinished = pyqtSignal(str, str)    # 参数: 消息ID, 新内容
     detailToggled = pyqtSignal(str, bool)   # 参数: 消息ID, 是否显示详情
-    avatarChanged = pyqtSignal(str, str)    # 参数: 消息ID, 新头像路径
+    avatarChanged = pyqtSignal(str)    # 参数: 消息ID, 新头像路径
 
     def __init__(self, message_data, nickname=None, 
                  avatar_path="", parent=None,
@@ -959,27 +959,7 @@ class ChatBubble(QWidget):
     
     def _on_avatar_clicked(self):
         """处理头像点击事件 - 弹出文件选择对话框"""
-        # 设置文件过滤器支持常见图片格式
-        filters = "Image Files (*.png *.jpg *.jpeg *.bmp *.gif)"
-        file_path, _ = QFileDialog.getOpenFileName(
-            self, 
-            "选择头像图片", 
-            QStandardPaths.writableLocation(QStandardPaths.PicturesLocation),
-            filters
-        )
-        
-        if file_path:
-                
-            # 尝试加载图片验证有效性
-            pixmap = QPixmap(file_path)
-            if pixmap.isNull():
-                QMessageBox.warning(self, "无效图片", "无法加载该图片文件，请选择有效的图片格式")
-                return
-                
-            # 更新头像并发射信号
-            self.avatar_path = file_path
-            self._setup_avatar()
-            self.avatarChanged.emit(self.id, file_path)
+        self.avatarChanged.emit(self.role)
     
     def _handle_copy(self):
         """处理复制操作"""
@@ -1105,7 +1085,7 @@ class ChatHistoryWidget(QWidget):
     regenerateRequested = pyqtSignal(str)  # 消息ID
     editFinished = pyqtSignal(str, str)    # 消息ID, 新内容
     detailToggled = pyqtSignal(str, bool)   # 消息ID, 是否显示详情
-    avatarChanged = pyqtSignal(str, str)    # 消息ID, 新头像路径
+    avatarChanged = pyqtSignal(str)    # 消息ID, 新头像路径
 
     def __init__(self, parent=None):
         super().__init__(parent)

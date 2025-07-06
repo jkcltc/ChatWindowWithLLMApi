@@ -1,5 +1,6 @@
 import time
 start_time_stamp=time.time()
+print(f'Chatapi Main window init timer start, time cost:{time.time()-start_time_stamp:.2f}s')
 import concurrent.futures
 import configparser
 import copy
@@ -40,7 +41,7 @@ from utils.custom_widget import *
 from utils.system_prompt_updater import SystemPromptUI
 from utils.settings import *
 from utils.model_map_manager import ModelMapManager
-from utils.novita_model_manager import NovitaModelManager
+from utils.novita_model_manager import NovitaModelManager,NovitaImageGenerator
 from utils.theme_manager import ThemeSelector
 from utils.function_manager import *
 from utils.concurrentor import ConvergenceDialogueOptiProcessor
@@ -334,111 +335,9 @@ class ModelListUpdater:
         print(f"Ollama服务状态: {'存活' if ollama_alive else '未启动'}")
         ModelListUpdater.update_model_map(update_ollama=ollama_alive)
 
-##支持类
-#Novita Api 下的图像生成
-class NovitaImageGenerator:
-    def __init__(self, api_key):
-        self.base_url = "https://api.novita.ai/v3/"
-        self.headers = {
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json"
-        }
-        # 确保图片目录存在
-        self.save_path='pics'
-        os.makedirs(self.save_path, exist_ok=True)
-        
-    def _save_image(self, url, filename):
-        """保存图片到指定目录"""
-        filepath = os.path.join(self.save_path, filename)
-        response = requests.get(url)
-        if response.status_code == 200:
-            with open(filepath, 'wb') as f:
-                f.write(response.content)
-            print(f"图片已保存为 {filepath}")
-            return filepath
-        print(f"下载失败，状态码：{response.status_code}")
-        return None
-
-    def generate(self, prompt, model_name, negative_prompt, 
-                width=512, height=512, image_num=1, steps=20,
-                seed=-1, clip_skip=1, sampler_name="Euler a",
-                guidance_scale=7.5):
-        """生成图片请求"""
-        data = {
-            "extra": {
-                "response_image_type": "jpeg",
-                "enable_nsfw_detection": False,
-                "nsfw_detection_level": 2
-            },
-            "request": {
-                "prompt": prompt,
-                "model_name": model_name,
-                "negative_prompt": negative_prompt,
-                "width": width,
-                "height": height,
-                "image_num": image_num,
-                "steps": steps,
-                "seed": seed,
-                "clip_skip": clip_skip,
-                "sampler_name": sampler_name,
-                "guidance_scale": guidance_scale
-            }
-        }
-        
-        response = requests.post(
-            f"{self.base_url}async/txt2img",
-            headers=self.headers,
-            json=data  # 使用json参数自动处理序列化和Content-Type
-        )
-        
-        if response.status_code != 200:
-            print(f"请求失败，状态码：{response.status_code}")
-            return None
-            
-        return response.json().get('task_id')
-
-    def poll_result(self, task_id, timeout=600, interval=5):
-        """轮询任务结果并返回图片路径"""
-        start_time = time.time()
-        print(f"开始轮询任务 {task_id}...")
-
-        while True:
-            # 超时检查
-            if time.time() - start_time > timeout:
-                print("请求超时")
-                return None
-
-            # 间隔轮询
-            time.sleep(interval)
-            
-            # 查询任务状态
-            try:
-                response = requests.get(
-                   f"{self.base_url}async/task-result",
-                   params={"task_id": task_id},  # 更规范的参数传递方式
-                   headers=self.headers
-                )
-                response.raise_for_status()  # 自动抛出HTTP错误
-            except requests.exceptions.RequestException as e:
-                print(f"请求异常: {str(e)}")
-                continue
-
-            data = response.json()
-            status = data['task']['status']
-
-            # 处理任务状态
-            if status == 'TASK_STATUS_SUCCEED':
-                if data.get('images'):
-                   image_url = data['images'][0]['image_url']
-                   return self._save_image(image_url, f"{task_id}.jpg")
-                print("任务成功但未返回图片")
-                return None
-            elif status == 'TASK_STATUS_FAILED':
-                print(f"任务执行失败: {data['task']['reason']}")
-                return None
 
 #图片创建器
-class PromptGenerationWorker(QThread):
+class PromptGenerationWorker(QThread):# 0.25.2 等待重构
     result_ready = pyqtSignal(str)
     
     def __init__(self, func, mode, input_text):
@@ -450,7 +349,8 @@ class PromptGenerationWorker(QThread):
     def run(self):
         result = self.func(mode=self.mode, pic_creater_input=self.input_text)
         self.result_ready.emit(str(result))
-class NovitaAPICallWorker(QThread):
+
+class NovitaAPICallWorker(QThread):# 0.25.2 等待重构
     finished = pyqtSignal()
     
     def __init__(self, main_window, return_prompt):
@@ -463,7 +363,8 @@ class NovitaAPICallWorker(QThread):
             return_prompt=self.return_prompt
         )
         self.finished.emit()
-class PicCreaterWindow(QWidget):
+
+class PicCreaterWindow(QWidget):# 0.25.2 等待重构
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowFlags(Qt.Window)
@@ -4061,7 +3962,7 @@ class MainWindow(QMainWindow):
         # 添加背景样式到用户摘要
         if self.background_style != '':
             user_summary += (
-                BackGroundPersetVars.style_hint 
+                BackGroundPresetVars.style_hint 
                 + self.background_style 
                 + '\n'
             )
@@ -4069,9 +3970,9 @@ class MainWindow(QMainWindow):
         # 处理上次摘要信息
         if self.last_summary != '':
             last_full_story = (
-                BackGroundPersetVars.scene_hint
+                BackGroundPresetVars.scene_hint
                 + str(get_last_full_story(self.chathistory))
-                + BackGroundPersetVars.system_prompt_hint
+                + BackGroundPresetVars.system_prompt_hint
                 + self.last_summary
             )
 
@@ -4087,9 +3988,9 @@ class MainWindow(QMainWindow):
                 self.last_summary = ''
             
             last_full_story = (
-                BackGroundPersetVars.scene_hint
+                BackGroundPresetVars.scene_hint
                 + str(get_last_full_story(self.chathistory))
-                + BackGroundPersetVars.system_prompt_hint
+                + BackGroundPresetVars.system_prompt_hint
                 + self.last_summary
             )
 
@@ -4107,8 +4008,8 @@ class MainWindow(QMainWindow):
                 print(self.novita_api_key)
             except Exception as e:
                 print('novita api init:',e)
-        summary_prompt=BackGroundPersetVars.summary_prompt
-        user_summary=BackGroundPersetVars.user_summary
+        summary_prompt=BackGroundPresetVars.summary_prompt
+        user_summary=BackGroundPresetVars.user_summary
         if mode=="chathistory":
             last_full_story=self.get_background_prompt_from_chathistory(user_summary)
         elif mode=="pic_creater":
@@ -4201,7 +4102,8 @@ class MainWindow(QMainWindow):
                 except Exception as e:
                     None
                     print('negative_prompt extract failed, Error code:',e)
-            client = NovitaImageGenerator(api_key=self.novita_api_key)
+            client = NovitaImageGenerator(application_path=self.application_path,
+                                          api_key=self.novita_api_key)
             # 生成图片请求
             task_id = client.generate(
                 prompt= prompt, 

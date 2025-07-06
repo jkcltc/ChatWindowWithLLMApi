@@ -122,7 +122,8 @@ class MainSettingWindow(QWidget):
         
         row+=1
 
-        self.include_system_prompt=QCheckBox("挂载系统提示")
+        self.include_system_prompt=QCheckBox("携带系统提示")
+        self.include_system_prompt.setToolTip('在发送摘要请求时携带系统提示。\n如果系统提示中包含人设等信息，\n可以帮助摘要模型理解对话。')
         self.include_system_prompt.setChecked(self.config.get('enable_lci_system_prompt', True))
         grid_layout.addWidget(self.include_system_prompt,row,1,1,1)
 

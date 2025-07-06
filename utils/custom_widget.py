@@ -727,7 +727,7 @@ class BubbleControlButtons(QWidget):
         self.edit_button.setCheckable(True)
 
         self.info_button = QToolButton()
-        self.info_button.setText("🔍")
+        self.info_button.setText("📊")
         self.info_button.setToolTip("消息详情")
         
         self.detail_button = QToolButton()
@@ -739,8 +739,8 @@ class BubbleControlButtons(QWidget):
         self.layout.addWidget(self.regenerate_button)
         self.layout.addWidget(self.copy_button)
         self.layout.addWidget(self.edit_button)
-        self.layout.addWidget(self.info_button)
         self.layout.addWidget(self.detail_button)
+        self.layout.addWidget(self.info_button)
         self.layout.addStretch()
         
         # 添加内部容器到主布局
@@ -1221,7 +1221,7 @@ class ChatHistoryWidget(QWidget):
         self._reorder_bubbles(history)
 
         msg_id=history[-1]['info']['id']
-        if not msg_id=='999999':#猴子补丁，999999是system prompt气泡编号
+        if not str(msg_id)=='999999':#猴子补丁，999999是system prompt气泡编号
             self.bubbles[msg_id].setMaximumHeight(int(self.height()*1.2))
         self.updateGeometry()
         self.content_layout.update()

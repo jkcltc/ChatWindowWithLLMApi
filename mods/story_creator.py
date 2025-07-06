@@ -897,7 +897,6 @@ class StoryManagerBackend(QWidget):
     def update_story_treeview(self, story_nodes: list):
         """更新剧情树视图"""
         # 获取story_treeview控件
-        print('主线显示屏开始更新')
         tree = self.ui.story_treeview
         
         # 清除现有内容
@@ -935,7 +934,6 @@ class StoryManagerBackend(QWidget):
         self.ui.ai_create_story.stop_animation()
         self.ui.request_modify.setEnabled(True)
         self.ui.request_modify.stop_animation()
-        print('主线显示屏更新结束')
     
     def highlight_story_treeview(self, node_id: str):
         """选中剧情树视图中的指定节点"""

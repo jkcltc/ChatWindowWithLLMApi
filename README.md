@@ -27,10 +27,10 @@
   支持兼容Openai标准的API模型
  
 - **基于对话的多模态生成**  
-  支持在对话中同步生成聊天背景。支持自定义生成或自行指定背景。
-  *(生成功能需使用第三方图像生成API [Novita API](https://www.novita.ai/))*
-  *其他提供商in plan*
-  *头像生成 in plan*
+  支持在对话中同步生成聊天背景。支持自定义生成或自行指定背景。  
+  *(生成功能需使用第三方图像生成API [Novita API](https://www.novita.ai/))*  
+  *其他提供商in plan*  
+  *头像生成 in plan*  
  
 - **轻松部署**  
   自动安装依赖项 - 仅需 Python 即可运行  

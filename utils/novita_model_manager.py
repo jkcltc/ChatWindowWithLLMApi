@@ -2,9 +2,7 @@ import os
 import json
 import requests
 import time
-import threading
 from PyQt5.QtCore import QObject,pyqtSignal
-
 
 try:
     from .preset_data import NovitaModelPresetVars
@@ -157,68 +155,6 @@ class NovitaImageGenerator(QObject):
             elif status == 'TASK_STATUS_FAILED':
                 self.failure.emit('poll',f"任务执行失败: {data['task']['reason']}")
                 return None
-
-
-class NovitaAgent(QObject):
-    pull_success=pyqtSignal(str)
-    failure=pyqtSignal(str,str)
-
-    def __init__(self, api_key,application_path):
-        """
-        Initializes the model manager with the provided API key and application path.
-        Args:
-            api_key (str): The API key used for authentication with the Novita image generator.
-            application_path (str): The path to the application directory.
-        Attributes:
-            generator (NovitaImageGenerator): Instance responsible for image generation and event signaling.
-            thread_list (list): List to keep track of threads, reset on successful pull.
-        Signals:
-            request_emit: Connected to NA_poll_result method to handle request events.
-            pull_success: Connected to both pull_success.emit and a lambda to reset thread_list.
-            failure: Connected to failure.emit to handle failure events.
-        """
-
-        self.generator=NovitaImageGenerator(api_key,application_path)
-        self.generator.request_emit.connect(self.NA_poll_result)
-        self.generator.pull_success.connect(self.pull_success.emit)
-        self.generator.failure.connect(self.failure.emit)
-        self.generator.pull_success.connect(lambda _:setattr(self,'thread_list',[]))
-        self.thread_list=[]
-
-    def NA_generate(#NA:NovitaAgent
-            self, prompt, 
-            model_name, 
-            negative_prompt, 
-            width=512, height=512, 
-            image_num=1, 
-            steps=20, 
-            seed=-1, 
-            clip_skip=1, 
-            sampler_name="Euler a", 
-            guidance_scale=7.5
-            ):
-        """
-        升级为自动工作流
-        """
-        self.create_thread=threading.Thread(target=self.generator.generate,args=(
-            prompt, model_name, negative_prompt, 
-            width, height, image_num, steps, seed, 
-            clip_skip, sampler_name, guidance_scale
-            )
-        )
-        self.thread_list+=[self.create_thread]
-        self.create_thread.start()
-    
-    def NA_poll_result(self,task_id):
-        self.poll_thread=threading.Thread(target=self.generator.poll_result,args=(
-            task_id
-            )
-        )
-        self.thread_list+=[self.poll_thread]
-        self.poll_thread.start()
-    
-    def clear_thread(self):
-        self.thread_list=[]
 
 
 

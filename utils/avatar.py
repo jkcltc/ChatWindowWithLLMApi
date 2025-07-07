@@ -4,10 +4,7 @@ from PyQt5.QtCore import *
 from PyQt5.QtGui import *
 import os,json
 
-try:
-    from .preset_data import AvatarCreatorText
-except:
-    from preset_data import AvatarCreatorText
+from image_agents import ImageAgent
 
 
 try:    #waiting 0.25.2 patch 
@@ -331,7 +328,116 @@ class ImagePreviewer(QLabel):
                 )
                 painter.drawText(pos_point, pos_text)
 
-#class AvartarImageGenerator:
+class AvatarCreatorText:
+    # 窗口名
+    WINDOW_TITLE= '自定义头像'
+    # 模式选择
+    MODE_COMBO = ["手动选择", "AI生成"]
+    
+    # 按钮文本
+    BUTTON_SELECT_IMAGE = "选择图片"
+    BUTTON_GENERATE_AVATAR = "生成头像"
+    BUTTON_CONFIRM_USE = "确认使用"
+    
+    # 提示文本
+    TOOLTIP_SELECT_IMAGE = "从本地文件系统选择一张头像图片"
+    TOOLTIP_PROVIDER_COMBO = "等待开放其他供应商"
+    PLACEHOLDER_STYLE_EDIT = "输入风格描述..."
+    TOOLTIP_STYLE_EDIT = "描述您希望生成的风格，例如'卡通风格'或'像素风格'"
+    TOOLTIP_GENERATE_BUTTON = "根据描述生成头像图片"
+    STATUS_WAITING_REQUEST = "等待请求发送..."
+    
+    # 标签文本
+    LABEL_CHARACTER_SOURCE = "形象生成自"
+    LABEL_PROVIDER = "供应商"
+    LABEL_MODEL = "模型"
+    LABEL_STYLE = "指定风格"
+    LABEL_ORIGINAL_PREVIEW = "原始图片"
+    LABEL_RESULT_PREVIEW = "处理结果"
+    LABEL_SETTINGS = "设置"
+    LABEL_CREATE_MODE = "创建模式"
+    LABEL_ROLE = "角色"
+    LABEL_PREVIEW_AREA = "预览区域"
+    LABEL_ORIGINAL_IMAGE = "原始图像"
+    LABEL_PROCESSED_IMAGE = "处理后图像"
+    
+    # 复选框文本
+    CHECKBOX_INCLUDE_SYSPROMPT = "携带系统提示"
+    
+    # 下拉选项
+    SOURCE_OPTIONS = ["完整对话", "选择的对话"]
+    PROVIDER_OPTIONS = ["Novita"]
+
+    #图像生成要求
+    IMAGE_GENERATE_SYSTEM_PROMPT='''
+# 角色
+你是一位专业的AI绘画提示词（Prompt）工程师。你的专长是将用户的自然语言想法，转化为能够被AI绘画模型（如Midjourney, Stable Diffusion）精确理解和执行的、结构化的提示词。
+
+# 核心任务
+你的核心任务是接收用户提供的任何场景描述，并将其转换为一个结构化的JSON对象。这个对象包含一个用于生成图像的“prompt”和一个用于排除多余元素的“negative_prompt”。
+
+# 工作流程
+1.  **分析与提炼**: 仔细阅读并分析用户的场景描述。提炼出其中最关键的视觉元素，包括：
+    *   **主体**: 人物、动物、物品等。
+    *   **风格**: 写实、动漫、赛博朋克、水墨画、油画等。
+    *   **环境/背景**: 森林、城市街道、室内、宇宙等。
+    *   **构图与视角**: 特写、全身像、鸟瞰、远景等。
+    *   **光照与氛围**: 电影感光照、柔和的光、黄昏、神秘、愉快等。
+    *   **画质与细节**: 8K、超精细细节、照片级真实感等。
+
+2.  **构建 `prompt`**:
+    *   将上述提炼出的所有积极元素，用精准、描述性的**英文单词或短语**组合起来。
+    *   按照“主体, 细节描述, 风格, 环境, 构图, 光照, 画质”的大致顺序组织，使逻辑更清晰。
+    *   使用逗号 `,` 分隔每个关键词。
+
+3.  **构建 `negative_prompt`**:
+    *   **推理排除项**: 根据用户期望的风格，推断出应该排除的对立风格。例如，如果用户想要“写实”，则应排除“动漫、卡通、绘画”。
+    *   **添加通用排除项**: 默认加入一些能提升基础画质的排除词，如避免畸形、低质量、模糊、水印等。
+    *   **组合与格式化**: 将所有排除项用英文单词或短语组合，并用逗号 `,` 分隔。
+
+4.  **输出**: 严格按照下面指定的JSON格式输出最终结果。
+
+# 目标格式详解
+你必须严格按照以下JSON格式进行输出，不要添加任何额外的解释或文字。
+
+```json
+{
+  "prompt": "一个由英文关键词组成的字符串，详细描述了画面的核心内容、风格和细节。关键词用逗号分隔，例如：'masterpiece, best quality, 1girl, solo, cute, standing on the beach, sunset, cinematic lighting, photorealistic, 8k'。",
+  "negative_prompt": "一个由英文关键词组成的字符串，用于排除不想要的风格、元素和低质量结果。关键词用逗号分隔，例如：'painting, sketches, (worst quality:2), (low quality:2), lowres, normal quality, monochrome, grayscale, skin spots, acnes, skin blemishes, age spot, glans, nsfw, text, error, extra digit, fewer digits, cropped, jpeg artifacts, signature, watermark, username, blurry'"
+}
+```
+
+# 规则与约束
+*   **语言**: `prompt` 和 `negative_prompt` 的内容**必须**是英文。
+*   **分隔符**: 关键词之间**必须**使用英文逗号 `, ` 进行分隔。
+*   **简洁性**: 避免冗余，但要确保包含所有必要的描述性细节。
+*   **直接输出**: 你的回答应该只有JSON代码块，不包含任何其他内容。
+
+# 示例
+**用户输入:**
+> 我想要一张头像，是一个可爱的宇航员猫咪，它坐在月球上，背景是地球。风格要偏向卡通一点，色彩鲜艳。
+
+**你的输出:**
+```json
+{
+  "prompt": "chibi astronaut cat, sitting on the moon, looking at earth, cute, cartoon style, vibrant colors, starry sky, detailed, masterpiece, best quality",
+  "negative_prompt": "photorealistic, realistic, dark, grayscale, monochrome, blurry, ugly, deformed, text, watermark"
+}
+```
+'''
+
+
+class AvartarImageGenerator:
+    def __init__(self,generator,prompt,application_path):
+        self.generator=ImageAgent(application_path)
+        self.generator.set_generator(generator)
+        self.prompt=prompt
+    
+    def create_params(self):
+        pass
+
+    
+
 
 
 class AvatarCreatorWindow(QWidget):

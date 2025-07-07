@@ -49,6 +49,8 @@ from utils.preset_data import *
 from utils.usage_analysis import TokenAnalysisWidget
 from utils.chat_history_manager import *
 from utils.online_rag import *
+from utils.avatar import AvatarImageGenerator,AvatarCreatorWindow
+input()
 
 print(f'Chatapi Main window custom lib import finished, time cost:{time.time()-start_time_stamp:.2f}s')
 
@@ -4460,6 +4462,22 @@ class MainWindow(QMainWindow):
         self.last_chat_info = self.concurrent_model.get_concurrentor_info()
         self.full_response=content
         self.receive_message(msg_id,content)
+
+    #头像更新
+    def avatar_update(self):
+        agent=AvatarImageGenerator(generator='novita',application_path=os.path.dirname(os.path.dirname(os.path.abspath(__file__))),model="foddaxlPhotorealism_v45_122788.safetensors")
+        a=agent.prepare_message(target='user',
+                            chathistory_list=chathistory_list,
+                            charactors={'user':'博士','assistant':'阿米娅'},
+                            style='二次元'
+                            )
+        agent.status_update.connect(print)
+        agent.send_description_request(api_config={
+            'url':r'http://localhost:11434/v1/',
+            'key':'12345234'
+        },
+        summary_model='qwen3:14b')
+
 
 print(f'Chatapi Main window Class import finished, time cost:{time.time()-start_time_stamp:.2f}s')
 

@@ -2,7 +2,7 @@ from PyQt5.QtCore import QObject,pyqtSignal
 import threading,os
 import configparser
 from typing import Dict, Type
-if __name__=="__main__":#single file test only
+if __name__=='__main__':
     from novita_model_manager import NovitaImageGenerator
 else:
     from .novita_model_manager import NovitaImageGenerator
@@ -25,8 +25,9 @@ class NovitaAgent(QObject):
             pull_success: Connected to both pull_success.emit and a lambda to reset thread_list.
             failure: Connected to failure.emit to handle failure events.
         """
-
+        super().__init__()
         self.generator=NovitaImageGenerator(api_key,application_path)
+        self.generator.request_emit.connect(print)
         self.generator.request_emit.connect(self.poll_result)
         self.generator.pull_success.connect(self.pull_success.emit)
         self.generator.failure.connect(self.failure.emit)
@@ -66,12 +67,10 @@ class NovitaAgent(QObject):
         
         self.thread_list.append(self.create_thread)
         self.create_thread.start()
+        print('self.create_thread.start()')
     
     def poll_result(self,task_id):
-        self.poll_thread=threading.Thread(target=self.generator.poll_result,args=(
-            task_id
-            )
-        )
+        self.poll_thread=threading.Thread(target=self.generator.poll_result,args=(task_id,))
         self.thread_list+=[self.poll_thread]
         self.poll_thread.start()
     
@@ -81,7 +80,8 @@ class NovitaAgent(QObject):
 class ParamTranslator:
     @staticmethod
     def translate_params(target_model,params_dict):
-        #当前只支持了novita，直接返回就可以了
+        if target_model=='novita':
+            params_dict['model_name']=params_dict['model']
         return params_dict
 
 
@@ -97,7 +97,7 @@ class ImageApiConfigReader:
 
 class ImageAgent(QObject):      #Factory Class
                                 #waiting 0.25.2 patch
-    pull_success=pyqtSignal(str)
+    pull_success=pyqtSignal(str)#path to image
     failure=pyqtSignal(str,str)
     def __init__(self,application_path):
         super().__init__()  # 确保正确初始化QObject
@@ -117,6 +117,8 @@ class ImageAgent(QObject):      #Factory Class
         self.generator.failure.connect(self.failure.emit)
 
     def create(self,params_dict):
+
+        print('create(self,params_dict)',self.translate_params(params_dict))
         self.generator.create(
             self.translate_params(params_dict)
             )

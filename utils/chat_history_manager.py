@@ -30,12 +30,19 @@ class ChatHistoryTools:
         ]
     
     @staticmethod
-    def to_readable_str(chathistory):
+    def to_readable_str(chathistory,
+                        names={}
+                        ):
         lines = []
+        names=names
+        default={'user':'user','assistant':'assistant','tool':'tool'}
+        for key in default.keys():
+            if not key in names:
+                names[key]=default[key]
         for message in chathistory:
             if message['role']=='system':
                 continue
-            lines.append(f"{message['role']}:")
+            lines.append(f"{names[message['role']]}:")
             lines.append(f"{message['content']}")
         return '\n'.join(lines)
 

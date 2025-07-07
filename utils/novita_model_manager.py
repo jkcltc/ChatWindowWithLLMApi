@@ -53,7 +53,8 @@ class NovitaImageGenerator(QObject):
     pull_success=pyqtSignal(str)#path
     failure=pyqtSignal(str,str)
 
-    def __init__(self, api_key,application_path):
+    def __init__(self, api_key,application_path,parent=None):
+        super().__init__(parent)
         self.base_url = "https://api.novita.ai/v3/"
         self.headers = {
             "Authorization": f"Bearer {api_key}",

@@ -3,15 +3,21 @@ from PyQt5.QtWidgets import *
 from PyQt5.QtCore import *
 from PyQt5.QtGui import *
 import os,json
+from jsonfinder import jsonfinder
 
-from image_agents import ImageAgent
 
-
-try:    #waiting 0.25.2 patch 
-    from .novita_model_manager import NovitaModelManager
-except:
-    print('ahh..testing?')
+if __name__=='__main__':#waiting 0.25.2 patch 
+    from chat_history_manager import ChatHistoryTools
     from novita_model_manager import NovitaModelManager
+    from tools.one_shot_api_request import APIRequestHandler
+    from image_agents import ImageAgent
+else:
+    from .tools.one_shot_api_request import APIRequestHandler
+    from .chat_history_manager import ChatHistoryTools
+    from .novita_model_manager import NovitaModelManager
+    from .image_agents import ImageAgent
+
+
 
 class ImageProcessor:
     """图像处理工具类"""
@@ -349,6 +355,7 @@ class AvatarCreatorText:
     
     # 标签文本
     LABEL_CHARACTER_SOURCE = "形象生成自"
+    LABEL_SUMMARY_PROVIDER='文生图提示词模型'
     LABEL_PROVIDER = "供应商"
     LABEL_MODEL = "模型"
     LABEL_STYLE = "指定风格"
@@ -371,77 +378,134 @@ class AvatarCreatorText:
     #图像生成要求
     IMAGE_GENERATE_SYSTEM_PROMPT='''
 # 角色
-你是一位专业的AI绘画提示词（Prompt）工程师。你的专长是将用户的自然语言想法，转化为能够被AI绘画模型（如Midjourney, Stable Diffusion）精确理解和执行的、结构化的提示词。
+你是一个专业的头像提示词(Prompt)艺术家。
 
-# 核心任务
-你的核心任务是接收用户提供的任何场景描述，并将其转换为一个结构化的JSON对象。这个对象包含一个用于生成图像的“prompt”和一个用于排除多余元素的“negative_prompt”。
+# 任务
+将用户的输入转化为一个丰富、具体、高质量的图像生成提示词。
 
-# 工作流程
-1.  **分析与提炼**: 仔细阅读并分析用户的场景描述。提炼出其中最关键的视觉元素，包括：
-    *   **主体**: 人物、动物、物品等。
-    *   **风格**: 写实、动漫、赛博朋克、水墨画、油画等。
-    *   **环境/背景**: 森林、城市街道、室内、宇宙等。
-    *   **构图与视角**: 特写、全身像、鸟瞰、远景等。
-    *   **光照与氛围**: 电影感光照、柔和的光、黄昏、神秘、愉快等。
-    *   **画质与细节**: 8K、超精细细节、照片级真实感等。
+# 思考步骤
+1.  核心概念: 识别用户的核心主体和风格 (例如：“宇航员”, “猫耳女孩”)。
+2.  丰富细节: 为核心概念添加具体的视觉元素：
+    人物: 发型、眼睛颜色、表情、配饰。
+    服装: 风格、材质。
+3.  设定画风与构图:
+    画风: 动漫、写实、3D渲染、水彩等。
+    构图: 头像特写 (headshot), 上半身肖像 (upper body portrait)。
+    光照: 电影光, 柔和光, 霓虹灯。
+4.  组合与优化:
+    正面提示词 (prompt): 以 "masterpiece, best quality" 开头，然后组合以上所有元素，用逗号分隔。
+    负面提示词 (negative_prompt): 排除常见错误。
 
-2.  **构建 `prompt`**:
-    *   将上述提炼出的所有积极元素，用精准、描述性的**英文单词或短语**组合起来。
-    *   按照“主体, 细节描述, 风格, 环境, 构图, 光照, 画质”的大致顺序组织，使逻辑更清晰。
-    *   使用逗号 `,` 分隔每个关键词。
+# 输出格式
+严格按照以下JSON格式输出，不要添加任何解释。
+{"prompt":"","negative_prompt":""}
 
-3.  **构建 `negative_prompt`**:
-    *   **推理排除项**: 根据用户期望的风格，推断出应该排除的对立风格。例如，如果用户想要“写实”，则应排除“动漫、卡通、绘画”。
-    *   **添加通用排除项**: 默认加入一些能提升基础画质的排除词，如避免畸形、低质量、模糊、水印等。
-    *   **组合与格式化**: 将所有排除项用英文单词或短语组合，并用逗号 `,` 分隔。
-
-4.  **输出**: 严格按照下面指定的JSON格式输出最终结果。
-
-# 目标格式详解
-你必须严格按照以下JSON格式进行输出，不要添加任何额外的解释或文字。
-
-```json
-{
-  "prompt": "一个由英文关键词组成的字符串，详细描述了画面的核心内容、风格和细节。关键词用逗号分隔，例如：'masterpiece, best quality, 1girl, solo, cute, standing on the beach, sunset, cinematic lighting, photorealistic, 8k'。",
-  "negative_prompt": "一个由英文关键词组成的字符串，用于排除不想要的风格、元素和低质量结果。关键词用逗号分隔，例如：'painting, sketches, (worst quality:2), (low quality:2), lowres, normal quality, monochrome, grayscale, skin spots, acnes, skin blemishes, age spot, glans, nsfw, text, error, extra digit, fewer digits, cropped, jpeg artifacts, signature, watermark, username, blurry'"
-}
-```
-
-# 规则与约束
-*   **语言**: `prompt` 和 `negative_prompt` 的内容**必须**是英文。
-*   **分隔符**: 关键词之间**必须**使用英文逗号 `, ` 进行分隔。
-*   **简洁性**: 避免冗余，但要确保包含所有必要的描述性细节。
-*   **直接输出**: 你的回答应该只有JSON代码块，不包含任何其他内容。
-
+---
 # 示例
-**用户输入:**
-> 我想要一张头像，是一个可爱的宇航员猫咪，它坐在月球上，背景是地球。风格要偏向卡通一点，色彩鲜艳。
+用户输入: "一个赛博朋克风格的女孩"
 
-**你的输出:**
-```json
-{
-  "prompt": "chibi astronaut cat, sitting on the moon, looking at earth, cute, cartoon style, vibrant colors, starry sky, detailed, masterpiece, best quality",
-  "negative_prompt": "photorealistic, realistic, dark, grayscale, monochrome, blurry, ugly, deformed, text, watermark"
-}
-```
+输出举例:
+{"prompt":"masterpiece, best quality, headshot of a cyberpunk girl, pink short hair, glowing blue eyes, confident smile, wearing a black leather jacket with neon patterns, intricate details, cinematic lighting, night city background",
+"negative_prompt":"low quality, worst quality, blurry, deformed, bad anatomy, watermark, text, ugly, extra limbs"}
 '''
+    IMAGE_GENERATE_USER_PROMPT='''
+聊天历史：
+{chathistory}
 
+生成风格：
+{style}
 
-class AvartarImageGenerator:
-    def __init__(self,generator,prompt,application_path):
+根据聊天历史，生成{charactor}的形象描述。
+
+返回json：
+{{"prompt":"","negative_prompt":""}}
+'''
+    IMAGE_GENERATE_STATUS_SUCCESS='图像生成完成'
+    IMAGE_GENERATE_STATUS_FAILURE='图像生成失败，失败原因 '
+    IMAGE_GENERATE_STATUS_PROMPT ='图像生成中...正在生成图像描述'
+    IMAGE_GENERATE_STATUS_IMAGE  ='图像生成中...正在轮询图像文件'
+
+class AvatarImageGenerator(QObject):
+    status_update=pyqtSignal(str)
+    pull_success=pyqtSignal(str)#img path
+    failure=pyqtSignal(str,str)
+    def __init__(self,generator='',application_path='',model=''):
+        super().__init__()
         self.generator=ImageAgent(application_path)
         self.generator.set_generator(generator)
-        self.prompt=prompt
+        self.generator.pull_success.connect(self.pull_success.emit)
+        self.generator.pull_success.connect(lambda  _:self.status_update.emit(AvatarCreatorText.IMAGE_GENERATE_STATUS_SUCCESS))
+        self.model=model
     
-    def create_params(self):
-        pass
+    def prepare_message(self,
+                      target,
+                      chathistory_list,
+                      style='简约头像',
+                      charactors={'user':'user','assistant':'assistant'},
+                      msg_id=''
+                      ):
+        '''
+        param: target 用于指定生成目标
+        '''
+        if msg_id:
+            for item in chathistory_list:
+                if item['info']['id']==msg_id:
+                    chathistory=item['content']
+                    break
+            else:
+                chathistory=ChatHistoryTools.to_readable_str(chathistory_list[-2:])
+                print('no id found')
+                self.failure.emit('prepare_message','no id found')
+        else:
+            chathistory=ChatHistoryTools.to_readable_str(chathistory=chathistory_list,
+                                                         names=charactors)
+        
+        system_message=AvatarCreatorText.IMAGE_GENERATE_SYSTEM_PROMPT
+        user_message=AvatarCreatorText.IMAGE_GENERATE_USER_PROMPT.format(
+            chathistory=chathistory,
+            style=style,
+            charactor=target
+        )
 
-    
+        
 
+        self.message=[{'role':'system','content':system_message},
+                 {'role':'user','content':user_message}]
+        return self.message
+        
+    def send_description_request(self,api_config,summary_model):
+        '''
+        api_config={
+            "url": default_apis[self.api_provider]["url"],
+            "key": default_apis[self.api_provider]["key"]
+        }
+        '''
+        self.request_handler=APIRequestHandler(api_config=api_config)
+        self.request_handler.request_completed.connect(self.image_request_sender)
+        self.request_handler.request_completed.connect(
+            lambda _:self.status_update.emit(AvatarCreatorText.IMAGE_GENERATE_STATUS_PROMPT)
+            )
+        self.request_handler.send_request(message=self.message,model=summary_model)
+
+        
+    def image_request_sender(self,json_return):
+        if not hasattr(self,'message'):
+            self.failure.emit('AvartarImageGenerator','Not init yet')
+        print('image_request_sender called')
+
+        for _, __, obj in jsonfinder(json_return):
+            if isinstance(obj, dict):  # 确保我们提取到的是JSON数组
+                param=obj
+        param['model']=self.model
+        self.generator.create(params_dict=param)
+        self.status_update.emit(AvatarCreatorText.IMAGE_GENERATE_STATUS_IMAGE)
 
 
 class AvatarCreatorWindow(QWidget):
-    """头像创建工具主界面"""
+    """
+    头像创建工具主界面
+    需要在模型库请求完成后创建
+    """
     # 信号定义
     styleRequested = pyqtSignal(str)  # 生成风格请求信号
     avatarCreated = pyqtSignal(dict)  # 添加头像创建完成信号
@@ -457,7 +521,13 @@ class AvatarCreatorWindow(QWidget):
                      'assistant':{'name':'assistant','image':''}
                     },
                 application_path='',#AutoLoad
-                init_character={'lock':False,'character':'user'}
+                init_character={'lock':False,'character':'user'},
+                model_map={'无供应商':['检查调用节点']},
+                default_apis={
+                                "暂无": {
+                                    "url": "no.url.provided",
+                                    "key": "unknown"
+                                }},
                  ):
         super().__init__(parent)
         self.target_size = target_size  # 可配置的目标尺寸
@@ -466,6 +536,8 @@ class AvatarCreatorWindow(QWidget):
         self.avatar_info = avatar_info
         self.init_character=init_character
         self.application_path=application_path
+        self.model_map=model_map
+        self.defalt_apis=default_apis
         self.avatar_folder=os.path.join(self.application_path,'pics','avatar')
         self.temp_folder=os.path.join(self.application_path,'pics','work_temp')
         self.selection_rect = QRect()  # 用户选择的裁切区域
@@ -531,6 +603,27 @@ class AvatarCreatorWindow(QWidget):
         
         self.character_include_syspromt = QCheckBox(AvatarCreatorText.CHECKBOX_INCLUDE_SYSPROMPT)
         ai_layout.addWidget(self.character_include_syspromt)
+
+        
+        qfa=QFrame()
+        qfa.setFrameShape(QFrame.HLine)
+        ai_layout.addWidget(qfa)
+
+        ai_layout.addWidget(QLabel(AvatarCreatorText.LABEL_SUMMARY_PROVIDER))
+
+        self.prompt_summarizer_provider=QComboBox()
+        self.prompt_summarizer_provider.addItems(list(self.model_map.keys()))
+        ai_layout.addWidget(self.prompt_summarizer_provider)
+
+        self.prompt_summarizer_model=QComboBox()
+        self.prompt_summarizer_model.addItems(self.model_map[self.prompt_summarizer_provider.currentText()])
+        ai_layout.addWidget(self.prompt_summarizer_model)
+
+        self.prompt_summarizer_provider.currentTextChanged.connect(
+            lambda text: self.prompt_summarizer_model.clear() 
+            or 
+            self.prompt_summarizer_model.addItems(self.model_map[text])
+            )
 
         self.model_provider=QComboBox()
         self.model_provider.addItems(AvatarCreatorText.PROVIDER_OPTIONS)
@@ -812,7 +905,16 @@ if __name__ == "__main__":
 
     window = AvatarCreatorWindow(
         application_path=r'C:\Users\Administrator\Desktop\github\ChatWindowWithLLMApi',
-        init_character={'lock':True,'character':'assistant'}
+        init_character={'lock':True,'character':'assistant'},
+        model_map={
+  "deepseek": [
+    "deepseek-chat",
+    "deepseek-reasoner"
+  ],
+  "tencent": [
+    "deepseek-r1",
+    "deepseek-v3"
+  ],}
     )
     window.error_log.connect(print)#调试时顺便打印内容
     window.show()

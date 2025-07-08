@@ -1340,15 +1340,17 @@ class StrTools:
         return {"starter":False,"ender":False}
 
     @staticmethod
-    def debug_chathistory(dic_chathistory):
+    def debug_chathistory(dic_chathistory,action='easy'):
         """调试聊天记录"""
         actual_length = 0
+
         for i, message in enumerate(dic_chathistory):
-            print(f"对话 {i}:")
-            print(f"Role: {message['role']}")
-            print("-" * 20)
-            print(f"Content: {message['content']}")
-            print("-" * 20)
+            if action!='easy':
+                print(f"对话 {i}:")
+                print(f"Role: {message['role']}")
+                print("-" * 20)
+                print(f"Content: {message['content']}")
+                print("-" * 20)
             
             # 新增工具调用打印逻辑
             if message['role'] == 'assistant' and 'tool_calls' in message:
@@ -3043,8 +3045,7 @@ class MainWindow(QMainWindow):
                 full_chat_lenth=len(str(self.chathistory))
                 message_lenth_bool=(len(self.chathistory)>self.max_background_rounds or full_chat_lenth>self.max_backgound_lenth)
                 newchat_rounds_bool=self.new_background_rounds>self.max_background_rounds
-                newchat_lenth_bool=(len(str(self.chathistory[-self.new_background_rounds:]))-len(str(self.chathistory[0])))>self.max_backgound_lenth
-                long_chat_improve_bool=message_lenth_bool and newchat_rounds_bool or newchat_lenth_bool
+                long_chat_improve_bool=message_lenth_bool and newchat_rounds_bool
                 print('背景更新日志：',
                     '\n当前对话次数:',len(self.chathistory)-1,
                     '\n当前对话长度（包含system prompt）:',full_chat_lenth,
@@ -3335,6 +3336,7 @@ class MainWindow(QMainWindow):
             file_path, _ = QFileDialog.getOpenFileName(
                 self, "导入聊天记录", "", "JSON files (*.json);;All files (*)"
             )
+        load_start_time=time.perf_counter()
         if file_path:
             with open(file_path, "r", encoding="utf-8") as file:
                 self.chathistory = json.load(file)
@@ -3349,7 +3351,9 @@ class MainWindow(QMainWindow):
                                                                        }
                                                                     )
             self.update_chat_history()  # 更新聊天历史显示
-            print("聊天记录已导入，当前聊天记录：", file_path,'\n最后一句长度',len(self.chathistory[-1]['content']))
+            print("聊天记录已导入，当前聊天记录：", file_path,
+                  '\n对话长度',len(self.chathistory),
+                  '\n识别长度',len(self.chathistory[-1]['content']))
             #覆盖两人名字
             self.name_user=self.chathistory[0]['info']['name']['user'     ]
             self.name_ai  =self.chathistory[0]['info']['name']['assistant']
@@ -3360,6 +3364,7 @@ class MainWindow(QMainWindow):
             self.update_opti_bar()
             self.update_avatar_to_chat_bubbles()
             self.update_name_to_chatbubbles()
+        print(f'处理时间:{(time.perf_counter()-load_start_time)*1000:.2f}ms')
 
     #编辑记录
     def edit_chathistory(self):
@@ -3639,9 +3644,6 @@ class MainWindow(QMainWindow):
                 
 
         last_full_story=user_summary+last_full_story
-        print('\n\n\n长文本优化\n获取的完整故事\n\n')
-        print(last_full_story)
-        print('\n\n')
         messages=[
             {"role":"system","content":summary_prompt},
             {"role":"user","content":last_full_story}
@@ -3803,6 +3805,7 @@ class MainWindow(QMainWindow):
             self.name_user=name
         elif role=='assistant':
             self.name_ai=name
+        self.init_name_to_history()
         self.update_name_to_chatbubbles()
     #历史对话
     def past_chats_menu(self, position):
@@ -4107,8 +4110,10 @@ class MainWindow(QMainWindow):
                 except Exception as e:
                     None
                     print('negative_prompt extract failed, Error code:',e)
+            print('back_ground_update_thread_to_novita init')
             client = NovitaImageGenerator(application_path=self.application_path,
                                           api_key=self.novita_api_key)
+            client.failure.connect(print)
             # 生成图片请求
             task_id = client.generate(
                 prompt= prompt, 
@@ -4117,7 +4122,6 @@ class MainWindow(QMainWindow):
                 width=1280,
                 height=720
             )
-            
             # 检查并轮询结果
             if task_id:
                 self.returned_file_path=client.poll_result(task_id)

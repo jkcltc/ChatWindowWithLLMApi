@@ -113,13 +113,13 @@ class NovitaImageGenerator(QObject):
             headers=self.headers,
             json=data  # 使用json参数自动处理序列化和Content-Type
         )
-        
         if response.status_code != 200:
+            print(f"请求失败，状态码：{response.status_code}")
             self.failure.emit('generate',f"请求失败，状态码：{response.status_code}")
             return None
         task_id=response.json().get('task_id')
         self.request_emit.emit(task_id)
-        return 
+        return task_id
 
     def poll_result(self, task_id, timeout=600, interval=5):
         """轮询任务结果并返回图片路径"""

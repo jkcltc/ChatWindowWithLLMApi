@@ -13,12 +13,17 @@ class ChatHistoryTools:
         return None
     
     @staticmethod
-    def patch_history_0_25_1(chathistory):
+    def patch_history_0_25_1(chathistory,names=None,avatar=None):
         request_id=100001
         for item in chathistory:
             if not "info" in item:
                 item['info']={'id':request_id}
                 request_id+=1
+        if (not 'name' in chathistory[0]['info']) and names:
+            chathistory[0]['info']['name']=names
+        if (not 'avatar' in chathistory[0]['info']) and avatar:
+            chathistory[0]['info']['avatar']=avatar
+        chathistory[0]['info']['id']=999999#system prompt它就应该
         return chathistory
     
     @staticmethod
@@ -42,8 +47,8 @@ class ChatHistoryTools:
         for message in chathistory:
             if message['role']=='system':
                 continue
-            lines.append(f"{names[message['role']]}:")
-            lines.append(f"{message['content']}")
+            lines.append(f"\n\n{names[message['role']]}:")
+            lines.append(f"\n\n{message['content']}")
         return '\n'.join(lines)
 
 class ChatHistoryTextView(QDialog):

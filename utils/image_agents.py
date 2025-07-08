@@ -117,8 +117,6 @@ class ImageAgent(QObject):      #Factory Class
         self.generator.failure.connect(self.failure.emit)
 
     def create(self,params_dict):
-
-        print('create(self,params_dict)',self.translate_params(params_dict))
         self.generator.create(
             self.translate_params(params_dict)
             )

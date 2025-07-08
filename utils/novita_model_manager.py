@@ -68,15 +68,19 @@ class NovitaImageGenerator(QObject):
         
     def _save_image(self, url, filename):
         """保存图片到指定目录"""
-        filepath = os.path.join(self.save_path, filename)
-        response = requests.get(url)
-        if response.status_code == 200:
-            with open(filepath, 'wb') as f:
-                f.write(response.content)
-            print(f"图片已保存为 {filepath}")
-            self.pull_success.emit(filepath)
-            return filepath
-        self.failure.emit('poll',f"下载失败，状态码：{response.status_code}")
+        try:
+            filepath = os.path.join(self.save_path, filename)
+            response = requests.get(url)
+            if response.status_code == 200:
+                with open(filepath, 'wb') as f:
+                    f.write(response.content)
+                print(f"图片已保存为 {filepath}")
+                self.pull_success.emit(filepath)
+                return filepath
+            self.failure.emit('poll',f"下载失败，状态码：{response.status_code}")
+        except Exception as e:
+            self.failure.emit('poll',f"请求失败，状态码：{e}")
+        
         return None
 
     def generate(self, prompt, model_name, negative_prompt, 

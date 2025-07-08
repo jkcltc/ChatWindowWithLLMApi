@@ -4,7 +4,7 @@ from PyQt5.QtCore import *
 from PyQt5.QtGui import *
 import os,json
 from jsonfinder import jsonfinder
-
+import copy
 
 if __name__=='__main__':#waiting 0.25.2 patch 
     from chat_history_manager import ChatHistoryTools
@@ -367,13 +367,14 @@ class AvatarCreatorText:
     LABEL_PREVIEW_AREA = "预览区域"
     LABEL_ORIGINAL_IMAGE = "原始图像"
     LABEL_PROCESSED_IMAGE = "处理后图像"
+    LABEL_CUT_SETTING = '对话数：'
     
     # 复选框文本
     CHECKBOX_INCLUDE_SYSPROMPT = "携带系统提示"
     
     # 下拉选项
     SOURCE_OPTIONS = ["完整对话", "选择的对话"]
-    PROVIDER_OPTIONS = ["Novita"]
+    PROVIDER_OPTIONS = ["novita"]
 
     #图像生成要求
     IMAGE_GENERATE_SYSTEM_PROMPT='''
@@ -442,11 +443,18 @@ class AvatarImageGenerator(QObject):
                       chathistory_list,
                       style='简约头像',
                       charactors={'user':'user','assistant':'assistant'},
-                      msg_id=''
+                      msg_id='',
+                      use_system_prompt=True,
+                      cut_lenth=10
                       ):
         '''
         param: target 用于指定生成目标
         '''
+        chathistory_list=copy.deepcopy(chathistory_list)
+        if target in charactors:
+            target=charactors[target]
+        if not use_system_prompt:
+            chathistory_list=chathistory_list[1:]
         if msg_id:
             for item in chathistory_list:
                 if item['info']['id']==msg_id:
@@ -454,9 +462,9 @@ class AvatarImageGenerator(QObject):
                     break
             else:
                 chathistory=ChatHistoryTools.to_readable_str(chathistory_list[-2:])
-                print('no id found')
-                self.failure.emit('prepare_message','no id found')
+                self.failure.emit('prepare_message',f'no id found:{msg_id}')
         else:
+            chathistory_list=chathistory_list[-cut_lenth:]
             chathistory=ChatHistoryTools.to_readable_str(chathistory=chathistory_list,
                                                          names=charactors)
         
@@ -466,14 +474,13 @@ class AvatarImageGenerator(QObject):
             style=style,
             charactor=target
         )
-
-        
+        print(user_message)
 
         self.message=[{'role':'system','content':system_message},
                  {'role':'user','content':user_message}]
         return self.message
         
-    def send_description_request(self,api_config,summary_model):
+    def send_image_workflow_request(self,api_config,summary_model):
         '''
         api_config={
             "url": default_apis[self.api_provider]["url"],
@@ -482,23 +489,20 @@ class AvatarImageGenerator(QObject):
         '''
         self.request_handler=APIRequestHandler(api_config=api_config)
         self.request_handler.request_completed.connect(self.image_request_sender)
-        self.request_handler.request_completed.connect(
-            lambda _:self.status_update.emit(AvatarCreatorText.IMAGE_GENERATE_STATUS_PROMPT)
-            )
+        self.status_update.emit(AvatarCreatorText.IMAGE_GENERATE_STATUS_PROMPT)
         self.request_handler.send_request(message=self.message,model=summary_model)
 
         
     def image_request_sender(self,json_return):
         if not hasattr(self,'message'):
             self.failure.emit('AvartarImageGenerator','Not init yet')
-        print('image_request_sender called')
-
+        self.status_update.emit(AvatarCreatorText.IMAGE_GENERATE_STATUS_IMAGE)
         for _, __, obj in jsonfinder(json_return):
             if isinstance(obj, dict):  # 确保我们提取到的是JSON数组
                 param=obj
         param['model']=self.model
         self.generator.create(params_dict=param)
-        self.status_update.emit(AvatarCreatorText.IMAGE_GENERATE_STATUS_IMAGE)
+        
 
 
 class AvatarCreatorWindow(QWidget):
@@ -508,39 +512,48 @@ class AvatarCreatorWindow(QWidget):
     """
     # 信号定义
     styleRequested = pyqtSignal(str)  # 生成风格请求信号
-    avatarCreated = pyqtSignal(dict)  # 添加头像创建完成信号
+    avatarCreated = pyqtSignal(str,str)  # 添加头像创建完成信号,user/assistant,path
+    #avartarInfoResult=pyqtSignal(str,str) # 返回名称，路径到上层，供保存
     selectionChanged = pyqtSignal(QRect)  # 添加选择区域变化信号
     ai_generate_status=pyqtSignal(str)
     error_log=pyqtSignal(str,str)
     
-    def __init__(self, 
-                 target_size=(256, 256), 
-                 parent=None,
-                 avatar_info={
-                     'user':{'name':'user','image':''},
-                     'assistant':{'name':'assistant','image':''}
-                    },
-                application_path='',#AutoLoad
-                init_character={'lock':False,'character':'user'},
-                model_map={'无供应商':['检查调用节点']},
+    def __init__(
+                self,
+                target_size=(256, 256),
+                parent=None,
+                avatar_info={
+                    'user': {'name': 'user', 'image': ''},
+                    'assistant': {'name': 'assistant', 'image': ''}
+                },
+                application_path='',  # AutoLoad
+                init_character={'lock': False, 'character': 'user'},
+                model_map={'无供应商': ['检查调用节点']},
                 default_apis={
-                                "暂无": {
-                                    "url": "no.url.provided",
-                                    "key": "unknown"
-                                }},
-                 ):
+                    "暂无": {
+                        "url": "no.url.provided",
+                        "key": "unknown"
+                    }
+                },
+                msg_id='',
+                chathistory=[{'role':'user','content':'what'}]
+        ):
         super().__init__(parent)
         self.target_size = target_size  # 可配置的目标尺寸
         self.setWindowTitle(AvatarCreatorText.WINDOW_TITLE)
-        self.current_image_path = ""  # 当前处理的图像路径
-        self.avatar_info = avatar_info
-        self.init_character=init_character
-        self.application_path=application_path
-        self.model_map=model_map
-        self.defalt_apis=default_apis
-        self.avatar_folder=os.path.join(self.application_path,'pics','avatar')
-        self.temp_folder=os.path.join(self.application_path,'pics','work_temp')
-        self.selection_rect = QRect()  # 用户选择的裁切区域
+
+        # 初始化变量
+        self.current_image_path = ""    # 当前处理的图像路径
+        self.avatar_info = avatar_info   # 头像信息字典
+        self.init_character = init_character  # 初始角色设置
+        self.application_path = application_path  # 应用路径
+        self.model_map = model_map       # 模型映射关系
+        self.defalt_apis = default_apis  # 默认API配置
+        self.msg_id = msg_id             # 消息ID
+        self.chathistory=chathistory
+
+        # UI相关
+        self.selection_rect = QRect()    # 用户选择的裁切区域
         
         self._init_environment()
         self._init_ui()
@@ -549,18 +562,26 @@ class AvatarCreatorWindow(QWidget):
     
     def _init_environment(self):
         """初始化环境，创建文件夹和自身变量"""
+
+        #初始化变量
+        self.avatar_folder=os.path.join(self.application_path,'pics','avatar')
+        self.temp_folder=os.path.join(self.application_path,'pics','work_temp')
+
         #初始化文件夹
         os.makedirs(self.avatar_folder, exist_ok=True)
         os.makedirs(self.temp_folder, exist_ok=True)
 
-        #初始化变量
+        
         self.character_for_names = []
         self.character_for_map = {}
         # 创建角色名称映射
         for key, items in self.avatar_info.items():
             self.character_for_names.append(items['name'])
             self.character_for_map[items['name']] = key
-            
+
+        if not 'tool' in self.avatar_info:
+            self.avatar_info['tool']={'name':'tool','image':self.avatar_info['assistant']['image']}
+
         # 当前选择的角色
         self.current_character = self.character_for_names[0] if self.character_for_names else ""
     
@@ -570,7 +591,7 @@ class AvatarCreatorWindow(QWidget):
         self.character_for = QComboBox()
         self.character_for.addItems(self.character_for_names)
         self.character_for.setEnabled(not self.init_character['lock'])
-        self.character_for.setCurrentText(self.init_character['character'])
+        self.character_for.setCurrentText(self.avatar_info[self.init_character['character']]['name'])
 
         # 创建模式切换组合框
         self.mode_combo = QComboBox()
@@ -598,12 +619,17 @@ class AvatarCreatorWindow(QWidget):
 
         self.character_source_combo = QComboBox()
         self.character_source_combo.addItems(AvatarCreatorText.SOURCE_OPTIONS)
+
         ai_layout.addWidget(QLabel(AvatarCreatorText.LABEL_CHARACTER_SOURCE))
         ai_layout.addWidget(self.character_source_combo)
+
+        self.character_cut_label=QLabel(AvatarCreatorText.LABEL_CUT_SETTING)
+        self.character_cut_spin = QSpinBox()
+        ai_layout.addWidget(self.character_cut_label)
+        ai_layout.addWidget(self.character_cut_spin)
         
         self.character_include_syspromt = QCheckBox(AvatarCreatorText.CHECKBOX_INCLUDE_SYSPROMPT)
         ai_layout.addWidget(self.character_include_syspromt)
-
         
         qfa=QFrame()
         qfa.setFrameShape(QFrame.HLine)
@@ -754,6 +780,19 @@ class AvatarCreatorWindow(QWidget):
         
         # 添加更新标志，防止递归
         self.updating_selection = False
+
+        self.error_log.connect(
+                lambda error_func,error_intel:QMessageBox.critical(
+                    self, "Error", f"Error in {error_func}: {error_intel}"
+                    )
+                )
+        self.generate_btn.clicked.connect(self.start_img_creation)
+
+        self.character_source_combo.currentIndexChanged.connect(
+            lambda i: [c.setVisible(i == 0) 
+             for c in [self.character_cut_label, self.character_cut_spin]
+             ]
+            )
         
     def _mode_changed(self, index):
         """处理模式切换事件"""
@@ -842,7 +881,7 @@ class AvatarCreatorWindow(QWidget):
         """保存当前头像到角色信息"""
         if not self.result_preview.pixmap().isNull():
             # 获取角色ID
-            char_id = self.character_for_map.get(self.current_character, "")
+            char_id = self.character_for_map.get(self.character_for.currentText(), "")
             result_path=os.path.join(
                     self.avatar_folder,
                     f"{self.character_for.currentText()}.jpg"
@@ -852,12 +891,8 @@ class AvatarCreatorWindow(QWidget):
                 )
             if char_id:
                 # 发出信号通知头像已创建
-                self.avatarCreated.emit({
-                    'character': char_id,
-                    'pixmap': self.result_preview.pixmap(),
-                    'image_path': result_path
-                })
-                
+                self.avatarCreated.emit(char_id,result_path)
+                #self.avartarInfoResult.emit(self.character_for.currentText(),result_path)
                 self.close()
     
     def load_ai_generated_image(self, pixmap):
@@ -886,6 +921,50 @@ class AvatarCreatorWindow(QWidget):
         self.original_preview.reset_selection()
         self.generate_btn.setEnabled(True)
     
+    def start_img_creation(self):
+        #初始化生成类
+        if not hasattr(self,'image_generator'):
+            self.image_generator=AvatarImageGenerator(
+                generator=self.model_provider.currentText(),
+                application_path=self.application_path,
+                model=self.model_choice.currentText()
+            )
+            self.image_generator.status_update.connect(self.ai_generate_status_label.setText)
+            self.image_generator.failure.connect(
+                lambda error_func,error_intel:QMessageBox.critical(
+                    self, "Error", f"Error in {error_func}: {error_intel}"
+                    )
+                )
+            self.image_generator.pull_success.connect(self.load_ai_generated_image)
+        if self.character_source_combo.currentIndex()==1:
+            msg_id=self.msg_id
+        else:
+            msg_id=''
+        self.image_generator.prepare_message(
+                      target=self.character_for_map[self.character_for.currentText()],
+                      chathistory_list=self.chathistory,
+                      style=self.style_edit.text(),
+                      charactors={'user':self.avatar_info['user']['name'],'assistant':self.avatar_info['assistant']['name']},
+                      msg_id=msg_id
+                      )
+        self.image_generator.send_image_workflow_request(api_config={
+            'url':self.defalt_apis[self.prompt_summarizer_provider.currentText()]['url'],
+            'key':self.defalt_apis[self.prompt_summarizer_provider.currentText()]['key']
+        },
+        summary_model=self.prompt_summarizer_model.currentText())
+        
+    def showEvent(self, event):
+        # 获取屏幕几何信息
+        screen = QApplication.primaryScreen().geometry()
+        # 获取窗口几何信息
+        window = self.geometry()
+        # 计算居中位置
+        x = (screen.width() - window.width()) // 2
+        y = (screen.height() - window.height()) // 2
+        # 移动窗口到屏幕中心
+        self.move(x, y)
+        super().showEvent(event)
+
     def clean_up(self):
         for filename in os.listdir(self.temp_folder):
             file_path = os.path.join(self.temp_folder, filename)
@@ -904,17 +983,8 @@ if __name__ == "__main__":
     app = QApplication([])
 
     window = AvatarCreatorWindow(
-        application_path=r'C:\Users\Administrator\Desktop\github\ChatWindowWithLLMApi',
+        application_path=r'',
         init_character={'lock':True,'character':'assistant'},
-        model_map={
-  "deepseek": [
-    "deepseek-chat",
-    "deepseek-reasoner"
-  ],
-  "tencent": [
-    "deepseek-r1",
-    "deepseek-v3"
-  ],}
     )
     window.error_log.connect(print)#调试时顺便打印内容
     window.show()

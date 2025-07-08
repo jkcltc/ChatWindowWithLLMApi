@@ -43,11 +43,7 @@ class GradientLabel(QLabel):
         self.setStyleSheet("""
             font-size: 15px;
             font-weight: bold;
-            color: white;
-            padding: 2px;
-            border-radius: 15px;
             max-height: 25px;
-            max-width: 400px
         """)
         
         self.offset = 0
@@ -794,7 +790,7 @@ class ChatBubble(QWidget):
     regenerateRequested = pyqtSignal(str)  # 参数: 消息ID
     editFinished = pyqtSignal(str, str)    # 参数: 消息ID, 新内容
     detailToggled = pyqtSignal(str, bool)   # 参数: 消息ID, 是否显示详情
-    avatarChanged = pyqtSignal(str)    # 参数: 消息ID, 新头像路径
+    RequestAvatarChange = pyqtSignal(str,str)    # 参数: 消息ID, 头像来源
 
     def __init__(self, message_data, nickname=None, 
                  avatar_path="", parent=None,
@@ -915,7 +911,6 @@ class ChatBubble(QWidget):
         # 连接信号
         self._connect_signals()
 
-
     def _setup_avatar(self):
         """设置头像显示（无圆形效果）"""
         if self.avatar_path and os.path.exists(self.avatar_path):
@@ -959,7 +954,7 @@ class ChatBubble(QWidget):
     
     def _on_avatar_clicked(self):
         """处理头像点击事件 - 弹出文件选择对话框"""
-        self.avatarChanged.emit(self.role)
+        self.RequestAvatarChange.emit(self.id,self.role)
     
     def _handle_copy(self):
         """处理复制操作"""
@@ -1085,7 +1080,7 @@ class ChatHistoryWidget(QWidget):
     regenerateRequested = pyqtSignal(str)  # 消息ID
     editFinished = pyqtSignal(str, str)    # 消息ID, 新内容
     detailToggled = pyqtSignal(str, bool)   # 消息ID, 是否显示详情
-    avatarChanged = pyqtSignal(str)    # 消息ID, 新头像路径
+    RequestAvatarChange = pyqtSignal(str,str)    # 消息ID,名字
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -1290,7 +1285,7 @@ class ChatHistoryWidget(QWidget):
         bubble.regenerateRequested.connect(self.regenerateRequested.emit)
         bubble.editFinished.connect(self.editFinished.emit)
         bubble.detailToggled.connect(self.detailToggled.emit)
-        bubble.avatarChanged.connect(self.avatarChanged.emit)
+        bubble.RequestAvatarChange.connect(self.RequestAvatarChange.emit)
 
         target_height = int(self.height() * 1.2)
         if streaming:

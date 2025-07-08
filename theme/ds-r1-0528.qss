@@ -473,8 +473,6 @@ QSpinBox {
     background-color: rgba(240, 244, 248, 0.95);  /* 淡蓝色背景 */
     border: 2px solid #d0d8e0;                   /* 边框颜色 */
     border-radius: 4px;                          /* 圆角半径 */
-    padding: 3px 20px 3px 10px;                  /* 内边距 - 右侧为箭头留空间 */
-    min-height: 24px;                            /* 最小高度 */
     color: #1a2980;                              /* 文字颜色 */
     font-weight: bold;                           /* 加粗文字 */
     font-size: 14px;                            /* 字体大小 */
@@ -549,26 +547,9 @@ QSpinBox::down-button {
     height: 50%;                                 /* 占50%高度 */
 }
 
-/* ====== 箭头图标样式 ====== */
-QSpinBox::up-arrow {
-    image: url(:/icons/up_arrow.png);            /* 上箭头图片 */
-    width: 12px;                                 /* 宽度 */
-    height: 12px;                                /* 高度 */
-}
-
-QSpinBox::down-arrow {
-    image: url(:/icons/down_arrow.png);          /* 下箭头图片 */
-    width: 12px;                                 /* 宽度 */
-    height: 12px;                                /* 高度 */
-}
-
 /* 按钮禁用状态 */
 QSpinBox::up-button:disabled, QSpinBox::down-button:disabled {
     background: transparent;                     /* 透明背景 */
-}
-
-QSpinBox::up-arrow:disabled, QSpinBox::down-arrow:disabled {
-    image: url(:/icons/arrow_disabled.png);      /* 灰色箭头 */
 }
 
 /* ====== 增/减按钮区域悬停状态 ====== */

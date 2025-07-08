@@ -49,6 +49,7 @@ from utils.preset_data import *
 from utils.usage_analysis import TokenAnalysisWidget
 from utils.chat_history_manager import *
 from utils.online_rag import *
+from utils.avatar import AvatarCreatorWindow
 
 print(f'Chatapi Main window custom lib import finished, time cost:{time.time()-start_time_stamp:.2f}s')
 
@@ -128,7 +129,6 @@ def _create_default_config():
         QMessageBox.critical(None, "配置错误", f"无法创建配置文件：{str(e)}")
         return {}
     
-    #QMessageBox.warning(None, "注意", "首次启动需要先填写API")
     return {k: [v["url"], v["key"]] for k, v in DEFAULT_APIS.items()}
 
 def _read_existing_config():
@@ -140,7 +140,7 @@ def _read_existing_config():
         if not config.read(API_CONFIG_FILE):
             raise FileNotFoundError
         
-        for api_name in DEFAULT_APIS.keys():
+        for api_name in config.sections():
             if config.has_section(api_name):
                 url = config.get(api_name, "url", fallback="")
                 key = config.get(api_name, "key", fallback="")
@@ -516,7 +516,6 @@ class APIConfigWidget(QWidget):
         self.custom_group_boxes: Dict[str, QGroupBox] = {} 
         
         # 初始化UI前设置尺寸策略
-        #self.setSizePolicy(QSizePolicy.MinimumExpanding, QSizePolicy.MinimumExpanding)
         self._initialize_ui()
         self.load_config()
         self.adjustSize()  # 初始调整窗口大小
@@ -967,7 +966,6 @@ class RepeatProcessor:
                 if substr in s2:
                     repeats.add(substr)
                     break
-        #return repeats
 
     def _clean_repeats(self, repeats):
         """清洗重复项结果"""
@@ -1843,7 +1841,6 @@ class MainWindow(QMainWindow):
 
         self.stat_tab_widget = QTabWidget()
         self.stat_tab_widget.setSizePolicy(QSizePolicy.Preferred,QSizePolicy.Minimum)
-        #self.stat_tab_widget.setMaximumHeight(135)
         api_page = QWidget()
         api_page_layout = QGridLayout(api_page)
 
@@ -1960,7 +1957,6 @@ class MainWindow(QMainWindow):
         #思考内容文本框
         self.think_text_box=QTextBrowser()
         self.ai_think_label=QLabel("AI思考链")
-        #self.think_text_box.setGraphicsEffect(QGraphicsOpacityEffect().setOpacity(0.5))
         
         self.think_text_box.hide()
         
@@ -2059,9 +2055,6 @@ class MainWindow(QMainWindow):
         self.past_chat_frame_layout.addWidget(self.hide_extra_items,        10,1,1,1)
         self.past_chat_frame.setParent(self)
         self.past_chat_frame.hide()
-        #self.main_layout.addWidget(self.past_chat_frame, 0, 3, 1, 1)
-
-
 
         # 创建 TreeView
         self.tree_view = QTreeWidget()
@@ -2113,8 +2106,7 @@ class MainWindow(QMainWindow):
         self.shortcut2.activated.connect(self.toggle_tree_view)
         self.send_message_shortcut.activated.connect(self.send_message)
         self.sysrule=self.init_sysrule()
-        self.chathistory = []
-        self.chathistory.append({'role': 'system', 'content': self.sysrule,'info':{'id':999999}})
+        self.creat_new_chathistory()
         self.chathistory_detail=[]
         self.pause_flag = False
         self.update_response_signal.connect(self.receive_message)
@@ -2202,6 +2194,10 @@ class MainWindow(QMainWindow):
         self.name_user="用户"
         self.name_ai=""
 
+        #俩人头像
+        self.avatar_user=''#path to user avatar.jpg
+        self.avatar_ai=''#path to ai avatar.jpg
+
         #对话储存点
         self.think_response=''
         self.full_response=''
@@ -2211,13 +2207,11 @@ class MainWindow(QMainWindow):
         self.ai_last_update_time = 0
         self.ai_update_timer = QTimer()
         self.ai_update_timer.setSingleShot(True)
-        #self.ai_update_timer.timeout.connect(self.perform_ai_actual_update)
 
         # 思考过程更新控制
         self.think_last_update_time = 0
         self.think_update_timer = QTimer()
         self.think_update_timer.setSingleShot(True)
-        #self.think_update_timer.timeout.connect(self.perform_think_actual_update)
 
         self.last_chat_info={}
 
@@ -2254,6 +2248,7 @@ class MainWindow(QMainWindow):
         #气泡信号绑定
         self.chat_history_bubbles.regenerateRequested.connect(self.resend_message)
         self.chat_history_bubbles.editFinished.connect(self.edit_chathistory_by_index)
+        self.chat_history_bubbles.RequestAvatarChange.connect(self.show_avatar_window)
         
     def init_concurrenter(self):
         self.concurrent_model=ConvergenceDialogueOptiProcessor()
@@ -2263,7 +2258,7 @@ class MainWindow(QMainWindow):
 
     def init_sysrule(self):
         # 定义文件路径
-        file_path = "utils/system_prompt_presets/当前对话.json"
+        file_path = os.path.join(self.application_path,'utils','system_prompt_presets','当前对话.json')
         
         # 检查文件是否存在
         if os.path.exists(file_path):
@@ -2330,7 +2325,6 @@ class MainWindow(QMainWindow):
         
         self.api_var.currentTextChanged.connect(lambda text: setattr(self, 'saved_api_provider', text))
         self.model_combobox.currentTextChanged.connect(lambda text: setattr(self, 'saved_model_name', text))
-
 
     #svg图标渲染器
     def render_svg_to_icon(self, svg_data):
@@ -2407,7 +2401,6 @@ class MainWindow(QMainWindow):
         )
         self.past_chat_frame.setGeometry(self.width()-self.past_chat_frame.width(), 0, int(self.width() * 0.3), int(self.height()))
         self.tree_view.setGeometry(0, 0, int(self.width() * 0.3), int(self.height()))
-        #self.think_text_box.setGeometry(0, 0,int(self.height()*0.04), int(self.height()*0.04))
     def changeEvent(self, event):
         try:
             self.past_chat_frame.setGeometry(self.width()-self.past_chat_frame.width(), 0, int(self.width() * 0.3), int(self.height()))
@@ -2710,7 +2703,6 @@ class MainWindow(QMainWindow):
 
     #接受信息，信息后处理
     def receive_message(self,request_id,content):
-        #if self.return_message
         try:
             if self.pause_flag:
                 if self.chathistory and self.chathistory[-1]['role'] == 'user':
@@ -2793,14 +2785,12 @@ class MainWindow(QMainWindow):
                 elif not (special_block_handler_result["starter"]):#如果没有思考链
                     self.full_response += content.content
                     self.ai_response_signal.emit(request_id,self.full_response)
-                #print(content.content, end='', flush=True)
 
             # 处理思考链内容
             if hasattr(content, "reasoning_content") and content.reasoning_content:
                 self.thinked=True
                 self.think_response += content.reasoning_content
                 self.think_response_signal.emit(request_id,self.think_response)
-                #print(content.reasoning_content, end='', flush=True)
 
         def to_serializable(obj):
             """递归将对象转换为可序列化的基本类型（字典/列表/基本类型）"""
@@ -2869,7 +2859,7 @@ class MainWindow(QMainWindow):
             temp_response += content.content
             handle_response(content,temp_response)
         except Exception as e:
-            print(e)
+            print('已进入流式状态')
 
         for event in self.response:
             if self.pause_flag:
@@ -3150,8 +3140,7 @@ class MainWindow(QMainWindow):
     #清除聊天记录
     def clear_history(self):
         self.autosave_save_chathistory()
-        self.chathistory = []
-        self.chathistory.append({'role': 'system', 'content': self.sysrule,'info':{'id':999999}})
+        self.creat_new_chathistory()
         self.chat_history_bubbles.clear()
         self.ai_response_text.clear()
         self.new_chat_rounds=0
@@ -3160,13 +3149,13 @@ class MainWindow(QMainWindow):
         self.update_opti_bar()
         self.update_chat_history()
 
-    #打开设置窗口
+    #打开系统提示设置窗口
     def open_system_prompt(self, show_at_call=True):
         def update_system_prompt(prompt):
             if self.chathistory and self.chathistory[0]['role'] == "system":
                 self.chathistory[0]['content'] = prompt
             else:
-                self.chathistory.insert(0, {'role': 'system', 'content': prompt,'info':{'id':999999}})
+                self.creat_new_chathistory()
             self.sysrule=prompt
         def get_system_prompt():
             if len(self.chathistory)>1:
@@ -3347,17 +3336,30 @@ class MainWindow(QMainWindow):
                 self, "导入聊天记录", "", "JSON files (*.json);;All files (*)"
             )
         if file_path:
-            #try:
-            if True:
-                with open(file_path, "r", encoding="utf-8") as file:
-                    self.chathistory = json.load(file)
-                self.chathistory=ChatHistoryTools.patch_history_0_25_1(self.chathistory)
-                self.update_chat_history()  # 更新聊天历史显示
-                print("聊天记录已导入，当前聊天记录：", self.chathistory[-1]['content'])
-                self.new_chat_rounds=min(self.max_message_rounds,len(self.chathistory))
-                self.new_background_rounds=min(self.max_background_rounds,len(self.chathistory))
-                self.last_summary=''
-                self.update_opti_bar()
+            with open(file_path, "r", encoding="utf-8") as file:
+                self.chathistory = json.load(file)
+            self.chathistory=ChatHistoryTools.patch_history_0_25_1(self.chathistory,
+                                                                   names={
+                                                                       'user':self.name_user,
+                                                                       'assistant':self.name_ai
+                                                                       },
+                                                                    avatar={
+                                                                       'user':'',
+                                                                       'assistant':''
+                                                                       }
+                                                                    )
+            self.update_chat_history()  # 更新聊天历史显示
+            print("聊天记录已导入，当前聊天记录：", file_path,'\n最后一句长度',len(self.chathistory[-1]['content']))
+            #覆盖两人名字
+            self.name_user=self.chathistory[0]['info']['name']['user'     ]
+            self.name_ai  =self.chathistory[0]['info']['name']['assistant']
+
+            self.new_chat_rounds=min(self.max_message_rounds,len(self.chathistory))
+            self.new_background_rounds=min(self.max_background_rounds,len(self.chathistory))
+            self.last_summary=''
+            self.update_opti_bar()
+            self.update_avatar_to_chat_bubbles()
+            self.update_name_to_chatbubbles()
 
     #编辑记录
     def edit_chathistory(self):
@@ -3424,10 +3426,6 @@ class MainWindow(QMainWindow):
             self.autosave_save_chathistory()  # 调用自动保存聊天历史的方法
         except Exception as e:
             print("autosave_save_chathistory fail",e)
-        #try:
-        #    self.save_sysrule()
-        #except Exception as e:
-        #    print("save sys prompt fail",e)
         try:
             self.save_hotkey_config()
         except Exception as e:
@@ -3478,7 +3476,7 @@ class MainWindow(QMainWindow):
 
         # 将文件名添加到QComboBox中
         self.past_chat_list.clear()
-        file_names=sorted(list(self.past_chats.keys()))
+        file_names=sorted(list(self.past_chats.keys()),reverse=True)
         for file_name in file_names:
             self.past_chat_list.addItem(file_name)
 
@@ -3712,7 +3710,7 @@ class MainWindow(QMainWindow):
             self.update_response_signal.emit(random.randint(10000,99999),f"Error: {str(e)}")
             print('长对话优化报错，Error code:',e)
 
-    #对话设置
+    #对话设置，主设置，全局设置
     def open_max_send_lenth_window(self):
         config = {
             'max_message_rounds': self.max_message_rounds,
@@ -3791,14 +3789,21 @@ class MainWindow(QMainWindow):
             
             # 代称设置
             self.main_setting_window.user_name_changed.connect(
-                lambda text: setattr(self, 'name_user', text))
+                lambda text:self.handle_name_changed('user',text))
             self.main_setting_window.assistant_name_changed.connect(
-                lambda text: setattr(self, 'name_ai', text))
+                lambda text:self.handle_name_changed('assistant',text))
             
             self.main_setting_window.long_chat_improve_changed.connect(
                 self.update_opti_bar
             )
 
+    #名称更新
+    def handle_name_changed(self,role,name):
+        if role=='user':
+            self.name_user=name
+        elif role=='assistant':
+            self.name_ai=name
+        self.update_name_to_chatbubbles()
     #历史对话
     def past_chats_menu(self, position):
         target_item = self.past_chat_list.itemAt(position)
@@ -4200,7 +4205,6 @@ class MainWindow(QMainWindow):
             cb_update.setChecked(not cb_lock.isChecked())
         cb_lock.stateChanged.connect(on_lock_state_changed)
 
-        #cb_update.stateChanged.connect(lambda state: cb_lock.setChecked(state != Qt.Checked))
         cb_lock.stateChanged.connect(lambda state: cb_update.setChecked(state != Qt.Checked))
 
         novita_model_combo = QComboBox()
@@ -4380,7 +4384,6 @@ class MainWindow(QMainWindow):
         if self.hide_extra_items.isChecked():
             self.chat_history_label .hide()
             self.chat_history_bubbles  .hide()
-            #self.stat_tab_widget.hide()
             self.viewbutton         .hide()
             self.bubble_background  .hide()
             self.main_layout.setColumnStretch(0, 1)
@@ -4391,7 +4394,6 @@ class MainWindow(QMainWindow):
         else:
             self.chat_history_label     .show()
             self.chat_history_bubbles   .show()
-            #self.stat_tab_widget       .show()
             self.bubble_background      .show()
             self.main_layout.setColumnStretch(0, 1)
             self.main_layout.setColumnStretch(1, 1)
@@ -4446,7 +4448,7 @@ class MainWindow(QMainWindow):
         self.token_analyzer.activateWindow()
         self.token_analyzer.set_data(data)
 
-    #模型并发信号
+    # 0.24.4 模型并发信号
     def concurrentor_content_receive(self,msg_id,content):
         self.full_response=content
         self.update_ai_response_text(msg_id,content)
@@ -4460,6 +4462,88 @@ class MainWindow(QMainWindow):
         self.last_chat_info = self.concurrent_model.get_concurrentor_info()
         self.full_response=content
         self.receive_message(msg_id,content)
+
+    # 0.25.1 avatar
+    # 显示头像窗口
+    def show_avatar_window(self,msg_id,name):
+        do_init=False
+        if (not hasattr(self,'avatar_creator')):
+            do_init=True
+        elif self.avatar_creator.avatar_info['user']!=self.name_user or\
+        self.avatar_creator.avatar_info['assistant']:
+            do_init=True
+        avatar_info={'user':{'name':self.name_user,'image':self.avatar_user},
+                    'assistant':{'name':self.name_ai,'image':self.avatar_ai},
+                    }
+        if do_init:
+            self.avatar_creator=AvatarCreatorWindow(
+                avatar_info=avatar_info,
+                application_path=self.application_path,
+                init_character={'lock':not msg_id,'character':name},
+                model_map=MODEL_MAP,#逆天全局变量
+                default_apis=DEFAULT_APIS,
+                msg_id=msg_id,
+                chathistory=self.chathistory
+                )
+            self.avatar_creator.avatarCreated.connect(self.chat_history_bubbles.set_role_avatar)
+            self.avatar_creator.avatarCreated.connect(self.update_avatar_to_system_prompt)
+        self.avatar_creator.character_for.setCurrentText(avatar_info[name]['name'])
+        self.avatar_creator.chathistory=self.chathistory
+        self.avatar_creator.show()
+        self.avatar_creator.raise_()
+    
+    # 头像和历史记录同步更新
+    def update_avatar_to_system_prompt(self,name,path):
+        if not 'info' in self.chathistory[0]:
+            self.chathistory[0]['info']={"id":999999}#999999固定分配系统提示
+        if not 'avatar' in self.chathistory[0]['info']:
+            self.chathistory[0]['info']['avatar']={'user':'','assistant':''}#path
+        self.chathistory[0]['info']['avatar'][name]=path
+    
+    #头像注入气泡
+    def update_avatar_to_chat_bubbles(self):
+        if 'avatar' in self.chathistory[0]['info']:
+            self.chat_history_bubbles.avatars=self.chathistory[0]['info']['avatar']
+        else:
+            self.chat_history_bubbles.avatars={'user':'','assistant':''}
+        self.chat_history_bubbles.update_all_avatars()
+
+    #气泡名称更新
+    def update_name_to_chatbubbles(self):
+        self.chat_history_bubbles.nicknames={'user': self.name_user, 'assistant': self.name_ai}
+        self.chat_history_bubbles.update_all_nicknames()
+
+    #名称注入历史记录
+    def init_name_to_history(self):
+        self.chathistory[0]['info']['name']={
+            'user':self.name_user,
+            'assistant':self.name_ai
+        }
+
+    
+    #默认头像，用于后续指定
+    def init_avartor_to_history(self):#等一个默认路径
+        self.chathistory[0]['info']['avatar']={
+            'user':'',
+            'assistant':''
+        }
+    
+    #创建新消息
+    def creat_new_chathistory(self):
+        self.sysrule=self.init_sysrule()
+        self.chathistory = []
+        self.chathistory.append(
+            {
+            'role': 'system', 
+            'content': self.sysrule,
+            'info':{
+                'id':999999,
+                'name':{'user':self.name_user,'assistant':self.name_ai},
+                'avatar':{'user':'','assistant':''},
+                }
+            }
+        )
+        self.init_name_to_history()
 
 print(f'Chatapi Main window Class import finished, time cost:{time.time()-start_time_stamp:.2f}s')
 

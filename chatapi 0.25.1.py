@@ -4110,7 +4110,6 @@ class MainWindow(QMainWindow):
                 except Exception as e:
                     None
                     print('negative_prompt extract failed, Error code:',e)
-            print('back_ground_update_thread_to_novita init')
             client = NovitaImageGenerator(application_path=self.application_path,
                                           api_key=self.novita_api_key)
             client.failure.connect(print)

@@ -397,3 +397,190 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
 ChatBubble{
     background: rgba(255,255,255,0.5);
 }
+
+/* ====== QMenu 样式 ====== */
+QMenu {
+    background-color: rgba(255, 255, 255, 0.95); /* 半透明白色背景 */
+    border: 1px solid #d0d8e0;                    /* 边框 */
+    border-radius: 4px;                           /* 圆角 */
+    padding: 5px 1px;                             /* 内边距 */
+    font-size: 14px;
+    color: #333333;                               /* 文字颜色 */
+    font-weight: normal;                          /* 正常字体粗细 */
+}
+
+/* 菜单项样式 */
+QMenu::item {
+    background-color: transparent;                /* 透明背景 */
+    padding: 8px 30px 8px 20px;                   /* 内边距 */
+    border-bottom: 1px solid transparent;         /* 透明边框 */
+    margin: 2px;                                  /* 外边距 */
+}
+
+/* 菜单项悬停效果 */
+QMenu::item:selected, QMenu::item:hover {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+        stop:0 rgba(26, 41, 128, 0.3), stop:1 rgba(38, 208, 206, 0.3)); /* 渐变蓝色背景 */
+    color: #1a2980;                              /* 深蓝色文字 */
+    border-bottom: 1px solid #d0d8e0;             /* 底部边框 */
+    border-radius: 3px;                           /* 圆角 */
+}
+
+/* 菜单项禁用状态 */
+QMenu::item:disabled {
+    color: #aaaaaa;                               /* 灰色文字 */
+    background-color: transparent;                /* 透明背景 */
+}
+
+/* 分隔线样式 */
+QMenu::separator {
+    height: 1px;                                  /* 高度 */
+    background-color: #d0d8e0;                    /* 灰色 */
+    margin: 4px 8px;                              /* 外边距 */
+}
+
+/* 右侧箭头样式（指示子菜单） */
+QMenu::right-arrow {
+    margin-right: 10px;                           /* 右外边距 */
+    image: url(:/images/arrow-right.png);         /* 图片 */
+}
+
+/* 可勾选菜单项 - 未选中状态 */
+QMenu::indicator:unchecked {
+    border: 1px solid #d0d8e0;                    /* 边框 */
+    background: #f0f4f8;                          /* 背景色 */
+    width: 16px;
+    height: 16px;
+}
+
+/* 可勾选菜单项 - 选中状态 */
+QMenu::indicator:checked {
+    border: 1px solid #1a2980;                    /* 边框 */
+    background: #26d0ce;                          /* 背景色 */
+    image: url(:/images/checkmark.png);           /* 勾选图标 */
+    width: 16px;
+    height: 16px;
+}
+
+/* 图标区域样式 */
+QMenu::icon {
+    margin-left: 15px;                            /* 左外边距 */
+    padding-right: 10px;                          /* 右内边距 */
+}
+
+/* ====== QSpinBox 整体样式 ====== */
+QSpinBox {
+    background-color: rgba(240, 244, 248, 0.95);  /* 淡蓝色背景 */
+    border: 2px solid #d0d8e0;                   /* 边框颜色 */
+    border-radius: 4px;                          /* 圆角半径 */
+    padding: 3px 20px 3px 10px;                  /* 内边距 - 右侧为箭头留空间 */
+    min-height: 24px;                            /* 最小高度 */
+    color: #1a2980;                              /* 文字颜色 */
+    font-weight: bold;                           /* 加粗文字 */
+    font-size: 14px;                            /* 字体大小 */
+    selection-background-color: #26d0ce;         /* 选择文本背景色 */
+    selection-color: white;                      /* 选择文本颜色 */
+}
+
+/* 悬停状态 */
+QSpinBox:hover {
+    border-color: #a6b1e1;                      /* 悬停时的边框颜色 */
+    background-color: rgba(240, 244, 248, 0.85); /* 略透明的背景 */
+}
+
+/* 获得焦点状态 */
+QSpinBox:focus {
+    border-color: #26d0ce;                      /* 焦点时的边框颜色 */
+    background-color: white;                    /* 白色背景更醒目 */
+}
+
+/* 禁用状态 */
+QSpinBox:disabled {
+    background-color: rgba(240, 240, 240, 0.7); /* 灰色背景 */
+    color: #a0a0a0;                            /* 灰色文字 */
+    border-color: #d0d0d0;                      /* 浅灰色边框 */
+}
+
+/* ====== 上下箭头按钮区域 ====== */
+QSpinBox::up-button, QSpinBox::down-button {
+    background: rgba(230, 240, 245, 0.85);      /* 半透明背景 */
+    subcontrol-origin: margin;                  /* 按钮定位 */
+    width: 18px;                               /* 宽度 */
+    border-left: 1px solid #d0d8e0;            /* 左侧分隔线 */
+}
+
+/* 按钮悬停状态 */
+QSpinBox::up-button:hover, QSpinBox::down-button:hover {
+    background: qlineargradient(
+        x1:0, y1:0, 
+        x2:0, y2:1, 
+        stop:0 rgba(255, 255, 255, 0.6), 
+        stop:1 rgba(230, 240, 245, 0.85)
+    );
+}
+
+/* 按钮按下状态 */
+QSpinBox::up-button:pressed, QSpinBox::down-button:pressed {
+    background: qlineargradient(
+        x1:0, y1:0, 
+        x2:0, y2:1, 
+        stop:0 #1a2980, 
+        stop:1 #26d0ce
+    );
+}
+
+/* 上按钮位置 */
+QSpinBox::up-button {
+    subcontrol-position: top right;              /* 位于右上角 */
+    border-bottom-left-radius: 0;                /* 移除底部圆角 */
+    border-bottom-right-radius: 0;               /* 移除底部圆角 */
+    margin-right: 2px;                           /* 右边距 */
+    top: 1px;                                    /* 上边距 */
+    height: 50%;                                 /* 占50%高度 */
+}
+
+/* 下按钮位置 */
+QSpinBox::down-button {
+    subcontrol-position: bottom right;            /* 位于右下角 */
+    border-top-left-radius: 0;                   /* 移除顶部圆角 */
+    border-top-right-radius: 0;                  /* 移除顶部圆角 */
+    margin-right: 2px;                           /* 右边距 */
+    bottom: 1px;                                 /* 下边距 */
+    height: 50%;                                 /* 占50%高度 */
+}
+
+/* ====== 箭头图标样式 ====== */
+QSpinBox::up-arrow {
+    image: url(:/icons/up_arrow.png);            /* 上箭头图片 */
+    width: 12px;                                 /* 宽度 */
+    height: 12px;                                /* 高度 */
+}
+
+QSpinBox::down-arrow {
+    image: url(:/icons/down_arrow.png);          /* 下箭头图片 */
+    width: 12px;                                 /* 宽度 */
+    height: 12px;                                /* 高度 */
+}
+
+/* 按钮禁用状态 */
+QSpinBox::up-button:disabled, QSpinBox::down-button:disabled {
+    background: transparent;                     /* 透明背景 */
+}
+
+QSpinBox::up-arrow:disabled, QSpinBox::down-arrow:disabled {
+    image: url(:/icons/arrow_disabled.png);      /* 灰色箭头 */
+}
+
+/* ====== 增/减按钮区域悬停状态 ====== */
+QSpinBox::up-button:hover:!pressed, QSpinBox::down-button:hover:!pressed {
+    background: rgba(255, 255, 255, 0.4);        /* 悬停时的背景色 */
+}
+
+/* ====== 编辑框特定样式 ====== */
+QSpinBox QLineEdit {  /* 针对内部编辑框的样式 */
+    background: transparent;                     /* 透明背景 */
+    border: none;                               /* 无边框 */
+    padding-right: 0;                           /* 移除右侧内边距 */
+    margin: 0;                                  /* 移除外边距 */
+    font: inherit;                              /* 继承父字体 */
+}

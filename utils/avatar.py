@@ -625,6 +625,8 @@ class AvatarCreatorWindow(QWidget):
 
         self.character_cut_label=QLabel(AvatarCreatorText.LABEL_CUT_SETTING)
         self.character_cut_spin = QSpinBox()
+        self.character_cut_spin.setMinimum(1)
+        self.character_cut_spin.setValue(10)
         ai_layout.addWidget(self.character_cut_label)
         ai_layout.addWidget(self.character_cut_spin)
         

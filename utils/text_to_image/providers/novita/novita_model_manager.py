@@ -243,6 +243,9 @@ class NovitaAgent(QObject):
             del params[key]
         return params
 
+    def update_model_list(self):
+        #不，不更新，没法更新
+        return
 
     @property
     def request_template(self):

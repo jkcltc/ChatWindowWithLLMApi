@@ -6,11 +6,15 @@ import threading
 import random
 from PyQt5.QtCore import QObject,pyqtSignal
 
-class ModelFetcher:
-    def __init__(self, api_key=''):
+class SiliconflowModelFetcher(QObject):
+    update_done=pyqtSignal(list)
+
+    def __init__(self,application_path='',api_key=''):
+        super().__init__()
         self.base_url = 'https://api.siliconflow.cn/v1/models?sub_type=text-to-image'
         self.headers = {"Authorization": f"Bearer {api_key}"}
-        self.model_list = []  # 共享资源需要保护
+        self.model_list = SiliconflowModelManager().get_model_options()  # 共享资源需要保护
+        self.application_path=application_path
         
         # 添加线程同步工具
         self.lock = threading.Lock()
@@ -25,7 +29,7 @@ class ModelFetcher:
         thread = threading.Thread(target=self._fetch_in_thread)
         thread.daemon = True  # 设为守护线程
         thread.start()
-        
+    
         return True  # 表示线程启动成功
     
     def _fetch_in_thread(self):
@@ -46,7 +50,9 @@ class ModelFetcher:
                 self.model_list = new_list
             
             # 标记任务成功完成
+            print('sil sec')
             self.fetch_complete.set()
+            self.update_done.emit(self.model_list)
             
         except Exception as e:  # 捕获所有异常
             print(f"后台请求出错: {e}")
@@ -76,7 +82,7 @@ class SiliconflowModelManager:
     ]
 
     def __init__(self,application_path=''):
-        self.file_path = os.path.join(application_path, 'SILICON_IMAGE_MODELS.json')
+        self.file_path = os.path.join(application_path, 'utils','text_to_image','providers','siliconflow','SILICON_IMAGE_MODELS.json')
         self._ensure_file_exists()
        
     def _ensure_file_exists(self):
@@ -229,6 +235,8 @@ class SiliconFlowAgent(QObject):
         
         # 初始化模型管理器
         self.model_manager = SiliconflowModelManager(application_path)
+        self.model_updater = SiliconflowModelFetcher(application_path=application_path,api_key=api_key)
+        self.model_updater.update_done.connect(self.model_manager.save_model_options)
         
         # 线程列表
         self.thread_list = []
@@ -290,6 +298,13 @@ class SiliconFlowAgent(QObject):
         
         return new_params
 
+    def update_model_list(self):
+        try:
+            self.model_updater.fetch_models()
+        except Exception as e :
+            self.failure.emit('update_model_list',str(e))
+        return
+    
     @property
     def request_template(self):
         """返回参数模板"""
@@ -304,15 +319,3 @@ class SiliconFlowAgent(QObject):
             'guidance_scale': 7.5,
             'seed': -1
         }
-
-if __name__=='__main__':
-    a=SiliconFlowImageGenerator(api_key='',
-                                application_path=r'',
-                                save_folder='pics')
-    a.pull_success.connect(print)
-    a.failure.connect(print)
-    a.generate(
-        prompt='an apple on a banana tree',
-        model='Kwai-Kolors/Kolors',
-        negative_prompt=''
-    )

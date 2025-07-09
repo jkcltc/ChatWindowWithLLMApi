@@ -6,6 +6,7 @@ if __name__=='__main__':
     from providers.siliconflow.siliconflow_agent import SiliconFlowAgent
 else:
     from .providers.novita.novita_model_manager import NovitaAgent
+    from .providers.siliconflow.siliconflow_agent import SiliconFlowAgent
 
 
 class ImageApiConfigReader:
@@ -16,7 +17,7 @@ class ImageApiConfigReader:
         config = configparser.ConfigParser()
         config.read(application_path)
         return config[provider_name]['key']
-    
+
 
 class ImageAgent(QObject):      #Factory Class
                                 #waiting 0.25.2 patch
@@ -32,7 +33,7 @@ class ImageAgent(QObject):      #Factory Class
         self.generator = None 
         self.application_path=application_path
         self.api_config_path=os.path.join(self.application_path,'api_config.ini')
-        self._start_model_map_update()
+        self.generators = {}#只在更新时使用
         
     def set_generator(self,name):
         """
@@ -103,31 +104,38 @@ class ImageAgent(QObject):      #Factory Class
     
     def current_model_list(self):
         return self.generator.get_model_list()
-    
-    def get_model_map(self):
-        '''
-        retrun:
-            {
-            'provider1':['model1','model2','model3'],
-            'provider2':['model1','model2','model3']
-            }
-        '''
-        return {'provider1':['model1','model2','model3']}#占位符
 
-    def _start_model_map_update(self):
-        return
+    def update_models(self):
+        # 遍历所有支持的生成器类型
+        for name, generator_class in self.generator_dict.items():
+            # 如果实例不存在则创建
+            if name not in self.generators:
+                api_key = ImageApiConfigReader.get_api_key(self.api_config_path, name)
+                self.generators[name] = generator_class(
+                    api_key,
+                    self.application_path,
+                    save_folder='pics'
+                )
+                # 连接信号
+                self.generators[name].pull_success.connect(self.pull_success.emit)
+                self.generators[name].failure.connect(self.failure.emit)
+            
+            # 执行模型更新
+            try:
+                self.generators[name].update_model_list()
+            except Exception as e:
+                self.failure.emit(name, f"模型更新失败: {str(e)}")
+
+
 
 if __name__=='__main__':
     from PyQt5.QtWidgets import QApplication
+    import sys
     app = QApplication([])
-    a=ImageAgent(application_path=r'')
-    a.set_generator('novita')
+    a=ImageAgent(application_path=r'C:\Users\Administrator\Desktop\github\ChatWindowWithLLMApi')
+    a.set_generator('siliconflow')
     a.pull_success.connect(print)
     a.failure.connect(print)
-    a.create({
-        'prompt':'an apple on a banana tree',
-        'model':'flat2DAnimerge_v30_72593.safetensors',
-        'negative_prompt':''
-    })
-    app.exec_()
+    a.update_models()
+    sys.exit(app.exec_())
 

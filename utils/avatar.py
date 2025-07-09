@@ -502,7 +502,6 @@ class AvatarImageGenerator(QObject):
                 param=obj
         param['model']=self.model
         self.generator.create(params_dict=param)
-        
 
 
 class AvatarCreatorWindow(QWidget):
@@ -513,7 +512,6 @@ class AvatarCreatorWindow(QWidget):
     # 信号定义
     styleRequested = pyqtSignal(str)  # 生成风格请求信号
     avatarCreated = pyqtSignal(str,str)  # 添加头像创建完成信号,user/assistant,path
-    #avartarInfoResult=pyqtSignal(str,str) # 返回名称，路径到上层，供保存
     selectionChanged = pyqtSignal(QRect)  # 添加选择区域变化信号
     ai_generate_status=pyqtSignal(str)
     error_log=pyqtSignal(str,str)

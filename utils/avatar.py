@@ -422,12 +422,15 @@ class AvatarCreatorText:
     IMAGE_GENERATE_STATUS_PROMPT ='图像生成中...正在生成图像描述'
     IMAGE_GENERATE_STATUS_IMAGE  ='图像生成中...正在等待图像生成'
 
+    IRAG_USE_CHINESE='在本次回复中，你需要使用中文填充"prompt"字段中的内容。'
+
 class AvatarImageGenerator(QObject):
     status_update=pyqtSignal(str)
     pull_success=pyqtSignal(str)#img path
     failure=pyqtSignal(str,str)
     def __init__(self,generator='',application_path='',model=''):
         super().__init__()
+        self.generator_name=generator
         self.generator=ImageAgent(application_path)
         self.generator.set_generator(generator)
         self.generator.pull_success.connect(self.pull_success.emit)
@@ -470,6 +473,8 @@ class AvatarImageGenerator(QObject):
             style=style,
             charactor=target
         )
+        if 'irag' in self.model:
+            user_message+=AvatarCreatorText.IRAG_USE_CHINESE
 
         self.message=[{'role':'system','content':system_message},
                  {'role':'user','content':user_message}]
@@ -498,7 +503,6 @@ class AvatarImageGenerator(QObject):
                 param=obj
         param['model']=self.model
         self.generator.create(params_dict=param)
-
 
 class AvatarCreatorWindow(QWidget):
     """
@@ -862,6 +866,7 @@ class AvatarCreatorWindow(QWidget):
         if style_text:
             self.styleRequested.emit(style_text)
         self.generate_btn.setEnabled(False)
+        self.ai_page.setEnabled(False)
             
     def _handle_selection(self, rect):
         """处理选择区域变化事件"""
@@ -933,10 +938,18 @@ class AvatarCreatorWindow(QWidget):
         # 重置选择区域
         self.original_preview.reset_selection()
         self.generate_btn.setEnabled(True)
+        self.ai_page.setEnabled(True)
     
     def start_img_creation(self):
         #初始化生成类
-        if not hasattr(self,'image_generator'):
+        if (not hasattr(self,'image_generator')):
+            do_update=True
+        
+        elif self.model_provider.currentText()!=self.image_generator.generator_name or\
+        self.model_provider.model !=self.model_choice.currentText():
+            do_update=True
+        
+        if do_update:
             self.image_generator=AvatarImageGenerator(
                 generator=self.model_provider.currentText(),
                 application_path=self.application_path,

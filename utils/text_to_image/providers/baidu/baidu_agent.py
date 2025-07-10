@@ -26,6 +26,7 @@ class BaiduImageGenerator(QObject):
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json"
         }
+        self.failure.connect(print)
 
     def _save_image(self, image_url, filename):
         """下载并保存图片"""
@@ -89,16 +90,19 @@ class BaiduImageGenerator(QObject):
             payload["seed"] = seed
             payload["guidance"] = guidance_scale
 
+        print(payload)
         try:
             # 发送请求
+            print('post')
             response = requests.post(
                 self.base_url,
                 headers=self.headers,
                 json=payload
             )
-            
+            print(response.text)
             # 处理响应
             if response.status_code != 200:
+                
                 self.failure.emit('request', 
                                  f"请求失败，状态码：{response.status_code}, 响应：{response.text}")
                 return None
@@ -106,8 +110,8 @@ class BaiduImageGenerator(QObject):
             result = response.json()
             
             # 验证响应格式
-            if not result.get('data') or not isinstance(result['data'], list):
-                self.failure.emit('response', "响应格式错误：缺少data字段")
+            if not result.get('data') or not isinstance(result['data'], list) or 'error' in result:
+                self.failure.emit('response', "响应格式错误"+str(result))
                 return None
                 
             # 保存所有生成的图片
@@ -197,6 +201,8 @@ class BaiduAgent(QObject):
             'prompt': params['prompt'],
             'model': params['model'],
         }
+        if len(new_params['prompt'])>220:#逆天百度大于220就报错
+            new_params['prompt']=new_params['prompt'][:218]#留俩今晚下菜
         
         # 图片尺寸 - 可选参数
         width = params.get('width')

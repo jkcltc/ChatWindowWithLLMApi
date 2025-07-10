@@ -30,127 +30,99 @@ class ImageApiConfigReader:
         config.read(application_path)
         return config[provider_name]['url']
 
-
-class ImageAgent(QObject):      #Factory Class
-                                #waiting 0.25.2 patch
-    pull_success=pyqtSignal(str)#path to image
-    failure=pyqtSignal(str,str)
-    def __init__(self,application_path):
-        super().__init__()  # 确保正确初始化QObject
-        self.generator_dict = {
+class ImageAgent(QObject):
+    pull_success = pyqtSignal(str)  # path to image
+    failure = pyqtSignal(str, str)
+    
+    def __init__(self, application_path):
+        super().__init__()
+        # 预定义支持的生成器类型
+        self.generator_classes = {
             'novita': NovitaAgent,
-            'siliconflow':SiliconFlowAgent,
-            'baidu':BaiduAgent
+            'siliconflow': SiliconFlowAgent,
+            'baidu': BaiduAgent
         }
-        self.generator_name = None
-        self.generator = None 
-        self.application_path=application_path
-        self.api_config_path=os.path.join(self.application_path,'api_config.ini')
-        self.generators = {}#只在更新时使用
+        self.active_generator = None
+        self.application_path = application_path
+        self.api_config_path = os.path.join(application_path, 'api_config.ini')
         
-    def set_generator(self,name):
-        """
-        Sets the image generator to use based on the provided name.
-
-        This method updates the current generator by:
-        - Storing the generator's name.
-        - Retrieving the API key for the specified generator using the configuration reader.
-        - Instantiating the generator object with the API key, application path, and a save folder.
-        - Connecting the generator's `pull_success` and `failure` signals to the corresponding signals of this class.
-
-        Args:
-            name (str): The name of the image generator to set.
-        """
-        self.generator_name=name
-        api_key=ImageApiConfigReader.get_api_key(self.api_config_path,name)
-        if name in self.generator_dict:  
-            self.generator=self.generator_dict[name](api_key,self.application_path,save_folder='pics')
+        # 缓存模型列表，键值对: {provider_name: [model_list]}
+        self.model_cache = {}  
+        
+    def set_generator(self, name):
+        """设置当前使用的图片生成器"""
+        self.active_generator = None
+        
+        if name in self.generator_classes:
+            api_key = ImageApiConfigReader.get_api_key(self.api_config_path, name)
+            self.active_generator = self.generator_classes[name](
+                api_key, self.application_path, save_folder='pics'
+            )
+            # 连接信号
+            self.active_generator.pull_success.connect(self.pull_success.emit)
+            self.active_generator.failure.connect(self.failure.emit)
         else:
-            base_url=ImageApiConfigReader.get_api_url(provider_name=name)
-            from .providers.other.other_agent import OtherAgent
-            self.generator=OtherAgent(api_key,base_url,self.application_path,save_folder='pics',name=name)
-
-        self.generator.pull_success.connect(self.pull_success.emit)
-        self.generator.failure.connect(self.failure.emit)
-
-    def create(self,params_dict):
-        '''
-        {
-            #Required:
-            'prompt': "required",     
-            'model': "required", 
-            'negative_prompt': "",              # 负面提示实际上没有也行
+            # OtherAgent 接口保留但暂时不做实现
+            self.failure.emit(name, "Provider not supported")
             
-            
-            #Unversal
-            'width': 512,                       # 生成图片宽度（像素），默认512
-            'height': 512,                      # 生成图片高度（像素），默认512
-            'image_num': 1,
-            'steps': 20,
-            'seed': -1,
-            'guidance_scale': 7.5,
-            'image_num': 1,
-            
-            #Novita
-            'seed': -1,                         # 随机种子，-1表示随机生成
-            'clip_skip': 1,                     # CLIP跳过层数，默认1
-            'sampler_name': "Euler a",          # 采样器名称，默认"Euler a"
-            'guidance_scale': 7.5,               # 指导系数(CFG)，默认7.5
-
-            #Siliconflow
-
-            #baidu
-            'refer_image': None,
-            'user_id': None
-        }
-        '''
-        self.generator.create(
-            self.generator.translate_params(params_dict)
+    def create(self, params_dict):
+        """创建图片请求"""
+        if self.active_generator:
+            self.active_generator.create(
+                self.active_generator.translate_params(params_dict)
             )
 
-    def get_model_list(self,provider):
-        """
-        Retrieves the list of available models for a specified provider.
-
-        Args:
-            provider (str): The name of the provider whose model list is to be retrieved.
-
-        Returns:
-            list: A list of model names available for the given provider. If the provider is not found,
-                  returns a list containing a single string indicating failure.
-        """
-        if provider in self.generator_dict:
-            generator=self.generator_dict[provider]('',self.application_path)
-            return generator.get_model_list()
-        else:
-            return ['Fail:no model list found']
+    def get_model_map(self):
+        """获取所有提供商的模型映射表（轻量级）"""
+        # 尝试读取缓存
+        if hasattr(self, '_model_map_cache'):
+            return self._model_map_cache
         
+        model_map = {}
+        for provider in self.generator_classes:
+            model_map[provider] = self._get_cached_model_list(provider)
+        
+        # 缓存结果
+        self._model_map_cache = model_map
+        return model_map
+
+    def _get_cached_model_list(self, provider):
+        """获取缓存的模型列表，避免重复实例化"""
+        if provider in self.model_cache:
+            return self.model_cache[provider]
+        
+        if provider in self.generator_classes:
+            try:
+                # 轻量级获取模型列表：使用最低权限实例
+                temp_agent = self.generator_classes[provider]('', self.application_path)
+                model_list = temp_agent.get_model_list()
+                self.model_cache[provider] = model_list
+                return model_list
+            except Exception:
+                return ['Failed to load models']
+        return ['Provider not available']
     
     def current_model_list(self):
-        return self.generator.get_model_list()
-
+        """获取当前生成器的模型列表"""
+        if self.active_generator:
+            return self.active_generator.get_model_list()
+        return []
+    
     def update_models(self):
-        # 遍历所有支持的生成器类型
-        for name, generator_class in self.generator_dict.items():
-            # 如果实例不存在则创建
-            if name not in self.generators:
-                api_key = ImageApiConfigReader.get_api_key(self.api_config_path, name)
-                self.generators[name] = generator_class(
-                    api_key,
-                    self.application_path,
-                    save_folder='pics'
-                )
-                # 连接信号
-                self.generators[name].pull_success.connect(self.pull_success.emit)
-                self.generators[name].failure.connect(self.failure.emit)
-            
-            # 执行模型更新
+        """更新所有提供商的模型列表"""
+        # 清除缓存
+        self.model_cache = {}
+        self._model_map_cache = None
+        
+        for provider in self.generator_classes:
             try:
-                self.generators[name].update_model_list()
+                api_key = ImageApiConfigReader.get_api_key(self.api_config_path, provider)
+                temp_agent = self.generator_classes[provider](api_key, self.application_path)
+                temp_agent.update_model_list()
+                # 更新缓存
+                self.model_cache[provider] = temp_agent.get_model_list()
             except Exception as e:
-                self.failure.emit(name, f"模型更新失败: {str(e)}")
-
-
+                self.failure.emit(provider, f"Model update failed: {str(e)}")
 #我先丢一坨需要重构的屎在这里
 
 #图片创建器

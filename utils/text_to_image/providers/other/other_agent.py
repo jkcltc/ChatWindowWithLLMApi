@@ -5,15 +5,17 @@ import time
 import threading
 import random
 from PyQt5.QtCore import QObject,pyqtSignal
+from urllib.parse import urljoin
 
-class SiliconflowModelFetcher(QObject):
+class OtherModelFetcher(QObject):
     update_done=pyqtSignal(list)
 
-    def __init__(self,application_path='',api_key=''):
+    def __init__(self,application_path='',api_key='',base_url=''):
         super().__init__()
-        self.base_url = 'https://api.siliconflow.cn/v1/models?sub_type=text-to-image'
+        self.exact_url = urljoin(base_url,'models?sub_type=text-to-image')
+        self.universal_url=urljoin(base_url,'models')
         self.headers = {"Authorization": f"Bearer {api_key}"}
-        self.model_list = SiliconflowModelManager().get_model_options()  # 共享资源需要保护
+        self.model_list = OtherModelManager().get_model_options()  # 共享资源需要保护
         self.application_path=application_path
         
         # 添加线程同步工具
@@ -35,10 +37,15 @@ class SiliconflowModelFetcher(QObject):
     def _fetch_in_thread(self):
         """在后台线程中执行实际请求"""
         try:
-            response = requests.get(self.base_url, headers=self.headers)
-            response.raise_for_status()
-            result = response.json()
-            
+            try:
+                response = requests.get(self.exact_url, headers=self.headers)
+                response.raise_for_status()
+                result = response.json()
+            except:
+                response = requests.get(self.universal_url, headers=self.headers)
+                response.raise_for_status()
+                result = response.json()
+                
             if 'data' not in result:
                 raise ValueError("API响应缺少'data'字段")
                 
@@ -68,20 +75,13 @@ class SiliconflowModelFetcher(QObject):
         with self.lock:
             return self.model_list.copy()  # 返回副本避免直接修改
 
-class SiliconflowModelManager:
-    _DEFAULT_MODEL_OPTIONS = [
-        'stabilityai/stable-diffusion-xl-base-1.0',
-        'black-forest-labs/FLUX.1-schnell',
-        'black-forest-labs/FLUX.1-dev',
-        'Pro/black-forest-labs/FLUX.1-schnell',
-        'stabilityai/stable-diffusion-3-5-large',
-        'black-forest-labs/FLUX.1-pro',
-        'LoRA/black-forest-labs/FLUX.1-dev',
-        'Kwai-Kolors/Kolors',
-    ]
+class OtherModelManager:
+    _DEFAULT_MODEL_OPTIONS={
+        'UNKNOWN':['init in need : 需初始化']
+    }
 
     def __init__(self,application_path=''):
-        self.file_path = os.path.join(application_path, 'utils','text_to_image','providers','siliconflow','SILICON_IMAGE_MODELS.json')
+        self.file_path = os.path.join(application_path, 'utils','text_to_image','providers','other','OTHER_IMAGE_MODELS.json')
         self._ensure_file_exists()
        
     def _ensure_file_exists(self):
@@ -98,7 +98,7 @@ class SiliconflowModelManager:
         except FileNotFoundError:
             # 如果文件意外丢失，重新创建并返回默认值
             self._ensure_file_exists()
-            return self._DEFAULT_MODEL_OPTIONS.copy()
+            return self._DEFAULT_MODEL_OPTIONS
     
     def save_model_options(self, model_options: list):
         """保存模型选项列表到文件"""
@@ -106,17 +106,17 @@ class SiliconflowModelManager:
         with open(self.file_path, 'w', encoding='utf-8') as f:
             json.dump(model_options, f, indent=2, ensure_ascii=False)
 
-class SiliconFlowImageGenerator(QObject):
+class OtherImageGenerator(QObject):
     pull_success = pyqtSignal(str)  # 图片保存路径
     failure = pyqtSignal(str, str)  # 错误类型和错误信息
 
-    def __init__(self, api_key, application_path, parent=None, save_folder='pics'):
+    def __init__(self, api_key,base_url, application_path, parent=None, save_folder='pics'):
         super().__init__(parent)
         self.api_key = api_key
         self.application_path = application_path
         self.save_path = os.path.join(application_path, save_folder)
         os.makedirs(self.save_path, exist_ok=True)
-        self.base_url = "https://api.siliconflow.cn/v1/images/generations"
+        self.base_url = base_url#"https://api.*.cn/v1/"
         self.headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json"
@@ -214,7 +214,7 @@ class SiliconFlowImageGenerator(QObject):
             self.failure.emit('request', f"请求异常：{str(e)}")
             return None
 
-class SiliconFlowAgent(QObject):
+class OtherAgent(QObject):
     pull_success = pyqtSignal(str)  # 图片保存路径
     failure = pyqtSignal(str, str)  # 错误类型和错误信息
 
@@ -223,7 +223,7 @@ class SiliconFlowAgent(QObject):
         self.application_path = application_path
         
         # 初始化图片生成器
-        self.generator = SiliconFlowImageGenerator(
+        self.generator = OtherImageGenerator(
             api_key, 
             application_path,
             save_folder=save_folder
@@ -233,8 +233,8 @@ class SiliconFlowAgent(QObject):
         self.generator.failure.connect(self.failure.emit)
         
         # 初始化模型管理器
-        self.model_manager = SiliconflowModelManager(application_path)
-        self.model_updater = SiliconflowModelFetcher(application_path=application_path,api_key=api_key)
+        self.model_manager = OtherModelManager(application_path)
+        self.model_updater = OtherModelFetcher(application_path=application_path,api_key=api_key)
         self.model_updater.update_done.connect(self.model_manager.save_model_options)
         
         # 线程列表

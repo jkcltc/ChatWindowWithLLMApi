@@ -8,14 +8,12 @@ import copy
 
 if __name__=='__main__':#waiting 0.25.2 patch 
     from chat_history_manager import ChatHistoryTools
-    from novita_model_manager import NovitaModelManager
     from tools.one_shot_api_request import APIRequestHandler
-    from image_agents import ImageAgent
+    from text_to_image.image_agents import ImageAgent
 else:
     from .tools.one_shot_api_request import APIRequestHandler
     from .chat_history_manager import ChatHistoryTools
-    from .novita_model_manager import NovitaModelManager
-    from .image_agents import ImageAgent
+    from .text_to_image.image_agents import ImageAgent
 
 
 
@@ -347,7 +345,7 @@ class AvatarCreatorText:
     
     # 提示文本
     TOOLTIP_SELECT_IMAGE = "从本地文件系统选择一张头像图片"
-    TOOLTIP_PROVIDER_COMBO = "等待开放其他供应商"
+    TOOLTIP_PROVIDER_COMBO = "选择预设供应商"
     PLACEHOLDER_STYLE_EDIT = "输入风格描述..."
     TOOLTIP_STYLE_EDIT = "描述您希望生成的风格，例如'卡通风格'或'像素风格'"
     TOOLTIP_GENERATE_BUTTON = "根据描述生成头像图片"
@@ -374,7 +372,6 @@ class AvatarCreatorText:
     
     # 下拉选项
     SOURCE_OPTIONS = ["完整对话", "选择的对话"]
-    PROVIDER_OPTIONS = ["novita"]
 
     #图像生成要求
     IMAGE_GENERATE_SYSTEM_PROMPT='''
@@ -392,9 +389,8 @@ class AvatarCreatorText:
 3.  设定画风与构图:
     画风: 动漫、写实、3D渲染、水彩等。
     构图: 头像特写 (headshot), 上半身肖像 (upper body portrait)。
-    光照: 电影光, 柔和光, 霓虹灯。
 4.  组合与优化:
-    正面提示词 (prompt): 以 "masterpiece, best quality" 开头，然后组合以上所有元素，用逗号分隔。
+    正面提示词 (prompt): 组合以上所有元素，用逗号分隔,以 "masterpiece, best quality" 结尾。
     负面提示词 (negative_prompt): 排除常见错误。
 
 # 输出格式
@@ -406,17 +402,17 @@ class AvatarCreatorText:
 用户输入: "一个赛博朋克风格的女孩"
 
 输出举例:
-{"prompt":"masterpiece, best quality, headshot of a cyberpunk girl, pink short hair, glowing blue eyes, confident smile, wearing a black leather jacket with neon patterns, intricate details, cinematic lighting, night city background",
+{"prompt":" headshot of a cyberpunk girl, pink short hair, glowing blue eyes, confident smile, wearing a black leather jacket with neon patterns, intricate details, cinematic lighting, night city background,masterpiece, best quality",
 "negative_prompt":"low quality, worst quality, blurry, deformed, bad anatomy, watermark, text, ugly, extra limbs"}
 '''
     IMAGE_GENERATE_USER_PROMPT='''
 聊天历史：
 {chathistory}
 
-生成风格：
-{style}
+风格要求：
+**{style}**
 
-根据聊天历史，生成{charactor}的形象描述。
+根据聊天历史和要求的风格，生成{charactor}的形象描述。
 
 返回json：
 {{"prompt":"","negative_prompt":""}}
@@ -424,7 +420,7 @@ class AvatarCreatorText:
     IMAGE_GENERATE_STATUS_SUCCESS='图像生成完成'
     IMAGE_GENERATE_STATUS_FAILURE='图像生成失败，失败原因 '
     IMAGE_GENERATE_STATUS_PROMPT ='图像生成中...正在生成图像描述'
-    IMAGE_GENERATE_STATUS_IMAGE  ='图像生成中...正在轮询图像文件'
+    IMAGE_GENERATE_STATUS_IMAGE  ='图像生成中...正在等待图像生成'
 
 class AvatarImageGenerator(QObject):
     status_update=pyqtSignal(str)
@@ -474,7 +470,6 @@ class AvatarImageGenerator(QObject):
             style=style,
             charactor=target
         )
-        print(user_message)
 
         self.message=[{'role':'system','content':system_message},
                  {'role':'user','content':user_message}]
@@ -494,6 +489,7 @@ class AvatarImageGenerator(QObject):
 
         
     def image_request_sender(self,json_return):
+        print(json_return)
         if not hasattr(self,'message'):
             self.failure.emit('AvartarImageGenerator','Not init yet')
         self.status_update.emit(AvatarCreatorText.IMAGE_GENERATE_STATUS_IMAGE)
@@ -582,6 +578,9 @@ class AvatarCreatorWindow(QWidget):
 
         # 当前选择的角色
         self.current_character = self.character_for_names[0] if self.character_for_names else ""
+
+        #生成器
+        self.generator=ImageAgent(self.application_path)
     
     def _init_ui(self):
         """初始化UI控件"""
@@ -652,12 +651,26 @@ class AvatarCreatorWindow(QWidget):
             )
 
         self.model_provider=QComboBox()
-        self.model_provider.addItems(AvatarCreatorText.PROVIDER_OPTIONS)
+        self.model_provider.addItems(
+            list(
+                self.generator.generator_dict.keys()
+                )
+        )
         self.model_provider.setToolTip(AvatarCreatorText.TOOLTIP_PROVIDER_COMBO)
-        self.model_provider.setEnabled(False)
 
         self.model_choice=QComboBox()
-        self.model_choice.addItems(NovitaModelManager().get_model_options())
+        self.model_choice.addItems(
+            self.generator.get_model_list(
+                self.model_provider.currentText()
+            )
+        )
+
+        
+        self.model_provider.currentTextChanged.connect(
+            lambda text: self.model_choice.clear() 
+            or 
+            self.model_choice.addItems(self.generator.get_model_list(text))
+            )
 
         qf0 = QFrame()
         qf0.setFrameShape(QFrame.HLine)
@@ -983,7 +996,7 @@ if __name__ == "__main__":
     app = QApplication([])
 
     window = AvatarCreatorWindow(
-        application_path=r'',
+        application_path=r'C:\Users\kcji\Desktop\te\ChatWindowWithLLMApi',
         init_character={'lock':True,'character':'assistant'},
     )
     window.error_log.connect(print)#调试时顺便打印内容

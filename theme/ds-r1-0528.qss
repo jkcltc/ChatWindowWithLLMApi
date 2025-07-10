@@ -565,3 +565,126 @@ QSpinBox QLineEdit {  /* 针对内部编辑框的样式 */
     margin: 0;                                  /* 移除外边距 */
     font: inherit;                              /* 继承父字体 */
 }
+
+/* ====== QLabel 禁用状态 ====== */
+QLabel:disabled {
+    color: #a0a0a0;
+    background-color: rgba(240, 240, 240, 0.7);
+}
+
+/* ====== QLineEdit 禁用状态 ====== */
+QLineEdit:disabled {
+    background-color: #f0f0f0;
+    border-color: #e0e0e0;
+    color: #909090;
+    qproperty-toolTip: "控件已禁用";
+}
+
+/* ====== 单选/复选框禁用状态 ====== */
+QRadioButton:disabled, QCheckBox:disabled {
+    color: #b0b0b0;
+}
+
+QRadioButton::indicator:disabled, 
+QCheckBox::indicator:disabled {
+    border-color: #e0e0e0;
+}
+
+QRadioButton::indicator:checked:disabled, 
+QCheckBox::indicator:checked:disabled {
+    background-color: #d0d0d0;
+    border-color: #b0b0b0;
+}
+
+/* ====== 树控件禁用状态 ====== */
+QTreeWidget:disabled {
+    background-color: rgba(245, 245, 245, 0.8);
+    color: #909090;
+}
+
+QTreeWidget::item:disabled, 
+QTreeWidget::item:disabled:hover, 
+QTreeWidget::item:disabled:selected {
+    background: transparent;
+    color: #b0b0b0;
+}
+
+/* ====== 列表控件禁用状态 ====== */
+QListWidget:disabled {
+    background-color: rgba(245, 245, 245, 0.8);
+    border-color: #e5e5e5;
+}
+
+QListWidget::item:disabled, 
+QListWidget::item:disabled:hover, 
+QListWidget::item:disabled:selected {
+    background: #f0f0f0;
+    color: #b0b0b0;
+}
+
+/* ====== 组合框禁用状态 ====== */
+QComboBox:disabled {
+    background: #f5f5f5;
+    border-color: #e0e0e0;
+    color: #909090;
+}
+
+QComboBox::drop-down:disabled {
+    border-left-color: #e0e0e0;
+}
+
+/* ====== 进度条禁用状态 ====== */
+QProgressBar:disabled {
+    background-color: #f0f0f0;
+    color: gray;
+}
+
+QProgressBar::chunk:disabled {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+        stop:0 #d0d0d0, stop:1 #e0e0e0);
+}
+
+/* ====== 选项卡禁用状态 ====== */
+QTabBar::tab:disabled {
+    background: #ebebeb;
+    color: #b0b0b0;
+    border-color: #d8d8d8;
+}
+
+/* ====== 文本编辑区禁用状态 ====== */
+QTextEdit:disabled, 
+QTextBrowser:disabled {
+    background-color: rgba(245, 245, 245, 0.8);
+    color: #909090;
+    border-color: #e0e0e0;
+}
+
+/* ====== 菜单项禁用状态 ====== */
+QMenu::item:disabled {
+    /* 注意：QSS没有:disabled伪类，使用!enabled属性选择器 */
+    color: #c0c0c0;
+}
+
+QMenu::item:!enabled {
+    /* QSS特殊语法 */
+    color: #c0c0c0;
+    background: transparent;
+}
+
+/* ====== 卡片/组框禁用状态 ====== */
+QGroupBox:disabled {
+    color: #b0b0b0;
+}
+
+/* ====== 旋钮框禁用状态补充 ====== */
+QSpinBox::up-button:disabled, 
+QSpinBox::down-button:disabled {
+    background: transparent;
+    border-left-color: #e0e0e0;
+}
+
+/* ====== 滚动条禁用状态 ====== */
+QScrollBar:disabled, 
+QScrollBar::handle:disabled {
+    background: #e5e5e5;
+}

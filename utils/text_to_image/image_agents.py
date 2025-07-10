@@ -36,93 +36,129 @@ class ImageAgent(QObject):
     
     def __init__(self, application_path):
         super().__init__()
-        # 预定义支持的生成器类型
-        self.generator_classes = {
+        # 完全保留原始变量名和结构
+        self.generator_dict = {
             'novita': NovitaAgent,
             'siliconflow': SiliconFlowAgent,
             'baidu': BaiduAgent
         }
-        self.active_generator = None
+        self.generator_name = None
+        self.generator = None
         self.application_path = application_path
         self.api_config_path = os.path.join(application_path, 'api_config.ini')
         
-        # 缓存模型列表，键值对: {provider_name: [model_list]}
-        self.model_cache = {}  
+        # 新添加的缓存优化，不影响原始接口
+        self._model_cache = {}  # 缓存模型列表
+        self._model_map_cache = None  # 缓存全局模型映射
         
+        # 保留原始gengerators变量但改为缓存用途
+        self.generators = {}
+    
+    # 完全保留原始方法签名和功能
     def set_generator(self, name):
-        """设置当前使用的图片生成器"""
-        self.active_generator = None
+        """设置当前使用的图片生成器 - 保持原始实现"""
+        self.generator_name = name
         
-        if name in self.generator_classes:
+        # 清空之前的生成器连接
+        if self.generator:
+            try:
+                self.generator.pull_success.disconnect()
+                self.generator.failure.disconnect()
+            except TypeError:
+                # 处理未连接的情况
+                pass
+        
+        if name in self.generator_dict:
             api_key = ImageApiConfigReader.get_api_key(self.api_config_path, name)
-            self.active_generator = self.generator_classes[name](
-                api_key, self.application_path, save_folder='pics'
+            self.generator = self.generator_dict[name](
+                api_key, 
+                self.application_path,
+                save_folder='pics'
             )
             # 连接信号
-            self.active_generator.pull_success.connect(self.pull_success.emit)
-            self.active_generator.failure.connect(self.failure.emit)
+            self.generator.pull_success.connect(self.pull_success.emit)
+            self.generator.failure.connect(self.failure.emit)
         else:
-            # OtherAgent 接口保留但暂时不做实现
+            # 保留OtherAgent接口但暂时报错
             self.failure.emit(name, "Provider not supported")
-            
+            self.generator = None
+    
+    # 完全保留原始方法
     def create(self, params_dict):
-        """创建图片请求"""
-        if self.active_generator:
-            self.active_generator.create(
-                self.active_generator.translate_params(params_dict)
+        """创建图片请求 - 与原始实现相同"""
+        if self.generator:
+            self.generator.create(
+                self.generator.translate_params(params_dict)
             )
-
+    
+    # 新增方法：获取所有供应商的模型映射
     def get_model_map(self):
-        """获取所有提供商的模型映射表（轻量级）"""
-        # 尝试读取缓存
-        if hasattr(self, '_model_map_cache'):
+        """新增：获取所有提供商的模型映射{provider: [models]}"""
+        if self._model_map_cache:
             return self._model_map_cache
         
         model_map = {}
-        for provider in self.generator_classes:
-            model_map[provider] = self._get_cached_model_list(provider)
+        for provider in self.generator_dict:
+            model_map[provider] = self.get_model_list(provider)
         
-        # 缓存结果
         self._model_map_cache = model_map
         return model_map
-
-    def _get_cached_model_list(self, provider):
-        """获取缓存的模型列表，避免重复实例化"""
-        if provider in self.model_cache:
-            return self.model_cache[provider]
-        
-        if provider in self.generator_classes:
-            try:
-                # 轻量级获取模型列表：使用最低权限实例
-                temp_agent = self.generator_classes[provider]('', self.application_path)
-                model_list = temp_agent.get_model_list()
-                self.model_cache[provider] = model_list
-                return model_list
-            except Exception:
-                return ['Failed to load models']
-        return ['Provider not available']
     
+    # 保留原始方法签名和功能
+    def get_model_list(self, provider):
+        """获取指定供应商的模型列表 - 优化缓存"""
+        # 优先使用缓存
+        if provider in self._model_cache:
+            return self._model_cache[provider]
+        
+        # 原始逻辑但添加缓存
+        if provider in self.generator_dict:  
+            try:
+                # 轻量级获取模型列表
+                generator = self.generator_dict[provider]('', self.application_path)
+                models = generator.get_model_list()
+                self._model_cache[provider] = models
+                return models
+            except Exception:
+                return ['Fail: model list unavailable']
+        else:
+            return ['Fail:no model list found']
+    
+    # 完全保留原始方法
     def current_model_list(self):
-        """获取当前生成器的模型列表"""
-        if self.active_generator:
-            return self.active_generator.get_model_list()
+        """获取当前生成器的模型列表 - 原始实现"""
+        if self.generator:
+            return self.generator.get_model_list()
         return []
     
+    # 保留原始方法但优化实现
     def update_models(self):
-        """更新所有提供商的模型列表"""
-        # 清除缓存
-        self.model_cache = {}
+        """更新模型列表 - 优化缓存管理"""
+        # 清除所有缓存
+        self._model_cache = {}
         self._model_map_cache = None
         
-        for provider in self.generator_classes:
+        # 保持原始循环结构但优化实例使用
+        for name in self.generator_dict:
+            # 重用现有generators字典中的实例或创建新实例
+            if name not in self.generators:
+                api_key = ImageApiConfigReader.get_api_key(self.api_config_path, name)
+                self.generators[name] = self.generator_dict[name](
+                    api_key,
+                    self.application_path,
+                    save_folder='pics'
+                )
+                # 连接信号
+                self.generators[name].pull_success.connect(self.pull_success.emit)
+                self.generators[name].failure.connect(self.failure.emit)
+            
+            # 执行模型更新 - 原始逻辑
             try:
-                api_key = ImageApiConfigReader.get_api_key(self.api_config_path, provider)
-                temp_agent = self.generator_classes[provider](api_key, self.application_path)
-                temp_agent.update_model_list()
+                self.generators[name].update_model_list()
                 # 更新缓存
-                self.model_cache[provider] = temp_agent.get_model_list()
+                self._model_cache[name] = self.generators[name].get_model_list()
             except Exception as e:
-                self.failure.emit(provider, f"Model update failed: {str(e)}")
+                self.failure.emit(name, f"模型更新失败: {str(e)}")
 #我先丢一坨需要重构的屎在这里
 
 #图片创建器

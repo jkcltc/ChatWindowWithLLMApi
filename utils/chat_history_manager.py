@@ -47,8 +47,8 @@ class ChatHistoryTools:
         for message in chathistory:
             if message['role']=='system':
                 continue
-            lines.append(f"\n\n{names[message['role']]}:")
-            lines.append(f"\n\n{message['content']}")
+            lines.append(f"\n{names[message['role']]}:")
+            lines.append(f"{message['content']}")
         return '\n'.join(lines)
 
 class ChatHistoryTextView(QDialog):

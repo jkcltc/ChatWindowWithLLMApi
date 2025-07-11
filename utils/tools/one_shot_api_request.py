@@ -14,6 +14,11 @@ class APIRequestHandler(QObject):
         初始化API请求处理器
         :param api_config: API配置信息
         :param parent: 父对象
+
+        api_config={
+            "url": default_apis[self.api_provider]["url"],
+            "key": default_apis[self.api_provider]["key"]
+        }
         """
         super().__init__(parent)
         self.api_config = api_config

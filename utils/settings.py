@@ -1,5 +1,6 @@
 from PyQt5.QtCore import *
 from PyQt5.QtWidgets import *
+from PyQt5.QtGui import QPixmap
 import sys,os,configparser
 
 #简易小组件
@@ -13,19 +14,6 @@ class QuickSeparator(QFrame):
         else:
             self.setFrameShape(QFrame.VLine)
             self.setFrameShadow(QFrame.Sunken)
-
-class SectionWidget(QWidget):
-    """分组组件模板，提供标题和分组框样式"""
-    def __init__(self, title="", parent=None):
-        super().__init__(parent)
-        self.layout = QVBoxLayout(self)
-        self.layout.setContentsMargins(0, 0, 0, 0)
-        self.layout.setSpacing(6)
-        
-        if title:
-            title_label = QLabel(title)
-            title_label.setStyleSheet("font-weight: bold;")
-            self.layout.addWidget(title_label)
 
 class SendMethodWindow(QWidget):
     stream_receive_changed = pyqtSignal(bool)
@@ -345,314 +333,6 @@ class MainSettingWindow(QWidget):
     #def closeEvent(self, event):
     #    self.window_closed.emit()
     #    super().closeEvent(event)
-
-class BackgroundSettingsWidget(QWidget):
-    """背景设置主组件，包含信号机制和优化布局"""
-    
-    # 定义信号
-    modelProviderChanged = pyqtSignal(str)
-    modelChanged = pyqtSignal(str)
-    imageProviderChanged = pyqtSignal(str)
-    imageModelChanged = pyqtSignal(str)
-    updateSettingChanged = pyqtSignal(bool)
-    backgroundSpecifyChanged = pyqtSignal(bool)
-    updateIntervalChanged = pyqtSignal(int)
-    historyLengthChanged = pyqtSignal(int)
-    styleChanged = pyqtSignal(str)
-    updateModelRequested = pyqtSignal()
-    updateImageModelRequested = pyqtSignal()
-    
-    def __init__(self):
-        super().__init__()
-        self.setup_ui()
-        self.setup_connections()
-        
-    def setup_ui(self):
-        # 主窗口设置
-        self.setWindowTitle("背景设置")
-        self.setMinimumSize(1500,1000)
-        
-        # 主布局 - 左侧设置区域和右侧预览区域
-        main_layout = QHBoxLayout(self)
-        main_layout.setContentsMargins(16, 16, 16, 16)
-        main_layout.setSpacing(16)
-        
-        # 左侧设置面板
-        settings_panel = QWidget()
-        settings_layout = QVBoxLayout(settings_panel)
-        settings_layout.setSpacing(16)
-        
-        # 顶部标题
-        title_label = QLabel("背景设置")
-        title_label.setStyleSheet("font-size: 18px; font-weight: bold;")
-        settings_layout.addWidget(title_label)
-        
-        # 提示词模型分组
-        model_section = SectionWidget("提示词生成模型")
-        
-        model_row = QHBoxLayout()
-        model_row.setContentsMargins(0, 0, 0, 0)
-        model_label = QLabel("模型选择")
-        model_label.setSizePolicy(model_label.sizePolicy().horizontalPolicy(), 
-                                 model_label.sizePolicy().verticalPolicy())
-        self.update_model_button = QPushButton('更新模型')
-        self.update_model_button.setFixedWidth(100)
-        model_row.addWidget(model_label)
-        model_row.addStretch()
-        model_row.addWidget(self.update_model_button)
-        model_section.layout.addLayout(model_row)
-        
-        provider_row = QVBoxLayout()
-        provider_row.setContentsMargins(0, 0, 0, 0)
-        provider_label = QLabel("提供商")
-        self.provider_combo = QComboBox()
-        provider_row.addWidget(provider_label)
-        provider_row.addWidget(self.provider_combo)
-        model_section.layout.addLayout(provider_row)
-        
-        model_name_row = QVBoxLayout()
-        model_name_row.setContentsMargins(0, 0, 0, 0)
-        model_name_label = QLabel("模型名称")
-        self.model_combo = QComboBox()
-        model_name_row.addWidget(model_name_label)
-        model_name_row.addWidget(self.model_combo)
-        model_section.layout.addLayout(model_name_row)
-        
-        settings_layout.addWidget(model_section)
-        
-        # 分隔线
-        settings_layout.addWidget(QuickSeparator("h"))
-        
-        # 绘图模型分组
-        image_model_section = SectionWidget("绘图模型")
-        
-        image_row = QHBoxLayout()
-        image_row.setContentsMargins(0, 0, 0, 0)
-        image_label = QLabel("模型选择")
-        self.update_image_model_button = QPushButton('更新模型')
-        self.update_image_model_button.setFixedWidth(100)
-        image_row.addWidget(image_label)
-        image_row.addStretch()
-        image_row.addWidget(self.update_image_model_button)
-        image_model_section.layout.addLayout(image_row)
-        
-        image_provider_row = QVBoxLayout()
-        image_provider_row.setContentsMargins(0, 0, 0, 0)
-        image_provider_label = QLabel("提供商")
-        self.image_provider_combo = QComboBox()
-        image_provider_row.addWidget(image_provider_label)
-        image_provider_row.addWidget(self.image_provider_combo)
-        image_model_section.layout.addLayout(image_provider_row)
-        
-        image_model_name_row = QVBoxLayout()
-        image_model_name_row.setContentsMargins(0, 0, 0, 0)
-        image_model_name_label = QLabel("模型名称")
-        self.image_model_combo = QComboBox()
-        image_model_name_row.addWidget(image_model_name_label)
-        image_model_name_row.addWidget(self.image_model_combo)
-        image_model_section.layout.addLayout(image_model_name_row)
-        
-        settings_layout.addWidget(image_model_section)
-        
-        # 分隔线
-        settings_layout.addWidget(QuickSeparator("h"))
-        
-        # 配置选项分组
-        config_section = SectionWidget("更新配置")
-        
-        # 复选框设置
-        self.enable_update_check = QCheckBox("启用后台更新")
-        self.specify_background_check = QCheckBox("指定背景")
-        config_section.layout.addWidget(self.enable_update_check)
-        config_section.layout.addWidget(self.specify_background_check)
-        
-        # 间隔设置
-        interval_group = QWidget()
-        interval_layout = QGridLayout(interval_group)
-        interval_layout.setContentsMargins(0, 0, 0, 0)
-        
-        interval_label = QLabel("更新间隔")
-        self.update_slider = QSlider(Qt.Horizontal)
-        self.update_slider.setEnabled(False)
-        self.update_slider.setRange(1, 100)
-        self.update_slider.setValue(15)
-        self.update_spin = QSpinBox()
-        self.update_spin.setEnabled(False)
-        self.update_spin.setRange(1, 100)
-        self.update_spin.setValue(15)
-        self.update_spin.setSuffix('次对话')
-        self.update_spin.setSingleStep(1)
-        self.update_spin.setFixedWidth(120)
-        
-        interval_layout.addWidget(interval_label, 0, 0)
-        interval_layout.addWidget(self.update_slider, 1, 0)
-        interval_layout.addWidget(self.update_spin, 1, 1, Qt.AlignRight)
-        
-        config_section.layout.addWidget(interval_group)
-        
-        # 对话长度设置
-        history_group = QWidget()
-        history_layout = QGridLayout(history_group)
-        history_layout.setContentsMargins(0, 0, 0, 0)
-        
-        history_label = QLabel("参考对话长度")
-        self.history_slider = QSlider(Qt.Horizontal)
-        self.history_slider.setEnabled(False)
-        self.history_slider.setRange(200, 128000)
-        self.history_slider.setValue(500)
-        self.history_slider.setSingleStep(100)
-        self.history_spin = QSpinBox()
-        self.history_spin.setEnabled(False)
-        self.history_spin.setRange(200, 128000)
-        self.history_spin.setValue(500)
-        self.history_spin.setSingleStep(100)
-        self.history_spin.setFixedWidth(120)
-        
-        history_layout.addWidget(history_label, 0, 0)
-        history_layout.addWidget(self.history_slider, 1, 0)
-        history_layout.addWidget(self.history_spin, 1, 1, Qt.AlignRight)
-        
-        config_section.layout.addWidget(history_group)
-        
-        settings_layout.addWidget(config_section)
-        
-        # 分隔线
-        settings_layout.addWidget(QuickSeparator("h"))
-        
-        # 生成风格分组
-        style_section = SectionWidget("生成风格")
-        style_label = QLabel("提示词生成风格")
-        self.style_text_edit = QTextEdit()
-        #self.style_text_edit.setMinimumHeight(120)
-        self.style_text_edit.setPlaceholderText("在此输入生成风格描述...")
-        
-        style_section.layout.addWidget(style_label)
-        style_section.layout.addWidget(self.style_text_edit)
-        
-        settings_layout.addWidget(style_section)
-        
-        # 设置面板添加到主布局左侧
-        main_layout.addWidget(settings_panel, 0)  # 可拉伸比例为1
-        
-        # 垂直分隔线
-        main_layout.addWidget(QuickSeparator("v"),0)
-        
-        # 右侧预览面板
-        preview_panel = QWidget()
-        preview_layout = QVBoxLayout(preview_panel)
-        preview_layout.setSpacing(8)
-
-        # 创建一个占位容器用于预览区域
-        preview_container = QWidget()
-        preview_container_layout = QVBoxLayout(preview_container)
-        preview_container_layout.setContentsMargins(0, 0, 0, 0)
-            
-        preview_title = QLabel("预览")
-        preview_title.setStyleSheet("font-weight: bold;")
-        preview_layout.addWidget(preview_title)
-        
-        preview_area = QLabel("背景预览区域")
-        preview_area.setAlignment(Qt.AlignCenter)
-        preview_area.setFrameShape(QFrame.Box)
-        preview_area.setSizePolicy(QSizePolicy.Expanding,QSizePolicy.Expanding)
-        preview_layout.addWidget(preview_area)
-        preview_layout.addStretch()
-
-        preview_container_layout.addWidget(preview_area)
-        preview_layout.addWidget(preview_container, 1)  
-        
-        # 添加到主布局右侧
-        main_layout.addWidget(preview_panel, 1)
-        
-    def populate_combos(self, model_map, image_model_map):
-        # 填充模型选择框
-        self.model_map = model_map
-        self.image_model_map = image_model_map
-        
-        # 清空现有选项
-        self.provider_combo.clear()
-        self.model_combo.clear()
-        self.image_provider_combo.clear()
-        self.image_model_combo.clear()
-        
-        # 添加新选项
-        self.provider_combo.addItems(list(self.model_map.keys()))
-        if self.model_map:
-            self.model_combo.addItems(self.model_map[self.provider_combo.currentText()])
-        
-        self.image_provider_combo.addItems(list(self.image_model_map.keys()))
-        if self.image_model_map:
-            self.image_model_combo.addItems(self.image_model_map[self.image_provider_combo.currentText()])
-    
-    def setup_connections(self):
-        # 模型提供者改变信号
-        self.provider_combo.currentTextChanged.connect(
-            lambda text: [
-                self.model_combo.clear(),
-                self.model_combo.addItems(self.model_map[text]),
-                self.modelProviderChanged.emit(text)
-            ]
-        )
-        
-        # 绘图模型提供者改变信号
-        self.image_provider_combo.currentTextChanged.connect(
-            lambda text: [
-                self.image_model_combo.clear(),
-                self.image_model_combo.addItems(self.image_model_map[text]),
-                self.imageProviderChanged.emit(text)
-            ]
-        )
-        
-        # 模型选择改变信号
-        self.model_combo.currentTextChanged.connect(self.modelChanged.emit)
-        self.image_model_combo.currentTextChanged.connect(self.imageModelChanged.emit)
-        
-        # 更新按钮信号
-        self.update_model_button.clicked.connect(self.updateModelRequested.emit)
-        self.update_image_model_button.clicked.connect(self.updateImageModelRequested.emit)
-        
-        # 设置更新信号
-        self.enable_update_check.toggled.connect(self.updateSettingChanged.emit)
-        self.specify_background_check.toggled.connect(self.backgroundSpecifyChanged.emit)
-        self.style_text_edit.textChanged.connect(lambda: self.styleChanged.emit(self.style_text_edit.toPlainText()))
-        
-        # 滑块和微调框值同步
-        self.update_slider.valueChanged.connect(
-            lambda val: [
-                self.update_spin.setValue(val),
-                self.updateIntervalChanged.emit(val)
-            ]
-        )
-        self.update_spin.valueChanged.connect(
-            lambda val: [
-                self.update_slider.setValue(val),
-                self.updateIntervalChanged.emit(val)
-            ]
-        )
-        
-        self.history_slider.valueChanged.connect(
-            lambda val: [
-                self.history_spin.setValue(val),
-                self.historyLengthChanged.emit(val)
-            ]
-        )
-        self.history_spin.valueChanged.connect(
-            lambda val: [
-                self.history_slider.setValue(val),
-                self.historyLengthChanged.emit(val)
-            ]
-        )
-        
-        # 启用更新时激活相关控件
-        self.enable_update_check.toggled.connect(
-            lambda state: [
-                self.update_slider.setEnabled(state),
-                self.update_spin.setEnabled(state),
-                self.history_slider.setEnabled(state),
-                self.history_spin.setEnabled(state)
-            ]
-        )
-
 class BackgroundSettingsAgent(QObject):
     """背景设置协调器"""
     # 信号定义
@@ -696,25 +376,6 @@ class BackgroundSettingsAgent(QObject):
             self.settings[key] = value
             self.settingChanged.emit()
     
-    def save_to_config(self):
-        """保存到配置文件"""
-        config = configparser.ConfigParser()
-        if os.path.exists(self.api_config_path):
-            config.read(self.api_config_path)
-        
-        # 确保novita部分存在
-        if 'novita' not in config:
-            config['novita'] = {'url': 'https://api.novita.ai/v3/', 'key': ''}
-        
-        # 更新API密钥
-        config['novita']['key'] = self.settings['api_key']
-        
-        # 保存设置
-        config['settings'] = self.settings
-        
-        with open(self.api_config_path, 'w') as configfile:
-            config.write(configfile)
-    
     def load_from_config(self):
         """从配置文件加载设置"""
         config = configparser.ConfigParser()
@@ -733,10 +394,6 @@ class BackgroundSettingsAgent(QObject):
                             pass
                     else:
                         self.settings[key] = value
-        
-        # 加载API密钥
-        if 'novita' in config and 'key' in config['novita']:
-            self.settings['api_key'] = config['novita']['key']
     
     def update_model_maps(self, text_models, image_models):
         """更新模型映射"""
@@ -757,9 +414,7 @@ class BackgroundSettingsAgent(QObject):
             if image_model not in self.image_model_map[image_provider]:
                 self.settings['image_model'] = self.image_model_map[image_provider][0]
 
-
-if __name__ == "__main__":
+if __name__=='__main__':
     app = QApplication(sys.argv)
-    widget = BackgroundSettingsWidget()
-    widget.show()
+    
     sys.exit(app.exec_())

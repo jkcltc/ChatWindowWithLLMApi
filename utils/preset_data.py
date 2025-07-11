@@ -136,7 +136,7 @@ class BackGroundPresetVars:
 { "prompt": "young couple riding shared bicycles（错误：组成动作）, retro street lamps casting warm glow（错误：组成整句）, contemporary奶茶店招牌（使用中文）, motion blur effect on wheels（使用连词）" }
 """
     user_summary='''
-以stable diffusion的prompt形式描述当前场景。
+以stable diffusion的prompt形式描述提供的场景。
 '''  
 
 class NovitaModelPresetVars:

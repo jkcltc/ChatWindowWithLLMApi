@@ -1,7 +1,7 @@
 # ChatWindowWithLLMApi
  
-基于 PyQt5 的大型语言模型（LLM）聊天窗口，专为角色扮演交互和token消耗量优化，具备增强的长上下文记忆能力。  
-代码是学习中写的，正在平屎山。
+基于 PyQt5 的大型语言模型聊天窗口，为角色扮演沉浸感和token消耗量优化，为长篇角色扮演提供记忆力增强方案。  
+
 | 主界面 | 功能界面 |
 | ---- | ---- |
 | ![image](https://github.com/user-attachments/assets/de0f9941-ac15-4a04-8395-8657833c9d18) | ![image](https://github.com/user-attachments/assets/ae804710-bb81-4c3c-991e-ece9861da15e) |
@@ -40,11 +40,11 @@
 - **基于对话的多模态生成**
   - 背景  
     支持在对话中同步生成聊天背景。支持自定义生成或自行指定背景。  
-   (生成功能需使用第三方图像生成API [Novita API](https://www.novita.ai/))*  
-   其他提供商 in plan*
+    支持Novita,百度，硅基流动文生图  
   
-  - 头像生成  
-    支持自行指定或基于对话由AI生成头像  
+  - 头像  
+    支持自行指定或由AI基于当前对话生成头像
+> 通用支持 in plan  
 
 - **工具调用**  
   预设了文件调用，python解释器和系统时间工具。  
@@ -54,7 +54,8 @@
  
 ### 环境要求  
 - Python 3.9+（低版本可能兼容，但未测试）  
-- Novita API 密钥（非必要，仅用于图像生成）  
+- LLM Api 
+- Text-to-Image API  （可选）
  
 ### 安装步骤  
 - 安装python 3.9及以上的任意版本  
@@ -64,55 +65,81 @@ git clone https://github.com/jkcltc/ChatWindowWithLLMApi.git
 ```
 - 双击Chatapi 0.25.*.py，会过一遍库校验，弹出安装窗口时点击确定。  
 
-### 启用语音合成（TTS）
+### 语音合成（TTS）
 #### cosyvoice2
 - 将 chatapi_tts_server.py 和 start_chatapi_tts_server.bat 移动至 CosyVoice 安装目录
 - 准备音频文件并重命名为 2342.wav，放置于 CosyVoice 安装目录
 - 在主窗口中编辑 TTS 设置（Ctrl+Q 打开设置，左侧标签页第 3 页）
 
+#### edge & sovits  
+- in plan  
+
 # ChatWindowWithLLMApi
 
-A PYQT5-based LLM chat window optimized for role-playing interactions, with enhanced long-context memory capabilities.
+A large-scale language model chat window based on PyQt5, optimized for role-playing immersion and token consumption, providing memory enhancement solutions for long form role-playing.   
 
-## ✨ Features
+## ✨ Features  
 
-- **Long-context Optimization**  
-  By using self-iterative summarization,  
-  After truncating 40+k of words of dialogue to 4-6k words(example) and sending them to the API, the AI can still retain memories from before the truncation point.  
-  Significantly saving tokens during extended role-playing scenarios with lengthy plots.  
+- **Long-Context Optimization via Self-Iterative Summarization**  
+  Automatically summarizes past conversations and integrates them into the current dialogue without user awareness. Enables the AI to retain memories beyond dialogue truncation points.  
+  Significantly saves tokens in long-form role-playing scenarios.  
+  Also applicable when dialogues exceed the model's token limit.  
 
-- **Role Play Status Bar:**  
-  The built-in character status bar will automatically be added to the conversation once enabled and mounted. Status can be updated by the user, AI, or dynamically as the dialogue progresses.  
-﻿
-- **Main Story Generator**:  
-  Rapidly generates worlds and storylines using AI. Supports custom plots. Lightweight AI (free/local-run) is recommended for node updates to minimize API token consumption.  
+- **Model Library Rotation**  
+  Supports custom specification of multiple models that take turns replying to conversations, mitigating homogenization of response styles.  
 
-- **Local & Online models**:  
-  Support local models from ollama.  
-  Support api models from Deepseek, Baidu, Siliconflow, Tensent.  
+- **Convergence of Concurrent Dialogues**  
+  Enables simultaneous messaging to multiple models, merging responses into a single reply through predefined workflows.  
+  Workflows feature multi-tier structures that leverage each model’s specialized strengths.  
 
-- **Multimodal Generation**  
-  Supports synchronous **text generation** and **image generation** during conversations  
-  *(Requires [Novita API](https://www.novita.ai/))* 
+- **Dialogue Usage Analytics**  
+  Includes a dedicated analytics window to display token consumption and conversation word count.  
 
-- **Easy Setup**  
-  Automatic dependency installation - just Python required to run  
-  *(Recommended to use in virtual environment)*
+- **Role-Playing Status Bar**  
+  Built-in status bar embeds state fields into dialogues. States can be updated by users, the AI, or automatically based on dialogue progress.  
 
-## 🚀 Quick Start
+- **Main Plot Generator**  
+  Rapidly generates worldviews and storylines via AI, supporting customized plots. Recommends lightweight AIs (free/local) for node updates to minimize API token consumption.  
 
-### Prerequisites
-- Python 3.9+（lower versions might work, not tested yet)
-- Novita API key (for image generation)
+- **Local & Online Model Support**  
+  Supports local models via Ollama  
+  Supports OpenAI-compatible APIs  
+  Includes built-in compatibility with APIs from DeepSeek, Baidu, SiliconFlow, and Tencent  
 
-### Installation
-```bash
-# Clone repository
-git clone https://github.com/jkcltc/ChatWindowWithLLMApi.git
-```
+- **Dialogue-Driven Multimodal Generation**  
+  - **Backgrounds**  
+    Synchronously generates chat backgrounds during conversations. Supports custom generation or manual background specification.  
+    Integrates with Novita, Baidu, and SiliconFlow’s text-to-image generators.  
+  
+  - **Avatars**  
+    Supports manual selection or AI-driven avatar generation based on dialogues  
+    > *Universal support in planning phase*  
 
-### Enable tts
--  move chatapi_tts_server.py & start_chatapi_tts_server.bat to where you install cosyvoice
--  prepare a audio and remane it as '2342.wav' to where you install cosyvoice
--  edit the tts setting in the mainwindow(ctrl+q, check left tab, page 3)
+- **Tool Calls**  
+  Preconfigured tools include file access, Python interpreters, and system time checks.  
+  Recommended for use with `pyautogui`.  
+
+## 🚀 Installation  
+
+### Environment Requirements  
+- Python 3.9+ (lower versions may work but untested)  
+- LLM API  
+- Text-to-Image API (optional)  
+
+### Installation Steps  
+- Install Python 3.9 or later  
+```bash  
+# Clone repository  
+git clone https://github.com/jkcltc/ChatWindowWithLLMApi.git  
+```  
+- Double-click `Chatapi 0.25.*.py`. It will perform dependency verification – click "OK" when the installation popup appears.  
+
+### Text-to-Speech (TTS)  
+#### cosyvoice2  
+- Move `chatapi_tts_server.py` and `start_chatapi_tts_server.bat` to the CosyVoice installation directory  
+- Prepare an audio file named `2342.wav` and place it in the CosyVoice installation directory  
+- Configure TTS settings in the main window (Press `Ctrl+Q` > Settings > Third tab on the left)  
+
+#### Edge & Sovits  
+- *In planning phase*  
 

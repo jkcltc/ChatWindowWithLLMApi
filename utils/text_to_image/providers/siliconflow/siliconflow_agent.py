@@ -149,7 +149,7 @@ class SiliconFlowImageGenerator(QObject):
         """
         文生图请求并自动保存图片
         :param prompt: 提示词
-        :param model_name: 模型名称（默认Kwai-Kolors/Kolors）
+        :param model: 模型名称（默认Kwai-Kolors/Kolors）
         :param negative_prompt: 负面提示词
         :param image_size: 图片尺寸（"1024x1024"等）
         :param batch_size: 生成数量（1-4）
@@ -250,7 +250,7 @@ class SiliconFlowAgent(QObject):
         参数config已使用ParamTranslator翻译
         """
         # 转换参数格式
-        params = self.translate_params(config)
+        params =config
         
         # 创建并启动后台线程
         thread = threading.Thread(target=self.generator.generate, kwargs=params)
@@ -269,9 +269,10 @@ class SiliconFlowAgent(QObject):
         参数格式转换
         将统一格式的参数转换为硅基流动API所需的格式
         """
+        print('silicon_params',params)
         # 参数映射
         mapping = {
-            'model_name': 'model',
+            'model': 'model',
             'image_num': 'batch_size',
             'steps': 'steps',
             'guidance_scale': 'guidance_scale',
@@ -294,6 +295,7 @@ class SiliconFlowAgent(QObject):
         # 2. 处理种子参数
         seed = params.get('seed', -1)
         new_params['seed'] = seed if seed != -1 else None
+        print(new_params)
         
         return new_params
 
@@ -309,7 +311,7 @@ class SiliconFlowAgent(QObject):
         """返回参数模板"""
         return {
             'prompt': "required",
-            'model_name': "required",
+            'model': "required",
             'negative_prompt': "",
             'width': 512,
             'height': 512,

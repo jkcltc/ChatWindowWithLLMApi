@@ -82,7 +82,7 @@ class NovitaImageGenerator(QObject):
                 return filepath
             self.failure.emit('poll',f"下载失败，状态码：{response.status_code}")
         except Exception as e:
-            self.failure.emit('poll',f"请求失败，状态码：{e}")
+            self.failure.emit('poll',f"_save_image失败，状态码：{e}")
         
         return None
 
@@ -118,7 +118,14 @@ class NovitaImageGenerator(QObject):
         )
         if response.status_code != 200:
             print(f"请求失败，状态码：{response.status_code}")
-            self.failure.emit('generate',f"请求失败，状态码：{response.status_code}")
+            self.failure.emit('generate',f"""
+请求失败，状态码：{response.status_code},
+变量dump：
+headers:{self.headers},
+model_name:{model_name},
+prompt:{prompt},
+negative_prompt:{negative_prompt},
+""")
             return None
         task_id=response.json().get('task_id')
         self.request_emit.emit(task_id)

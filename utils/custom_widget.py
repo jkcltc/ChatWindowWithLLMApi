@@ -64,7 +64,7 @@ class GradientLabel(QLabel):
         # 设置定时器实现动画
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.update_gradient)
-        self.timer.start(3)  # 每5ms更新一次
+        self.timer.start(3)  # 每3ms更新一次
     
     def extract_color(self, css, var_name, default):
         """从CSS中提取颜色值"""
@@ -132,9 +132,10 @@ class SearchButton(QPushButton):
 
 #背景标签
 class AspectLabel(QLabel):
-    def __init__(self, master_pixmap, parent=None):
+    def __init__(self, master_pixmap='', parent=None,text=''):
         super().__init__(parent)
         self.master_pixmap = master_pixmap
+        self.setText(text)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.setMinimumSize(1, 1)
         self.setAlignment(Qt.AlignCenter)  # 居中显示
@@ -148,14 +149,14 @@ class AspectLabel(QLabel):
         """解锁图片内容"""
         self.locked = False
         
-    def resizeEvent(self, event):
-        # 计算覆盖尺寸
+    def _image_resize(self,event):
+        if not type(self.master_pixmap)==QPixmap:
+            return
         target_size = self.master_pixmap.size().scaled(
             event.size(),
-            Qt.KeepAspectRatioByExpanding  # 关键模式
+            Qt.KeepAspectRatioByExpanding
         )
         
-        # 执行高质量缩放
         scaled_pix = self.master_pixmap.scaled(
             target_size,
             Qt.KeepAspectRatioByExpanding,
@@ -163,6 +164,10 @@ class AspectLabel(QLabel):
         )
         
         self.setPixmap(scaled_pix)
+
+    def resizeEvent(self, event):
+        # 计算覆盖尺寸
+        self._image_resize(event)
         super().resizeEvent(event)
     
     def update_icon(self,pic):
@@ -182,7 +187,6 @@ class AspectLabel(QLabel):
         )
         
         self.setPixmap(scaled_pix)
-
 #按钮：打开背景
 class AspectRatioButton(QPushButton):
     def __init__(self, pixmap_path, parent=None):
@@ -512,6 +516,12 @@ class MarkdownTextBrowser(ChatapiTextBrowser):
         重写sizeHint，返回基于文档内容的理想尺寸。
         """
         # 获取文档的理想高度
+        margins = self.contentsMargins()
+        available_width = self.width() - margins.left() - margins.right()
+        
+        # 确保在计算高度前设置了文档宽度
+        if available_width > 0:
+            self.document().setTextWidth(available_width)
 
         doc_height = self.document().size().height()
         

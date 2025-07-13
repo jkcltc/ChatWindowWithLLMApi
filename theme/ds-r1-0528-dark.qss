@@ -15,6 +15,11 @@ QMainWindow {
     border: none;
 }
 
+QFrame {
+    background-color : transparent
+}
+
+
 /* ================== GroupBox ================== */
 QGroupBox {
     background-color: rgba(30, 36, 40, 0.5);
@@ -42,6 +47,7 @@ QGroupBox::title {
     font-size: 11pt;
     border: 1px solid rgba(76, 175, 80, 0.3);
 }
+
 
 /* ================== TreeView ================== */
 QTreeView {

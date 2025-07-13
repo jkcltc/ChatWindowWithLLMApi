@@ -1,12 +1,12 @@
 from PyQt5.QtCore import *
 from PyQt5.QtWidgets import *
 from PyQt5.QtGui import QPixmap
-import threading
-import jsonfinder
-from chat_history_manager import ChatHistoryTools
-from preset_data import BackGroundPresetVars,LongChatImprovePersetVars
-from tools.one_shot_api_request import APIRequestHandler
-from text_to_image.image_agents import ImageAgent
+from jsonfinder import jsonfinder
+from .chat_history_manager import ChatHistoryTools
+from .preset_data import BackGroundPresetVars,LongChatImprovePersetVars
+from .tools.one_shot_api_request import APIRequestHandler
+from .text_to_image.image_agents import ImageAgent
+from .custom_widget import AspectLabel
 
 #背景生成管线
 class BackGroundWorker(QObject):
@@ -50,6 +50,8 @@ class BackGroundWorker(QObject):
                 "key":self.default_apis[summary_api_provider]['key']
                 }
             )
+        self.request_sender.request_completed.connect(self._handle_image_prompt_receive)
+        self.request_sender.error_occurred.connect(lambda infos :self.failure.emit('request_sender',infos))
         
     def _finish_api_requester(self):
         if hasattr(self, 'request_sender') and self.request_sender is not None:
@@ -71,8 +73,9 @@ class BackGroundWorker(QObject):
         if hasattr(self, 'creator') and self.creator is not None:
             # 断开信号连接
             try:
-                self.creator.pull_success.disconnect()
-            except:
+                self.creator.pull_success.disconnect(self.poll_success.emit)
+            except Exception as e:
+                print('self.creator.pull_success.disconnect()',e)
                 pass  # 可能之前没有连接，或者对象已被删除
             # 请求对象销毁
             self.creator.deleteLater()
@@ -81,7 +84,7 @@ class BackGroundWorker(QObject):
     # 启动方法：
     # 初始化发送器
     # 组织参数发到back_ground_update_summary，用于请求prompt
-    def back_ground_update(self,chathistory,background_style):
+    def generate(self,chathistory,background_style,required_lenth):
         self.request_opti_bar_update.emit()
         self._finish_image_agent()
         self._finish_api_requester()
@@ -89,7 +92,8 @@ class BackGroundWorker(QObject):
             self.back_ground_update_summary(chathistory,
                        background_style,
                        self.summary_api_provider,
-                       self.summary_model
+                       self.summary_model,
+                       required_lenth=required_lenth
                     )
         except Exception as e:
             self.failure.emit('back_ground_update',f'error code: {e}')
@@ -135,7 +139,8 @@ class BackGroundWorker(QObject):
             self,
             chathistory,
             background_style='',
-            required_length=500,
+            required_length=2000,
+            image_model=''
         ): 
         """
             Generates a background prompt for a story based on chat history and specified style.
@@ -145,11 +150,12 @@ class BackGroundWorker(QObject):
             Args:
                 chathistory (list): The chat history containing messages and story context.
                 background_style (str, optional): The desired style for the background prompt. Defaults to ''.
-                required_length (int, optional): The minimum required length for the readable story. Defaults to 500.
+                required_length (int, optional): The minimum required length for the readable story. Defaults to 2000.
             Returns:
                 str: The user summary portion of the constructed background prompt.
         """
-    
+        if not image_model:
+            image_model=self.image_model
         last_full_story=''
 
         #添加自迭代摘要结果 
@@ -176,6 +182,8 @@ class BackGroundWorker(QObject):
                 + background_style +'\n'
                 + '\n'
             )
+        if 'irag' in image_model:
+            last_full_story+=BackGroundPresetVars.IRAG_USE_CHINESE
         return last_full_story
 
     #背景更新：聊天记录到prompt
@@ -183,7 +191,8 @@ class BackGroundWorker(QObject):
                                   chathistory,
                                   background_style='',
                                   summary_api_provider='',
-                                  summary_model=''
+                                  summary_model='',
+                                  required_lenth=2000
                                   ):
         """
         Updates the background summary by sending a prompt to a summary API provider.
@@ -202,7 +211,8 @@ class BackGroundWorker(QObject):
         summary_prompt=BackGroundPresetVars.summary_prompt
         #再获取
         last_full_story=self._get_background_prompt_from_chathistory(chathistory=chathistory,
-                                                                    background_style=background_style)
+                                                                    background_style=background_style,
+                                                                    required_length=required_lenth)
         messages=[
             {"role":"system","content":summary_prompt},
             {"role":"user","content":last_full_story}
@@ -213,8 +223,7 @@ class BackGroundWorker(QObject):
         except Exception as e:
             self.failure.emit('APIRequestHandler init',str(e))
             return
-        self.request_sender.request_completed.connect(self._handle_image_prompt_receive)
-        self.request_sender.error_occurred.connect(print)
+        
         try:
             self.debug.emit(f"场景生成：prompt请求发送。\n发送内容长度:{len(last_full_story)}")
             self.request_sender.send_request(message=messages,model=summary_model)
@@ -243,7 +252,7 @@ class BackGroundWorker(QObject):
             application_path=''
         ):
         param={}
-        for _, __, obj in jsonfinder(return_prompt):
+        for _, __, obj in jsonfinder(return_prompt,json_only=True):
             if isinstance(obj, dict):
                 param=obj
             
@@ -253,10 +262,10 @@ class BackGroundWorker(QObject):
                 f'prompt extract failed, param extracted:{param},return_prompt:{return_prompt}'
             )
             return
-
+        print('image',image_model)
         param['width']=1280
         param['height']=720
-        param['model_name']=image_model
+        param['model']=image_model
 
         try:
             self._init_image_agent(application_path,image_api_provider)
@@ -304,7 +313,7 @@ class BackgroundSettingsWidget(QWidget):
     imageProviderChanged = pyqtSignal(str)
     imageModelChanged = pyqtSignal(str)
     updateSettingChanged = pyqtSignal(bool)
-    backgroundSpecifyChanged = pyqtSignal(bool)
+    lockBackground = pyqtSignal(bool)
     updateIntervalChanged = pyqtSignal(int)
     historyLengthChanged = pyqtSignal(int)
     styleChanged = pyqtSignal(str)
@@ -342,7 +351,7 @@ class BackgroundSettingsWidget(QWidget):
         config_section = SectionWidget("更新配置")
         
         # 复选框设置
-        self.enable_update_check = QCheckBox("启用后台更新")
+        self.enable_update_check = QCheckBox("跟随对话更新")
         self.specify_background_check = QCheckBox("指定背景")
         config_section.layout.addWidget(self.enable_update_check)
         config_section.layout.addWidget(self.specify_background_check)
@@ -396,21 +405,7 @@ class BackgroundSettingsWidget(QWidget):
         config_section.layout.addWidget(history_group)
         
         settings_layout.addWidget(config_section)
-        
-        # 分隔线
-        settings_layout.addWidget(QuickSeparator("h"))
-        
-        # 生成风格分组
-        style_section = SectionWidget("生成风格")
-        style_label = QLabel("提示词生成风格")
-        self.style_text_edit = QTextEdit()
-        #self.style_text_edit.setMinimumHeight(120)
-        self.style_text_edit.setPlaceholderText("在此输入生成风格描述...")
-        
-        style_section.layout.addWidget(style_label)
-        style_section.layout.addWidget(self.style_text_edit)
-        
-        settings_layout.addWidget(style_section)
+
 
         # 分隔线
         settings_layout.addWidget(QuickSeparator("h"))
@@ -481,6 +476,21 @@ class BackgroundSettingsWidget(QWidget):
         image_model_section.layout.addLayout(image_model_name_row)
         
         settings_layout.addWidget(image_model_section)  
+
+        # 分隔线
+        settings_layout.addWidget(QuickSeparator("h"))
+        
+        # 生成风格分组
+        style_section = SectionWidget("生成风格")
+        style_label = QLabel("提示词生成风格")
+        self.style_text_edit = QTextEdit()
+        #self.style_text_edit.setMinimumHeight(120)
+        self.style_text_edit.setPlaceholderText("在此输入生成风格描述...")
+        
+        style_section.layout.addWidget(style_label)
+        style_section.layout.addWidget(self.style_text_edit)
+        
+        settings_layout.addWidget(style_section)
         
         # 设置面板添加到主布局左侧
         main_layout.addWidget(settings_panel, 0)  # 可拉伸比例为1
@@ -502,7 +512,7 @@ class BackgroundSettingsWidget(QWidget):
         preview_title.setStyleSheet("font-weight: bold;")
         preview_layout.addWidget(preview_title)
         
-        self.preview_area = QLabel("背景预览区域")
+        self.preview_area = AspectLabel(text="背景预览区域")
         self.preview_area.setAlignment(Qt.AlignCenter)
         self.preview_area.setFrameShape(QFrame.Box)
         self.preview_area.setSizePolicy(QSizePolicy.Expanding,QSizePolicy.Expanding)
@@ -514,24 +524,28 @@ class BackgroundSettingsWidget(QWidget):
         
         # 添加到主布局右侧
         main_layout.addWidget(preview_panel, 1)
-        
-    def initialize_settings(self, settings):
+
+    def initialize_settings(self, settings_dict):
         """
-        使用传入的设置初始化所有控件
-        settings: 包含所有初始化设置的对象/dict
+        使用传入的字典设置初始化所有控件
+        settings_dict: 包含所有初始化设置的字典
             - model_map: {provider: [model_names]} 提示词模型映射
             - image_model_map: {provider: [model_names]} 绘图模型映射
-            - enable_update: 是否启用后台更新
-            - update_interval: 更新间隔值
-            - history_length: 参考对话长度
-            - style: 生成风格文本
-            - background_specified: 是否指定背景
-            - background_image_path: 背景图片路径(如果指定了背景)
+            - back_ground_update_var: 是否启用后台更新（bool）
+            - lock_background,是否指定背景（bool）
+            - max_background_rounds: 更新间隔值（int）
+            - max_backgound_lenth: 参考对话长度（int）
+            - background_style: 生成风格文本（str）
+            - background_image_path: 背景图片路径（str，如果指定了背景）
             - current_model: 当前选择的提示词模型 (provider, model_name)
             - current_image_model: 当前选择的绘图模型 (provider, model_name)
         """
         # 使用信号阻塞确保初始化时不触发事件
         self.blockSignals(True)
+        
+        # 保存模型映射到实例变量
+        self.model_map = settings_dict.get('model_map', {})
+        self.image_model_map = settings_dict.get('image_model_map', {})
         
         try:
             # =================== 填充模型下拉框 ===================
@@ -542,58 +556,63 @@ class BackgroundSettingsWidget(QWidget):
             self.image_model_combo.clear()
             
             # 添加提示词模型提供者
-            self.provider_combo.addItems(list(settings.model_map.keys()))
+            self.provider_combo.addItems(list(self.model_map.keys()))
             
             # 添加绘图模型提供者
-            self.image_provider_combo.addItems(list(settings.image_model_map.keys()))
+            self.image_provider_combo.addItems(list(self.image_model_map.keys()))
             
             # =================== 更新其他控件 ===================
             # 更新设置组
-            self.enable_update_check.setChecked(settings.enable_update)
-            self.specify_background_check.setChecked(settings.background_specified)
+            self.enable_update_check.setChecked(settings_dict.get('back_ground_update_var', False))
+            self.specify_background_check.setChecked(settings_dict.get('lock_background', False))
             
             # 数值控件
-            self.update_slider.setValue(settings.update_interval)
-            self.update_spin.setValue(settings.update_interval)
-            self.history_slider.setValue(settings.history_length)
-            self.history_spin.setValue(settings.history_length)
+            update_interval = settings_dict.get('max_background_rounds', 15)
+            self.update_slider.setValue(update_interval)
+            self.update_spin.setValue(update_interval)
+            
+            history_length = settings_dict.get('max_backgound_lenth', 500)
+            self.history_slider.setValue(history_length)
+            self.history_spin.setValue(history_length)
             
             # 生成风格文本
-            self.style_text_edit.setText(settings.style)
+            self.style_text_edit.setText(settings_dict.get('background_style', ''))
             
             # 激活/禁用关联控件
-            self.update_slider.setEnabled(settings.enable_update)
-            self.update_spin.setEnabled(settings.enable_update)
-            self.history_slider.setEnabled(settings.enable_update)
-            self.history_spin.setEnabled(settings.enable_update)
+            update_enabled = settings_dict.get('back_ground_update_var', False)
+            self.update_slider.setEnabled(update_enabled)
+            self.update_spin.setEnabled(update_enabled)
+            self.history_slider.setEnabled(update_enabled)
+            self.history_spin.setEnabled(update_enabled)
             
             # =================== 设置选中模型 ===================
             # 设置当前提示词模型
-            if settings.current_model:
-                provider, model = settings.current_model
-                if provider in settings.model_map and model in settings.model_map[provider]:
-                    self.provider_combo.setCurrentText(provider)
-                    self.model_combo.addItems(settings.model_map[provider])
-                    self.model_combo.setCurrentText(model)
+            current_model = settings_dict.get('current_model', (None, None))
+            if current_model[0] in self.model_map and current_model[1] in self.model_map[current_model[0]]:
+                self.provider_combo.setCurrentText(current_model[0])
+                self.model_combo.addItems(self.model_map[current_model[0]])
+                self.model_combo.setCurrentText(current_model[1])
             
             # 设置当前绘图模型
-            if settings.current_image_model:
-                provider, model = settings.current_image_model
-                if provider in settings.image_model_map and model in settings.image_model_map[provider]:
-                    self.image_provider_combo.setCurrentText(provider)
-                    self.image_model_combo.addItems(settings.image_model_map[provider])
-                    self.image_model_combo.setCurrentText(model)
+            current_image_model = settings_dict.get('current_image_model', (None, None))
+            if current_image_model[0] in self.image_model_map and current_image_model[1] in self.image_model_map[current_image_model[0]]:
+                self.image_provider_combo.setCurrentText(current_image_model[0])
+                self.image_model_combo.addItems(self.image_model_map[current_image_model[0]])
+                self.image_model_combo.setCurrentText(current_image_model[1])
             
             # =================== 背景图片处理 ===================
-            if settings.background_specified and settings.background_image_path:
-                self.background_image_path = settings.background_image_path
-                self._update_preview_image(settings.background_image_path)
+            background_image_path = settings_dict.get('background_image_path', None)
+            if settings_dict.get('lock_background', False) and background_image_path:
+                self.background_image_path = background_image_path
+                self._update_preview_image(background_image_path)
             else:
                 self.preview_area.clear()
                 self.preview_area.setText("背景预览区域")
         finally:
             # 解除信号阻塞
             self.blockSignals(False)
+
+
     
     def setup_connections(self):
         # 模型提供者改变信号
@@ -602,16 +621,15 @@ class BackgroundSettingsWidget(QWidget):
                 self.model_combo.clear(),
                 self.model_combo.addItems(self.model_map[text]),
                 self.modelProviderChanged.emit(text)
-            ]
+            ] if text else None
         )
-        
         # 绘图模型提供者改变信号
         self.image_provider_combo.currentTextChanged.connect(
             lambda text: [
                 self.image_model_combo.clear(),
                 self.image_model_combo.addItems(self.image_model_map[text]),
-                self.imageProviderChanged.emit(text)
-            ]
+                self.imageProviderChanged.emit(text),
+            ]if text else None
         )
         
         # 模型选择改变信号
@@ -624,7 +642,7 @@ class BackgroundSettingsWidget(QWidget):
         
         # 设置更新信号
         self.enable_update_check.toggled.connect(self.updateSettingChanged.emit)
-        self.specify_background_check.toggled.connect(self.backgroundSpecifyChanged.emit)
+        self.specify_background_check.toggled.connect(self.lockBackground.emit)
         self.style_text_edit.textChanged.connect(lambda: self.styleChanged.emit(self.style_text_edit.toPlainText()))
         
         # 滑块和微调框值同步
@@ -702,15 +720,97 @@ class BackgroundSettingsWidget(QWidget):
         """更新预览区域的图片"""
         pixmap = QPixmap(file_path)
         if not pixmap.isNull():
-            # 调整图片尺寸以适应预览区
-            scaled_pix = pixmap.scaled(
-                self.preview_area.size(),
-                Qt.KeepAspectRatio,
-                Qt.SmoothTransformation
-            )
-            self.preview_area.setPixmap(scaled_pix)
+            self.preview_area.setText('')
+            self.preview_area.update_icon(pixmap)
 
     def show(self):
         super().show()
         self.resize(int(1.5 * self.height()),  self.height())
+        screen = QApplication.primaryScreen()
+        if self.parent():
+            screen = self.parent().screen()
+        
+        # 计算居中位置
+        screen_geometry = screen.availableGeometry()
+        x = (screen_geometry.width() - self.width()) // 2
+        y = (screen_geometry.height() - self.height()) // 2
+        
+        # 设置位置（考虑屏幕偏移）
+        self.move(screen_geometry.left() + x, 
+                 screen_geometry.top() + y)
 
+#背景生成Agent类
+class BackgroundAgent(QObject):
+    poll_success=pyqtSignal(str)
+    def __init__(
+            self,
+            default_apis,
+            model_map,
+            application_path,
+        ):
+        super().__init__()
+        self.default_apis=default_apis
+        self.model_map=model_map
+        self.application_path=application_path
+        self.image_agent=ImageAgent(application_path=application_path)
+        self.setting_window=BackgroundSettingsWidget()
+        self.update_worker=BackGroundWorker(
+            default_apis=self.default_apis,
+            application_path=self.application_path,
+        )
+        self.update_worker_processing=False
+        self.update_worker.poll_success.connect(self.poll_success.emit)
+        self.update_worker.poll_success.connect(lambda _:setattr(self,'update_worker_processing',False))
+        self.update_worker.poll_success.connect(lambda _:print('self.update_worker.poll_success received at BackgroundAgent'))
+        self.update_worker.failure.connect(lambda _:setattr(self,'update_worker_processing',False))
+
+    def setup_setting_window(self,param_dict):
+        """
+        使用传入的字典设置初始化所有控件
+        settings_dict: 包含所有初始化设置的字典
+            - back_ground_update: 是否启用后台更新（bool）
+            - max_background_rounds: 更新间隔值（int）
+            - max_backgound_lenth: 参考对话长度（int）
+            - background_style: 生成风格文本（str）
+            - back_ground_update: 是否指定背景（bool）
+            - background_image_path: 背景图片路径（str，如果指定了背景）
+            - current_model: 当前选择的提示词模型 (provider, model_name)
+            - current_image_model: 当前选择的绘图模型 (provider, model_name)
+        """
+        if not hasattr(self,'setting_window'):
+            self.setting_window=BackgroundSettingsWidget()
+        param_dict['model_map']=self.model_map
+        param_dict['image_model_map']=self.image_agent.get_model_map()
+        self.setting_window.initialize_settings(param_dict)
+    
+    def generate(self,default_apis={},
+                 summary_api_provider='',
+                 summary_model='',
+                 image_api_provider='',
+                 image_model='',
+                 chathistory=[],
+                 background_style='',
+                 required_lenth=2000
+                 ):
+        if self.update_worker_processing:
+            return
+        self.update_worker_processing=True
+        #在主类调用时default_apis可以不传
+        self.default_apis = default_apis if default_apis else self.default_apis
+        self.update_worker.set_providers(
+            summary_api_provider=summary_api_provider,
+            summary_model=summary_model,
+            image_api_provider=image_api_provider,
+            image_model=image_model,
+        )
+        self.update_worker.generate(
+            chathistory=chathistory,
+            background_style=background_style,
+            required_lenth=required_lenth,
+        )
+
+    def show(self):
+        self.setting_window.show()
+    
+    def raise_(self):
+        self.setting_window.raise_()

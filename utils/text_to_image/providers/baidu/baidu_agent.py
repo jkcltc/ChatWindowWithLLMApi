@@ -1,15 +1,8 @@
 import os
-import json
 import requests
-import time
 import threading
 from PyQt5.QtCore import QObject,pyqtSignal
 
-import os
-import random
-import requests
-import base64
-from PyQt5.QtCore import QObject, pyqtSignal
 
 class BaiduImageGenerator(QObject):
     pull_success = pyqtSignal(str)  # 图片保存路径
@@ -102,7 +95,6 @@ class BaiduImageGenerator(QObject):
             print(response.text)
             # 处理响应
             if response.status_code != 200:
-                
                 self.failure.emit('request', 
                                  f"请求失败，状态码：{response.status_code}, 响应：{response.text}")
                 return None
@@ -177,7 +169,7 @@ class BaiduAgent(QObject):
         参数config已使用ParamTranslator翻译
         """
         # 转换参数格式
-        params = self.translate_params(config)
+        params =config
         
         # 创建并启动后台线程
         thread = threading.Thread(target=self.generator.generate, kwargs=params)
@@ -210,7 +202,10 @@ class BaiduAgent(QObject):
         
         # 仅在提供了宽度和高度时才设置 image_size
         if width is not None and height is not None:
-            new_params['image_size'] = f"{width}x{height}"
+            #new_params['image_size'] = f"{width}x{height}"
+            #百度后端有问题，不能出非1:1图片
+            a=max(width,height)
+            new_params['image_size'] = f"{a}x{a}"
         
         # 生成数量 - 可选但建议提供
         if 'image_num' in params:

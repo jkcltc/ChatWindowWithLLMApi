@@ -111,6 +111,22 @@ class SystemPromptUI(QWidget):
         self.content_edit.textChanged.connect(self.on_content_changed)
         self.right_layout.addWidget(self.content_edit)
         
+        info_layout=QHBoxLayout()
+
+        name_user_label=QLabel(r'用户代称{{user}}=')
+        self.name_user_edit=QLineEdit()
+
+        info_layout.addWidget(name_user_label)
+        info_layout.addWidget(self.name_user_edit)
+
+        name_ai_label=QLabel(r'AI代称{{char}}=')
+        self.name_ai_edit=QLineEdit()
+
+        info_layout.addWidget(name_ai_label)
+        info_layout.addWidget(self.name_ai_edit)
+
+        self.right_layout.addLayout(info_layout)
+
         # 按钮区域
         self.button_layout = QHBoxLayout()
         
@@ -148,21 +164,22 @@ class SystemPromptUI(QWidget):
         # 加载初始文件列表
         self.load_file_list()
     
-    def load_income_prompt(self,system_prompt):
+    def load_income_prompt(self,system_prompt,name={}):
         if self.is_modified:
             # 给用户保存更改的机会
             reply = QMessageBox.question(
                 self,
                 "未保存的更改",
                 "您有未保存的更改。是否要保存后再继续操作？",
-                QMessageBox.Save | QMessageBox.Discard | QMessageBox.Cancel
+                QMessageBox.Save | QMessageBox.Discard 
             )
             
-            if reply == QMessageBox.Cancel:
-                return  # 用户取消操作
-            elif reply == QMessageBox.Save:
+            if reply == QMessageBox.Save:
                 self.save_current_config(show_window=False)
                 # 保存后继续操作
+        if name:
+            self.name_user_edit.setText(name['user'])
+            self.name_ai_edit.setText(name['assistant'])
         
         # 查找现有的名为"当前对话.json"的文件
         existing_config = None

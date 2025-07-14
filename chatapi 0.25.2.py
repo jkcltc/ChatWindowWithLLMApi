@@ -2159,7 +2159,7 @@ class MainWindow(QMainWindow):
     def init_chat_history_bubbles(self):
         # 聊天历史文本框
         self.chat_history_label = QLabel("聊天历史")
-        self.display_full_chat_history=QPushButton("纯文本")
+        self.display_full_chat_history=QPushButton("完整记录")
         self.display_full_chat_history.clicked.connect(self.display_full_chat_history_window)
         self.chat_history_text = ChatapiTextBrowser()
         self.chat_history_text.anchorClicked.connect(lambda url: os.startfile(url.toString()))
@@ -2489,6 +2489,7 @@ class MainWindow(QMainWindow):
         self.name_user, 
         self.name_ai
     )
+        
         history_text_view.exec_()
 
     #更新聊天记录框，会清除用户和AI的输入框
@@ -2688,11 +2689,12 @@ class MainWindow(QMainWindow):
             return
 
         # 发送请求并处理响应
-        try:
+        #try:
+        if True:
             self.send_request(params)
-        except Exception as e:
-            self.return_message = f"Error in sending request: {e}"
-            self.update_response_signal.emit(100000,self.return_message)
+        #except Exception as e:
+        #    self.return_message = f"Error in sending request: {e}"
+        #    self.update_response_signal.emit(100000,self.return_message)
 
     def send_request(self, params):
         """发送请求并处理流式响应"""
@@ -2701,8 +2703,8 @@ class MainWindow(QMainWindow):
             if hasattr(content, "content") and content.content:
                 special_block_handler_result=StrTools.special_block_handler(self,
                                     temp_response,
-                                    request_id,
                                     self.think_response_signal.emit,
+                                    request_id,
                                     starter='<think>', ender='</think>',
                                     extra_params='think_response'
                                     )
@@ -2822,7 +2824,7 @@ class MainWindow(QMainWindow):
                     returned_arguments=getattr(returned_function_call, "arguments", "")
                     if returned_arguments:
                         chatting_tool_call["function"]["arguments"] += returned_arguments
-                        self.think_response=chatting_tool_call["function"]["arguments"]
+                        self.think_response+=chatting_tool_call["function"]["arguments"]
                         self.think_response_signal.emit(request_id,self.think_response)
         if chatting_tool_call and chatting_tool_call["function"]["arguments"]:
             try:
@@ -3096,12 +3098,14 @@ class MainWindow(QMainWindow):
         if not hasattr(self,"system_prompt_override_window"):
             self.system_prompt_override_window = SystemPromptUI(folder_path='utils/system_prompt_presets')
             self.system_prompt_override_window.update_system_prompt.connect(update_system_prompt)
+            self.system_prompt_override_window.name_user_edit.textChanged.connect(lambda text:self.handle_name_changed('user',text))
+            self.system_prompt_override_window.name_ai_edit.textChanged.connect(lambda text:self.handle_name_changed('assistant',text))
         if show_at_call:
             self.system_prompt_override_window.show()
         if self.system_prompt_override_window.isVisible():
             self.system_prompt_override_window.raise_()
             self.system_prompt_override_window.activateWindow()
-        self.system_prompt_override_window.load_income_prompt(get_system_prompt())
+        self.system_prompt_override_window.load_income_prompt(get_system_prompt(),name=self.chathistory[0]['info']['name'])
 
 
     #打开设置，快捷键

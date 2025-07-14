@@ -688,3 +688,4 @@ QScrollBar:disabled,
 QScrollBar::handle:disabled {
     background: #e5e5e5;
 }
+

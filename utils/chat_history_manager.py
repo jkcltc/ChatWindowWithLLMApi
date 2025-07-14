@@ -68,6 +68,20 @@ class ChatHistoryTextView(QDialog):
         self.chat_history = chat_history
         self.user_name = user_name
         self.ai_name = ai_name
+
+        first_msg = chat_history[0]
+        
+        name_data = {}
+        if isinstance(first_msg, dict):
+            info = first_msg.get('info', {})
+            if isinstance(info, dict):
+                name_data = info.get('name', {})
+
+        if isinstance(name_data, dict):
+            for key, attr_name in [('user', 'user_name'), ('assistant', 'ai_name')]:
+                if key in name_data and name_data[key]:
+                    setattr(self, attr_name, name_data[key])
+        
         
         self.setWindowTitle("Chat History")
         self.setMinimumSize(650, 500)
@@ -93,7 +107,8 @@ class ChatHistoryTextView(QDialog):
             name = self._get_sender_name(msg['role'])
             append(f'\n\n### {name}\n')  # 标题格式突出显示
             if 'reasoning_content' in msg and msg['reasoning_content']:
-                append(f"\n> Think: {msg['reasoning_content']}\n")
+                think=msg['reasoning_content'].replace('### AI 思考链\n---','')
+                append(f"\n```  \n Think: {think}  \n  ```  \n---  \n  ")
 
             if 'content' in msg and msg['content']:
                 append(f"{msg['content']}\n")

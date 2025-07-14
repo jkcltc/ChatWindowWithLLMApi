@@ -508,8 +508,6 @@ class MarkdownTextBrowser(ChatapiTextBrowser):
 
         self._is_streaming = False
 
-        self.document().contentsChanged.connect(self._handle_contents_changed)
-
         
     def sizeHint(self):
         """
@@ -538,19 +536,13 @@ class MarkdownTextBrowser(ChatapiTextBrowser):
         :param text: Markdown 文本
         :param is_streaming: bool, 是否处于流式更新中
         """
+        
         self._is_streaming = is_streaming
         super().setMarkdown(text) # 调用父类的方法来处理文本
 
-        # 如果流式传输已结束，手动触发一次最终的几何更新
-        if not self._is_streaming:
-            QTimer.singleShot(0, self.updateGeometry) # 使用 QTimer 确保在当前事件循环完成后执行
-    
-    def _handle_contents_changed(self):
-        """
-        仅在非流式状态下，根据内容变化更新几何尺寸。
-        """
-        if not self._is_streaming:
-            self.updateGeometry()
+        QTimer.singleShot(0, self.updateGeometry) # 使用 QTimer 确保在当前事件循环完成后执行
+
+
 
 class InfoPopup(QWidget):
     """用于显示消息详情信息的悬浮窗"""
@@ -670,10 +662,6 @@ class EditWidget(QTextEdit):
         self.setFrameShape(QFrame.NoFrame)
         self.setWordWrapMode(QTextOption.WrapAtWordBoundaryOrAnywhere)
         self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        
-    def sizeHint(self):
-        doc = self.document()
-        return QSize(0, int(doc.size().height()))
 
 class ReasoningDisplay(MarkdownTextBrowser):
     """思考内容显示控件"""
@@ -696,7 +684,7 @@ class ReasoningDisplay(MarkdownTextBrowser):
         self._is_streaming = is_streaming
         super().setMarkdown(text) # 调用父类的方法来处理文本
 
-class BubbleControlButtons(QWidget):
+class BubbleControlButtons(QFrame):
     """气泡控制按钮组（带内部对齐控制）"""
     regenerateClicked = pyqtSignal()
     editToggleClicked = pyqtSignal(bool)  # bool: 是否进入编辑模式
@@ -713,7 +701,7 @@ class BubbleControlButtons(QWidget):
         self.setLayout(self.main_layout)
         
         # 内部容器用于控制对齐
-        self.inner_widget = QWidget()
+        self.inner_widget = QFrame()
         self.layout = QHBoxLayout(self.inner_widget)
         self.layout.setContentsMargins(0, 0, 0, 0)
         self.layout.setSpacing(0)
@@ -822,8 +810,8 @@ class ChatBubble(QWidget):
         self.setLayout(layout)
         
         # 顶部信息栏（角色/昵称）
-        self.top_bar = QWidget()
-        self.top_bar_container = QWidget()
+        self.top_bar = QFrame()
+        self.top_bar_container = QFrame()
         top_bar_layout = QHBoxLayout(self.top_bar_container)
         top_bar_layout.setContentsMargins(0, 0, 0, 0)
         top_bar_layout.addWidget(self.top_bar)
@@ -1085,7 +1073,7 @@ class ChatBubble(QWidget):
         self.info_popup.hide()
         super().hideEvent(event)
 
-class ChatHistoryWidget(QWidget):
+class ChatHistoryWidget(QFrame):
     # 定义信号用于与主分发类通信
     regenerateRequested = pyqtSignal(str)  # 消息ID
     editFinished = pyqtSignal(str, str)    # 消息ID, 新内容
@@ -1099,7 +1087,7 @@ class ChatHistoryWidget(QWidget):
         self.nicknames = {'user': '用户', 'assistant': '助手'}  # 默认昵称
         self.avatars = {'user': '', 'assistant': ''}  # 默认头像路径
         self.setStyleSheet("""
-            QWidget {
+            QFrame {
                 background-color: rgba(255, 255, 255, 0);
                 border-radius: 5px;         
             } 
@@ -1110,6 +1098,7 @@ class ChatHistoryWidget(QWidget):
 
     def init_ui(self):
         """初始化UI布局"""
+
         self.setLayout(QVBoxLayout())
         self.layout().setContentsMargins(0, 0, 0, 0)
         self.layout().setSpacing(0)
@@ -1122,7 +1111,7 @@ class ChatHistoryWidget(QWidget):
         scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         
         # 内容容器
-        content_widget = QWidget()
+        content_widget = QFrame()
         self.content_layout = QVBoxLayout(content_widget)
         self.content_layout.setContentsMargins(20, 10, 20, 20)
         self.content_layout.setSpacing(15)
@@ -1157,6 +1146,7 @@ class ChatHistoryWidget(QWidget):
         :param history: 新的聊天历史记录列表
         """
         # 创建新历史记录的ID到内容的映射
+        history=history[-30:]#优化不动，先截了
         try:
             new_ids = {msg['info']['id']: msg for msg in history}
         except:
@@ -1206,11 +1196,8 @@ class ChatHistoryWidget(QWidget):
         self._reorder_bubbles(history)
 
         msg_id=history[-1]['info']['id']
-        if not str(msg_id)=='999999':#猴子补丁，999999是system prompt气泡编号
-            self.bubbles[msg_id].setMaximumHeight(int(self.height()*1.2))
-        self.updateGeometry()
         self.content_layout.update()
-
+        
         QTimer.singleShot(100, self.scroll_to_bottom)
 
     def _reorder_bubbles(self, history):
@@ -1296,21 +1283,6 @@ class ChatHistoryWidget(QWidget):
         bubble.editFinished.connect(self.editFinished.emit)
         bubble.detailToggled.connect(self.detailToggled.emit)
         bubble.RequestAvatarChange.connect(self.RequestAvatarChange.emit)
-
-        target_height = int(self.height() * 1.2)
-        if streaming:
-            self.bubbles[msg_id].setMaximumHeight(target_height)
-        else:
-            if hasattr(self, '_last_max_height_bubble') and self._last_max_height_bubble:
-                try:
-                    self._last_max_height_bubble.setMaximumHeight(99999)
-                except:
-                    pass
-            
-            bubble.setMaximumHeight(target_height)
-            
-            self._last_max_height_bubble = bubble
-
         return bubble
 
     def update_bubble_content(self, msg_id, content_data):
@@ -1332,9 +1304,9 @@ class ChatHistoryWidget(QWidget):
             bubble.message_data['info'] = info_data
     
     def update_bubble(self,message='',msg_id=0, content='', reasoning_content='',info='',streaming='streaming'):
-        QTimer.singleShot(100,self.scroll_to_bottom)
         #处理输入方式为message
         #输入方式为message，未初始化
+        QTimer.singleShot(100,self.scroll_to_bottom)
         if message and not message['id'] in self.bubbles:
             self.add_message(message)
             return
@@ -1384,6 +1356,7 @@ class ChatHistoryWidget(QWidget):
         if info:  # 确保info更新被处理
             self.update_bubble_info(msg_id, info)
 
+    
     def set_role_nickname(self, role, nickname):
         """设置角色的昵称"""
         if nickname!=self.nicknames[role]:

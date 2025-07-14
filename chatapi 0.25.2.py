@@ -1248,20 +1248,20 @@ class StrTools:
                 print(f"Content: {message['content']}")
                 print("-" * 20)
             
-            # 新增工具调用打印逻辑
-            if message['role'] == 'assistant' and 'tool_calls' in message:
-                print("工具调用列表：")
-                for j, tool_call in enumerate(message['tool_calls']):
-                    func_info = tool_call.get('function', {})
-                    name = func_info.get('name', '未知工具')
-                    args = func_info.get('arguments', '')
-                    print(f"  工具 {j+1}: {name}")
-                    print(f"  参数: {args}",type(args))
-                    print("-" * 20)
-                actual_length += len(args)
-            
-            if message['content']:
-                actual_length += len(message['content'])
+                # 新增工具调用打印逻辑
+                if message['role'] == 'assistant' and 'tool_calls' in message:
+                    print("工具调用列表：")
+                    for j, tool_call in enumerate(message['tool_calls']):
+                        func_info = tool_call.get('function', {})
+                        name = func_info.get('name', '未知工具')
+                        args = func_info.get('arguments', '')
+                        print(f"  工具 {j+1}: {name}")
+                        print(f"  参数: {args}",type(args))
+                        print("-" * 20)
+                    actual_length += len(args)
+                
+                if message['content']:
+                    actual_length += len(message['content'])
         
         print(f"实际长度: {actual_length}")
         print(f"实际对话轮数: {len(dic_chathistory)}")
@@ -1475,7 +1475,7 @@ class MessagePreprocessor:
         if hasattr(self.god, 'function_chooser') and self.god.function_chooser:
             selected_names = self.god.function_chooser.get_selected_functions()
         
-        if selected_names and not tools:
+        if selected_names :#and not tools:
             function_definitions = []
             manager = self.god.function_chooser.function_manager
             
@@ -2824,7 +2824,7 @@ class MainWindow(QMainWindow):
                     returned_arguments=getattr(returned_function_call, "arguments", "")
                     if returned_arguments:
                         chatting_tool_call["function"]["arguments"] += returned_arguments
-                        self.think_response+=chatting_tool_call["function"]["arguments"]
+                        self.think_response += returned_arguments
                         self.think_response_signal.emit(request_id,self.think_response)
         if chatting_tool_call and chatting_tool_call["function"]["arguments"]:
             try:

@@ -2,18 +2,19 @@ import os,sys
 import subprocess,importlib.util
 
 
-def install_packages():
+def install_packages(package_map={}):
     # 统一包名和模块名的映射关系
-    package_map = {
-        "requests": "requests",
-        "openai": "openai",
-        "pyqt5": "PyQt5",  # 安装包名 vs 导入模块名
-        "beautifulsoup4": "bs4",
-        "lxml": "lxml",
-        "pygments": "pygments",
-        "markdown": "markdown",
-        "jsonfinder": "jsonfinder"
-    }
+    if not package_map:
+        package_map = {
+            "requests": "requests",
+            "openai": "openai",
+            "pyqt5": "PyQt5",  # 安装包名 vs 导入模块名
+            "beautifulsoup4": "bs4",
+            "lxml": "lxml",
+            "pygments": "pygments",
+            "markdown": "markdown",
+            "jsonfinder": "jsonfinder"
+        }
     
     # 检查是否有缺失包
     missing_packages = []

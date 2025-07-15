@@ -540,9 +540,7 @@ class MarkdownTextBrowser(ChatapiTextBrowser):
         self._is_streaming = is_streaming
         super().setMarkdown(text) # 调用父类的方法来处理文本
 
-        QTimer.singleShot(0, self.updateGeometry) # 使用 QTimer 确保在当前事件循环完成后执行
-
-
+        QTimer.singleShot(10, self.updateGeometry) # 使用 QTimer 确保在当前事件循环完成后执行
 
 class InfoPopup(QWidget):
     """用于显示消息详情信息的悬浮窗"""
@@ -745,6 +743,7 @@ class BubbleControlButtons(QFrame):
         self.edit_button.toggled.connect(self._on_edit_toggled)
         self.detail_button.toggled.connect(self._on_detail_toggled)
         self.info_button.clicked.connect(self.infoClicked.emit)
+        self.copy_button.clicked.connect(self._on_copy_clicked)
         
         # 默认状态
         self.detail_button.setVisible(False)
@@ -782,6 +781,58 @@ class BubbleControlButtons(QFrame):
     def _on_detail_toggled(self, checked):
         """详情按钮切换处理"""
         self.detailToggleClicked.emit(checked)
+
+    def _on_copy_clicked(self):
+        """处理复制按钮点击的动画"""
+
+        effect = QGraphicsOpacityEffect(self.copy_button)
+        effect.setOpacity(1.0)
+        self.copy_button.setGraphicsEffect(effect)
+        
+        self._copy_animation = QPropertyAnimation(effect, b"opacity")
+        self._copy_animation.setDuration(100)
+        self._copy_animation.setStartValue(1.0)
+        self._copy_animation.setEndValue(0.0)
+        self._copy_animation.finished.connect(self._change_button_to_yes)
+        self._copy_animation.start()
+ 
+    def _change_button_to_yes(self):
+        self.copy_button.setText("✅")
+        effect = QGraphicsOpacityEffect(self.copy_button)
+        effect.setOpacity(1.0)
+        self.copy_button.setGraphicsEffect(effect)
+        self._copy_animation = QPropertyAnimation(effect, b"opacity")
+        self._copy_animation.setDuration(150)
+        self._copy_animation.setStartValue(0.0)
+        self._copy_animation.setEndValue(1.0)
+        self._copy_animation.finished.connect(self._change_button_to_hide)
+        self._copy_animation.start()
+
+
+    def _change_button_to_hide(self):
+        effect = QGraphicsOpacityEffect(self.copy_button)
+        effect.setOpacity(1.0)
+        self.copy_button.setGraphicsEffect(effect)
+        self._copy_animation = QPropertyAnimation(effect, b"opacity")
+        self._copy_animation.setDuration(300)
+        self._copy_animation.setStartValue(1.0)
+        self._copy_animation.setEndValue(0.0)
+        self._copy_animation.finished.connect(self._restore_copy_button)
+        self._copy_animation.start()
+
+    def _restore_copy_button(self):
+        """恢复原始复制按钮状态"""
+        # 恢复原始图标和提示
+        self.copy_button.setText("📋")
+        self.copy_button.setToolTip("复制内容")
+        effect = QGraphicsOpacityEffect(self.copy_button)
+        effect.setOpacity(1.0)
+        self.copy_button.setGraphicsEffect(effect)
+        self._copy_animation = QPropertyAnimation(effect, b"opacity")
+        self._copy_animation.setDuration(100)
+        self._copy_animation.setStartValue(0.0)
+        self._copy_animation.setEndValue(1.0)
+        self._copy_animation.start()
 
 class ChatBubble(QWidget):
     """聊天气泡控件"""
@@ -1093,6 +1144,10 @@ class ChatHistoryWidget(QFrame):
             } 
         """)
         
+        self.scroll_timer = QTimer()
+        self.scroll_timer.setInterval(10)  # 10毫秒滚动一次,抖得够狠就等于没抖
+        self.scroll_timer.timeout.connect(self.scroll_to_bottom)
+        self.is_scroll_update_active = False
         self.init_ui()
         self.connect_signals()
 
@@ -1198,7 +1253,7 @@ class ChatHistoryWidget(QFrame):
         msg_id=history[-1]['info']['id']
         self.content_layout.update()
         
-        QTimer.singleShot(100, self.scroll_to_bottom)
+        QTimer.singleShot(300, self.scroll_to_bottom)
 
     def _reorder_bubbles(self, history):
         """
@@ -1306,7 +1361,7 @@ class ChatHistoryWidget(QFrame):
     def update_bubble(self,message='',msg_id=0, content='', reasoning_content='',info='',streaming='streaming'):
         #处理输入方式为message
         #输入方式为message，未初始化
-        QTimer.singleShot(100,self.scroll_to_bottom)
+
         if message and not message['id'] in self.bubbles:
             self.add_message(message)
             return
@@ -1389,6 +1444,21 @@ class ChatHistoryWidget(QFrame):
             scroll_bar = scroll_area.verticalScrollBar()
             scroll_bar.setValue(scroll_bar.maximum())
 
+    def streaming_scroll(self,run=True,scroll_time=10):
+        if self.scroll_timer.interval()!=scroll_time:
+            self.scroll_timer.stop()
+            self.scroll_timer.setInterval(scroll_time)
+            self.scroll_timer.start()
+
+        if run :
+            if self.is_scroll_update_active:
+                return
+            self.is_scroll_update_active=True
+            self.scroll_timer.start()
+        else:
+            self.is_scroll_update_active=False
+            self.scroll_timer.stop()
+        
 if __name__=='__main__':
     app = QApplication(sys.argv)
     window = ChatHistoryWidget()

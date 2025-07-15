@@ -51,92 +51,220 @@ class ChatHistoryTools:
             lines.append(f"{message['content']}")
         return '\n'.join(lines)
 
-class ChatHistoryTextView(QDialog):
-    """A dialog window for displaying full chat history."""
+class ChatHistoryTextView(QWidget):
+    """A dialog window for displaying full chat history with right-aligned controls."""
     
-    def __init__(self, parent, chat_history, user_name, ai_name):
-        """
-        Initialize the chat history window.
-        
-        Args:
-            parent: The parent widget
-            chat_history: List of chat messages
-            user_name: Name to display for user messages
-            ai_name: Name to display for AI messages
-        """
-        super().__init__(parent)
+    def __init__(self, chat_history, user_name, ai_name):
+        super().__init__()
         self.chat_history = chat_history
         self.user_name = user_name
         self.ai_name = ai_name
 
-        first_msg = chat_history[0]
-        
-        name_data = {}
-        if isinstance(first_msg, dict):
+        if chat_history and isinstance(chat_history[0], dict):
+            first_msg = chat_history[0]
             info = first_msg.get('info', {})
-            if isinstance(info, dict):
-                name_data = info.get('name', {})
-
-        if isinstance(name_data, dict):
-            for key, attr_name in [('user', 'user_name'), ('assistant', 'ai_name')]:
-                if key in name_data and name_data[key]:
-                    setattr(self, attr_name, name_data[key])
+            name_data = info.get('name', {}) if isinstance(info, dict) else {}
+            
+            if isinstance(name_data, dict):
+                if name_data.get('user'):
+                    self.user_name = name_data['user']
+                if name_data.get('assistant'):
+                    self.ai_name = name_data['assistant']
         
+        self.setWindowTitle("聊天历史-文本")
+        self.setMinimumSize(1280, 720)  # 增加最小宽度以适应右侧面板
         
-        self.setWindowTitle("Chat History")
-        self.setMinimumSize(650, 500)
+        # 显示选项默认值
+        self.show_reasoning = False
+        self.show_tools = True
+        self.show_metadata = False
+        self.use_markdown = True
         
         self._init_ui()
         self._load_chat_history()
-        
+    
     def _init_ui(self):
-        """Initialize the UI components."""
+        """初始化UI组件，控制面板在右侧"""
+        main_layout = QHBoxLayout()  # 使用水平布局
+        
+        # 创建文本浏览区域（左侧）
         self.text_browser = QTextBrowser()
         self.text_browser.setOpenExternalLinks(True)
+        main_layout.addWidget(self.text_browser, 3)  # 文本区域占3/4宽度
         
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(8, 8, 8, 8)
-        layout.addWidget(self.text_browser)
+        # 创建右侧面板布局
+        controls_layout = QVBoxLayout()
+        controls_layout.setAlignment(Qt.AlignTop)
+        
+        # 添加"显示选项"分组框（右侧）
+        options_group = QGroupBox("显示选项")
+        options_layout = QVBoxLayout()
+        
+        # 添加思考链选项
+        reasoning_group = QGroupBox("思考链")
+        reasoning_layout = QVBoxLayout()
+        self.reasoning_cb = QCheckBox("显示思考链")
+        self.reasoning_cb.stateChanged.connect(self._toggle_reasoning)
+        reasoning_layout.addWidget(self.reasoning_cb)
+        reasoning_group.setLayout(reasoning_layout)
+        options_layout.addWidget(reasoning_group)
+        
+        # 添加工具调用选项
+        tools_group = QGroupBox("工具调用")
+        tools_layout = QVBoxLayout()
+        self.tools_cb = QCheckBox("显示工具调用")
+        self.tools_cb.setChecked(True)
+        self.tools_cb.stateChanged.connect(self._toggle_tools)
+        tools_layout.addWidget(self.tools_cb)
+        tools_group.setLayout(tools_layout)
+        options_layout.addWidget(tools_group)
+        
+        # 添加元数据显示选项
+        metadata_group = QGroupBox("元数据")
+        metadata_layout = QVBoxLayout()
+        self.metadata_cb = QCheckBox("显示消息元数据")
+        self.metadata_cb.stateChanged.connect(self._toggle_metadata)
+        metadata_layout.addWidget(self.metadata_cb)
+        metadata_group.setLayout(metadata_layout)
+        options_layout.addWidget(metadata_group)
+        
+        # 添加格式选项（右下角）
+        format_group = QGroupBox("显示格式")
+        format_layout = QVBoxLayout()
+        
+        self.markdown_rb = QRadioButton("Markdown格式")
+        self.markdown_rb.setChecked(True)
+        self.markdown_rb.toggled.connect(self._toggle_format)
+        
+        self.plaintext_rb = QRadioButton("纯文本格式")
+        self.plaintext_rb.toggled.connect(self._toggle_format)
+        
+        format_layout.addWidget(self.markdown_rb)
+        format_layout.addWidget(self.plaintext_rb)
+        format_group.setLayout(format_layout)
+        options_layout.addWidget(format_group)
+        
+        # 添加重载按钮
+        reload_btn = QPushButton("刷新视图")
+        reload_btn.clicked.connect(self._load_chat_history)
+        options_layout.addWidget(reload_btn)
+        
+        # 添加间距
+        options_layout.addSpacing(20)
+
+        options_group.setLayout(options_layout)
+        controls_layout.addWidget(options_group)
+        
+        # 创建右侧容器
+        controls_container = QWidget()
+        controls_container.setLayout(controls_layout)
+        
+        main_layout.addWidget(controls_container, 1)  # 右侧面板占1/4宽度
+        
+        self.setLayout(main_layout)
+    
+    # 其他方法保持不变（以下方法与前一个版本相同）...
+    def _toggle_reasoning(self, state):
+        self.show_reasoning = (state == Qt.Checked)
+        self._load_chat_history()
+    
+    def _toggle_tools(self, state):
+        self.show_tools = (state == Qt.Checked)
+        self._load_chat_history()
+    
+    def _toggle_metadata(self, state):
+        self.show_metadata = (state == Qt.Checked)
+        self._load_chat_history()
+    
+    def _toggle_format(self):
+        self.use_markdown = self.markdown_rb.isChecked()
+        self._load_chat_history()
     
     def _load_chat_history(self):
-        """Load and format the chat history into the text browser."""
+        """根据选项加载和格式化聊天历史"""
         buffer = []
-        append = buffer.append  # Local variable for faster access
         
         for index, msg in enumerate(self.chat_history):
-            name = self._get_sender_name(msg['role'])
-            append(f'\n\n### {name}\n')  # 标题格式突出显示
-            if 'reasoning_content' in msg and msg['reasoning_content']:
-                think=msg['reasoning_content'].replace('### AI 思考链\n---','')
-                append(f"\n```  \n Think: {think}  \n  ```  \n---  \n  ")
-
-            if 'content' in msg and msg['content']:
-                append(f"{msg['content']}\n")
-
-            # 添加分隔线（非最后一条消息）
+            # 获取发送者名称
+            role = msg.get('role', '')
+            name = self._get_sender_name(role)
+            
+            # 过滤工具调用消息（如果不显示）
+            if role == 'tool' and not self.show_tools:
+                continue
+                
+            # 添加消息头部标识
+            if self.use_markdown:
+                buffer.append(f"\n\n**{name}**")
+            else:
+                buffer.append(f"\n\n{name}")
+            
+            # 添加思考链（如果存在且需要显示）
+            if self.show_reasoning and 'reasoning_content' in msg:
+                reasoning_content = msg['reasoning_content'].replace('### AI 思考链\n---', '').strip()
+                if reasoning_content:
+                    if self.use_markdown:
+                        buffer.append(f"\n```  \n Think: {reasoning_content}  \n  ```  \n---  \n  ")
+                    else:
+                        buffer.append(f"\n```  \n Think: {reasoning_content}  \n  ```  \n---  \n  ")
+            
+            # 添加消息内容
+            content = msg.get('content', '')
+            if content:
+                buffer.append(f"\n\n{content}")
+            
+            # 添加元数据（如果存在且需要显示）
+            if self.show_metadata and 'info' in msg:
+                info = msg['info']
+                if info:
+                    if self.use_markdown:
+                        buffer.append("\n\n<small>")
+                        buffer.append("\n \n ")
+                        if msg['role'] == 'system':
+                            buffer.append("系统提示设置")
+                        else:
+                            parts = []
+                            if info.get('model'):
+                                parts.append(f"模型: {info['model']}")
+                            if info.get('time'):
+                                parts.append(f"时间: {info['time']}")
+                            if info.get('id'):
+                                parts.append(f"ID: {info['id']}")
+                            buffer.append(" | ".join(parts))
+                        buffer.append("</small>")
+                    else:
+                        buffer.append("\n[元数据]")
+                        if msg['role'] == 'system':
+                            buffer.append("系统提示设置")
+                        else:
+                            if info.get('model'):
+                                buffer.append(f"  模型: {info['model']}")
+                            if info.get('time'):
+                                buffer.append(f"  时间: {info['time']}")
+                            if info.get('id'):
+                                buffer.append(f"  消息ID: {info['id']}")
+            
+            # 添加消息分隔线（不是最后一条消息）
             if index < len(self.chat_history) - 1:
-                append('\n---')
-
-        self.text_browser.setMarkdown('\n'.join(buffer))
+                buffer.append("\n" + ("---" if self.use_markdown else "─"*10))
+        
+        # 根据格式设置文本
+        full_text = '\n'.join(buffer).strip()
+        if self.use_markdown:
+            self.text_browser.setMarkdown(full_text)
+        else:
+            self.text_browser.setPlainText(full_text)
     
     def _get_sender_name(self, role):
-        """Get the display name for the given message role.
-        
-        Args:
-            role: The role of the message sender ('system', 'user', or 'assistant')
-            
-        Returns:
-            str: The display name for the sender
-        """
         if role == 'system':
-            return 'system'
+            return '系统提示'
         elif role == 'user':
             return self.user_name
         elif role == 'assistant':
             return self.ai_name
         elif role == 'tool':
-            return self.ai_name+' called tool:'
-        return role  # fallback for unknown roles
+            return f"{self.ai_name} called tool"
+        return role
 
 class ChatHistoryEditor(QDialog):
     # 定义编辑完成的信号，传递新的聊天历史
@@ -220,7 +348,6 @@ class ChatHistoryEditor(QDialog):
         """显示替换内容对话框"""
         dialog = QDialog(self)
         dialog.setWindowTitle("替换内容")
-        dialog.setFixedSize(300, 150)
         
         layout = QVBoxLayout(dialog)
         

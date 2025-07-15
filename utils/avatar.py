@@ -6,7 +6,7 @@ import os,json
 from jsonfinder import jsonfinder
 import copy
 
-if __name__=='__main__':#waiting 0.25.2 patch 
+if __name__=='__main__':
     from chat_history_manager import ChatHistoryTools
     from tools.one_shot_api_request import APIRequestHandler
     from text_to_image.image_agents import ImageAgent

@@ -4,8 +4,9 @@ from PyQt5.QtCore import *
 from PyQt5.QtWidgets import *
 from PyQt5.QtGui import *
 import threading
+from utils.tools.init_functions import install_packages
 
-class TTSClient(QObject):
+class CosyVoiceTTSClient(QObject):
     """
     PyQt5兼容的TTS服务客户端类，提供信号反馈
     """
@@ -78,12 +79,12 @@ class TTSClient(QObject):
         """动态更新服务器地址"""
         self.server_url = new_url
 
-class TTSWindow(QWidget):
+class CosyVoiceTTSWindow(QWidget):
     def __init__(self):
         super().__init__()
         # 初始化客户端
-        self.setWindowTitle("TTS设置/测试")
-        self.tts_client = TTSClient()
+        self.setWindowTitle("CosyVoice TTS设置/测试")
+        self.tts_client = CosyVoiceTTSClient()
 
 
         # 连接信号
@@ -205,16 +206,18 @@ class TTSWindow(QWidget):
             "批处理文件 (*.bat);;所有文件 (*)"
         )
         if bat_file_path:
-            try:
+            try: 
                 os.startfile(bat_file_path)
                 QMessageBox.information(self, "提示", "已尝试启动TTS服务，请稍后再试连接")
             except Exception as e:
                 QMessageBox.critical(self, "错误", f"无法启动TTS服务：{str(e)}")
 
-    
-        
+
 #if __name__ == "__main__":
 #    app = QApplication(sys.argv)
 #    window = TTSWindow()
 #    window.show()
 #    sys.exit(app.exec_())
+def run():
+    install_packages({'edge-tts':'edge_tts'})
+    'run'

@@ -60,7 +60,7 @@ except ImportError:
     print("GptToCad模块导入失败，CAD功能不可用。")
 
 try:
-    from mods.chatapi_tts import TTSWindow
+    from mods.chatapi_tts import CosyVoiceTTSWindow
 except ImportError as e:
     print("本地tts模块导入失败，TTS功能不可用。",e)
 
@@ -1502,7 +1502,7 @@ class TTSHandler:
     def __init__(self):
         self.enable_tts=False
         if "mods.chatapi_tts" in sys.modules:
-            self.tts_window = TTSWindow()
+            self.tts_window = CosyVoiceTTSWindow()
             self.tts_window_enabled=True
         else:
             self.tts_window = None
@@ -1580,6 +1580,11 @@ class ModConfiger(QTabWidget):
         status_monitor_layout.addWidget(self.start_status_monitor_button, 2, 1, 1, 1)
         #挂载MOD设置
         status_monitor_layout.addWidget(StatusMonitorInstruction.mod_configer())
+
+        status_monitor_layout.setRowStretch(0,0)
+        status_monitor_layout.setRowStretch(1,0)
+        status_monitor_layout.setRowStretch(2,0)
+        status_monitor_layout.setRowStretch(3,1)
 
     def add_story_creator(self):
         self.story_creator_manager=QWidget()
@@ -2483,14 +2488,14 @@ class MainWindow(QMainWindow):
 
     #超长文本显示优化
     def display_full_chat_history_window(self):
-        history_text_view = ChatHistoryTextView(
-        self, 
+        self.history_text_view = ChatHistoryTextView(
         self.chathistory, 
         self.name_user, 
         self.name_ai
     )
         
-        history_text_view.exec_()
+        self.history_text_view.show()
+        self.history_text_view.raise_()
 
     #更新聊天记录框，会清除用户和AI的输入框
     def update_chat_history(self, clear=True, new_msg=None,msg_id=''):
@@ -2514,11 +2519,13 @@ class MainWindow(QMainWindow):
             role_user=self.name_user
 
         if not new_msg:
+            self.chat_history_bubbles.streaming_scroll(False)
             self.chat_history_bubbles.set_role_nickname('assistant', role_ai)
             self.chat_history_bubbles.set_role_nickname('user', role_user)
             self.chat_history_bubbles.set_chat_history(self.chathistory)
 
         else:
+            self.chat_history_bubbles.streaming_scroll(True)
             self.chat_history_bubbles.update_bubble(msg_id=msg_id,content=self.full_response,streaming='streaming')
 
         # 条件保存（仅在内容变化时）
@@ -2696,7 +2703,7 @@ class MainWindow(QMainWindow):
         #    self.return_message = f"Error in sending request: {e}"
         #    self.update_response_signal.emit(100000,self.return_message)
 
-    def send_request(self, params):
+    def send_request(self, params):# 0.25.4 等待重构
         """发送请求并处理流式响应"""
         # 处理常规响应内容
         def handle_response(content,temp_response):
@@ -2768,6 +2775,28 @@ class MainWindow(QMainWindow):
                 'time':time.strftime("%Y-%m-%d %H:%M:%S")
             }
             return self.last_chat_info
+        def update_info_none_stream(response):
+            try:
+                if response.usage:
+                    # 递归转换所有嵌套结构
+                    usage_dict = to_serializable(response.usage)
+                    if isinstance(usage_dict, dict):
+                        pass
+                    else:
+                        # 如果转换后不是字典（如某些API返回的列表结构）
+                        usage_dict = {'usage_data': usage_dict}
+                else:
+                    usage_dict = {}
+                
+                self.last_chat_info = {
+                    **usage_dict,
+                    "model": response.model,
+                    "id":request_id,
+                    'time':time.strftime("%Y-%m-%d %H:%M:%S")
+                }
+                return self.last_chat_info
+            except:
+                return {}
 
         StrTools.debug_chathistory(params['messages'])
         request_id=random.randint(100000,999999)
@@ -2777,8 +2806,6 @@ class MainWindow(QMainWindow):
             api_key=self.api[api_provider][1],
             base_url=self.api[api_provider][0]
         )
-
-        print('AI回复(流式):')
         self.response = client.chat.completions.create(**params)
         self.full_response = ""
         self.think_response = "### AI 思考链\n---\n"
@@ -2789,6 +2816,10 @@ class MainWindow(QMainWindow):
             content= self.response.choices[0].message
             temp_response += content.content
             handle_response(content,temp_response)
+            update_info_none_stream(self.response)
+            print(f'\n返回长度：{len(self.full_response)}\n思考链长度: {len(self.think_response)}')
+            self.update_response_signal.emit(request_id,self.full_response)
+            return
         except Exception as e:
             print('已进入流式状态')
 

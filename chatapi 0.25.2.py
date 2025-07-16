@@ -1807,10 +1807,10 @@ class MainWindow(QMainWindow):
 
         self.pause_button = QPushButton("暂停")
         self.pause_button.clicked.connect(lambda: 
-                                          (setattr(self, 
-                                                   'pause_flag', not self.pause_flag), 
+                                          (setattr(self, 'pause_flag', not self.pause_flag), 
                                             self.send_button.setEnabled(True))[1]
                                         )
+        self.pause_button.clicked.connect(lambda _:self.chat_history_bubbles.streaming_scroll(False))
 
 
         self.clear_button = QPushButton("清空")
@@ -2631,6 +2631,7 @@ class MainWindow(QMainWindow):
             self.think_text_box.verticalScrollBar().maximum()
         )
         #0.25.1 气泡思考栏
+        self.chat_history_bubbles.streaming_scroll(True)
         self.chat_history_bubbles.update_bubble(msg_id=request_id,reasoning_content=self.think_response,streaming='streaming')
         
         # 更新时间戳
@@ -3347,7 +3348,7 @@ class MainWindow(QMainWindow):
         if self.chathistory[-1]["role"]=="user":
             self.user_input_text.setText(self.chathistory[-1]["content"])
             self.chathistory.pop()
-        elif self.chathistory[-1]["role"]=="assistant":
+        elif self.chathistory[-1]["role"]=="assistant" or self.chathistory[-1]["role"]=="tool":#处理工具调用时被用户截断
             while self.chathistory[-1]["role"]!="user":
                 self.chathistory.pop()
             self.user_input_text.setText(self.chathistory[-1]["content"])

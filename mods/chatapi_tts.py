@@ -1,5 +1,6 @@
 #chatapi_tts.py
 import requests,os,sys,re
+from collections import Counter
 from PyQt5.QtCore import *
 from PyQt5.QtWidgets import *
 from PyQt5.QtGui import *
@@ -50,13 +51,11 @@ class CosyVoiceTTSClient(QObject):
     def extract_dialogue(self,text):
         # 正则表达式模式匹配中文和英文的引号内容（包括单引号）
         # 使用非贪婪匹配，支持跨行内容
-        try:
-            re
-        except NameError:
-            import re
         pattern = r'[“"‘\'](.*?)[”"’\']'
         dialogues = re.findall(pattern, text, flags=re.DOTALL)
-        return ''.join([d.strip() for d in dialogues if d.strip()])
+        result= ''.join([d.strip() for d in dialogues if d.strip()])
+        return result if result else text
+    
 
     def send_request(self, text, prompt=None, function_type="zero-shot", audio='2342.wav',extract_dialogue=False):
         """
@@ -109,11 +108,12 @@ class CosyVoiceTTSClient(QObject):
         self.server_url = new_url
 
 class CosyVoiceTTSWindow(QWidget):
-    def __init__(self):
+    def __init__(self,_=''):
         super().__init__()
         # 初始化客户端
         self.setWindowTitle("CosyVoice TTS设置/测试")
         self.tts_client = CosyVoiceTTSClient()
+        self.enable_dialog_extract=True
 
 
         # 连接信号
@@ -150,6 +150,7 @@ class CosyVoiceTTSWindow(QWidget):
         self.main_layout.addWidget(self.send_request)
 
         self.extract_dialogue_checkbox = QCheckBox("尝试提取对话内容")
+        self.extract_dialogue_checkbox.clicked.connect(lambda state:setattr(self,'enable_dialog_extract',state))
         self.main_layout.addWidget(self.extract_dialogue_checkbox)
 
         self.check_tts_server_button = QPushButton("检查TTS服务")
@@ -175,13 +176,13 @@ class CosyVoiceTTSWindow(QWidget):
         """UI 按钮点击触发的槽函数"""
         self.send_tts_request()  # 不传参数，内部会从输入框读取
 
-    def send_tts_request(self,text=None):
+    def send_tts_request(self,text=None,name=''):
         # 从UI控件获取参数
         if text is None:
             text = self.send_text.text()
         prompt=self.prompt_text.text()
         audio=self.audio_path.text()
-        extract_dialogue = self.extract_dialogue_checkbox.isChecked()
+        extract_dialogue = self.enable_dialog_extract
         
         # 发起请求
         # 使用threading创建新线程
@@ -244,6 +245,7 @@ class CosyVoiceTTSWindow(QWidget):
 class EdgeTTSSelectionDialog(QWidget):
     preview_requested = pyqtSignal(dict)  # 发送试听请求信号
     voice_selected = pyqtSignal(str, dict,int)  # 发送角色名称和语音配置
+    closeing=pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -551,29 +553,25 @@ class EdgeTTSSelectionDialog(QWidget):
         super().showEvent(event)
         
         # 获取当前尺寸和最终尺寸
-        current_size = self.size()
         target_height = int(self.sizeHint().height() * 1.4)
         target_width = int(self.sizeHint().width() * 3)
         target_size = QSize(target_width, target_height)
+        self.resize(target_size)
+        screen = QApplication.primaryScreen().availableGeometry()
         
-        # 如果是首次显示，从最小尺寸开始动画
-        if current_size.isEmpty() or current_size == QSize(1, 1):
-            start_size = QSize(1, 1)
-            self.resize(start_size)
-            
-            # 启动动画
-            WindowAnimator.animate_resize(
-                self, 
-                start_size=start_size,
-                end_size=target_size,
-                duration=100
-            )
-        else:
-            # 非首次显示直接设置最终尺寸
-            self.setFixedSize(target_size)
+        # 获得窗口实际尺寸
+        size = self.size()
+        
+        # 计算居中位置
+        x = (screen.width() - size.width()) // 2
+        y = (screen.height() - size.height()) // 2
+        
+        # 移动窗口
+        self.move(x, y)     
 
     def close(self):
         # 如果已经处于关闭动画中，则忽略
+        self.closeing.emit()
         if hasattr(self, '_closing') and self._closing:
             return
         self._closing = True
@@ -885,6 +883,7 @@ class EdgeTTSMainSettingWindow(QWidget):
     def __init__(self):
         super().__init__()
         self.setup_ui()
+        self.setup_animations()
 
     def setup_ui(self):
         # 设置窗口大小和标题
@@ -945,25 +944,58 @@ class EdgeTTSMainSettingWindow(QWidget):
         self.enable_extract_button=QCheckBox('启用对话提取')
         self.grid_layout.addWidget(self.enable_extract_button,2,1)
 
+        self.hide_mask=QPushButton()
+        self.hide_mask.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.hide_mask.setStyleSheet("""
+        QPushButton {
+            background:rgba(0,0,0,0.7);
+            border: none;
+        }""")  
+
+        self.grid_layout.addWidget(self.hide_mask,0,0,3,4)
+        self.hide_mask.hide()
+
         # 设置布局
         self.setLayout(self.grid_layout)
 
-class EdgeTTSMainSettingMini(QGroupBox):
-    def __init__(self,title='',parent=None):
-        super().__init__(title=title)
-        widget_layout=QGridLayout()
-        self.parent_wiget=parent
-        self.setLayout(widget_layout)
+    def setup_animations(self):
+        # 创建透明度效果
+        self.mask_opacity = QGraphicsOpacityEffect(self.hide_mask)
+        self.mask_opacity.setOpacity(0.0)  # 初始完全透明
+        self.hide_mask.setGraphicsEffect(self.mask_opacity)
+        self.hide_mask.setHidden(True)  # 初始隐藏
+        
+        # 淡入动画
+        self.fade_in = QPropertyAnimation(self.mask_opacity, b"opacity")
+        self.fade_in.setDuration(150)  # 300毫秒动画
+        self.fade_in.setStartValue(0.0)
+        self.fade_in.setEndValue(0.7)  # 70%不透明
+        self.fade_in.setEasingCurve(QEasingCurve.OutQuad)
+        
+        # 淡出动画
+        self.fade_out = QPropertyAnimation(self.mask_opacity, b"opacity")
+        self.fade_out.setDuration(50)  # 200毫秒动画
+        self.fade_out.setStartValue(0.7)
+        self.fade_out.setEndValue(0.0)
+        self.fade_out.setEasingCurve(QEasingCurve.InQuad)
+        
+        # 连接按钮信号
+        self.add_button.clicked.connect(self.show_mask_animation)
+        self.hide_mask.clicked.connect(self.hide_mask_animation)
+        
+        # 动画结束时隐藏控件
+        self.fade_out.finished.connect(lambda: self.hide_mask.setHidden(True))
 
-        self.use_extract=QCheckBox('启用对话提取')
-        self.use_extract.clicked.connect(lambda state: setattr(self.parent_wiget,'enable_dialog_extract',state))
-        widget_layout.addWidget(self.use_extract,0,0,1,1)
-
-        self.show_mainsetting=QPushButton('打开主设置')
-        self.show_mainsetting.clicked.connect(
-            lambda _: parent.show() if self.parent_wiget else None
-            )
-        widget_layout.addWidget(self.show_mainsetting)
+    def show_mask_animation(self):
+        """显示遮罩并执行淡入动画"""
+        # 确保遮罩在最顶层
+        self.hide_mask.raise_()
+        self.hide_mask.setHidden(False)  # 先显示再动画
+        self.fade_in.start()
+        
+    def hide_mask_animation(self):
+        """执行淡出动画"""
+        self.fade_out.start()
 
 class EdgeTTSMainSetting(EdgeTTSMainSettingWindow):
     def __init__(self,application_path=''):
@@ -977,7 +1009,6 @@ class EdgeTTSMainSetting(EdgeTTSMainSettingWindow):
         self.setup_ui_connection()
         self.load_binding_from_json()
      
-    
     def setup_tts_handler(self):
         self.tts_handler=EdgeTTSHandler()
         self.tts_handler.tts_finished.connect(self.player.add_play_task)
@@ -997,13 +1028,17 @@ class EdgeTTSMainSetting(EdgeTTSMainSettingWindow):
         self.add_button.setEnabled(True)
 
     def _handle_add_button_click(self):
+        self.show_mask_animation()
         self.voice_choice_window=EdgeTTSSelectionDialog()
         self.voice_choice_window.preview_requested.connect(self._shoot_tts_request)
         self.voice_choice_window.set_voice_data(self.voice_library)
         self.voice_choice_window.voice_selected.connect(self.add_voice_binding)
+        self.voice_choice_window.closeing.connect(self.hide_mask_animation)
+        self.hide_mask.clicked.connect(self.voice_choice_window.close)
         self.voice_choice_window.show()
  
     def add_voice_binding(self,name,voice_info,binding_id=0):
+        
         voice=voice_info['ShortName']
         if not binding_id:
             binding_id= random.randint(100000, 999999)
@@ -1055,11 +1090,14 @@ class EdgeTTSMainSetting(EdgeTTSMainSettingWindow):
         self.save_binding_to_json()
     
     def _handle_voice_change(self,binding_id):
+        self.show_mask_animation()
         self.voice_change_window=EdgeTTSSelectionDialog()
         self.voice_change_window.set_voice_data(self.voice_library)
         self.voice_change_window.voice_id=binding_id
         self.voice_change_window.name_edit.setText(self.voice_binding[binding_id]['name'])
         self.voice_change_window.voice_selected.connect(self.change_voice_binding)
+        self.voice_change_window.closeing.connect(self.hide_mask_animation)
+        self.hide_mask.clicked.connect(self.voice_change_window.close)
         self.voice_change_window.show()
 
     def change_voice_binding(self,name,voice_info,binding_id=None):
@@ -1079,18 +1117,17 @@ class EdgeTTSMainSetting(EdgeTTSMainSettingWindow):
         output_file=os.path.join(self.save_path,result_id+' '+voice+'.mp3')
         self.tts_handler.run_tts(text=content,voice=voice,output_file=output_file)
 
-    def handle_tts(self,name,message):
+    def send_tts_request(self,name,text):
         voice_type=''
         for bind_id,item in self.voice_binding.items():
             if name==item['name']:
                 voice_type=item['voice_id']
-                print('voice_type found',voice_type)
         if not voice_type and self.voice_binding:
             print('not found,using default')
             voice_type=self.voice_binding[self.voice_binding.keys()[0]]['voice_id']
         if self.enable_dialog_extract:
-            message=self.extract_dialogue(message)
-        self._shoot_tts_request(voice_type=voice_type,content=message)
+            text=self.extract_dialogue(text)
+        self._shoot_tts_request(voice_type=voice_type,content=text)
 
     def save_binding_to_json(self):
         """
@@ -1114,7 +1151,6 @@ class EdgeTTSMainSetting(EdgeTTSMainSettingWindow):
         try:
             with open(config_file, 'w', encoding='utf-8') as f:
                 json.dump(binding_data, f, indent=4, ensure_ascii=False)
-            print(f"音色绑定配置已保存至: {config_file}")
     
         except Exception as e:
             print(f"保存配置失败: {str(e)}")
@@ -1159,7 +1195,6 @@ class EdgeTTSMainSetting(EdgeTTSMainSettingWindow):
                     binding_id=binding_id  # 使用原有ID而非生成新ID
                 )
             
-            print(f"成功加载音色绑定配置: {config_file}")
             return True
             
         except Exception as e:
@@ -1171,18 +1206,128 @@ class EdgeTTSMainSetting(EdgeTTSMainSettingWindow):
         # 使用非贪婪匹配，支持跨行内容
         pattern = r'[“"‘\'](.*?)[”"’\']'
         dialogues = re.findall(pattern, text, flags=re.DOTALL)
-        return ''.join([d.strip() for d in dialogues if d.strip()])
+        result= ''.join([d.strip() for d in dialogues if d.strip()])
+        return result if result else text
     
     def show(self):
         if not self.fetched_mark:
             self.tts_handler.fetch_all_voices()
             self.fetched_mark=True
-        return super().show()
+        self.raise_()
+        super().show()
+        return
+
+
+class TTSMainSettingMini(QGroupBox):
+    def __init__(self,title='快速设置',parent=None):
+        super().__init__(title=title)
+        widget_layout=QGridLayout()
+        self.parent_wiget=parent
+        self.setLayout(widget_layout)
+
+        self.use_extract=QCheckBox('启用对话提取')
+        self.use_extract.clicked.connect(lambda state: setattr(self.parent_wiget,'enable_dialog_extract',state))
+        widget_layout.addWidget(self.use_extract,0,0,1,1)
+
+        self.show_mainsetting=QPushButton('打开主设置')
+        self.show_mainsetting.clicked.connect(
+            lambda _: parent.show() if self.parent_wiget else None
+            )
+        widget_layout.addWidget(self.show_mainsetting,1,0,1,1)
+
+class TTSAgent(QGroupBox):
+    tts_state=pyqtSignal(bool,str)
+    def __init__(self,application_path=''):
+        super().__init__()
+        self.function_dict={
+            'Edge-tts':EdgeTTSMainSetting,
+            'CosyVoice':CosyVoiceTTSWindow
+        }
+        self.tts_enabled=False
+        self.application_path=application_path
+        self.agent_layout=QGridLayout()
+        self.setLayout(self.agent_layout)
+
+        self.generator_selector=QComboBox()
+        self.generator_selector.addItems(['不使用TTS']+list(self.function_dict.keys()))
+        self.agent_layout.addWidget(self.generator_selector,0,0,1,1)
+
+        self.current_generator = self.generator_selector.currentText()
+
+        self.generator_selector.currentTextChanged.connect(self.confirm_generator_change)
+
+        self.message_holder=[]
+    
+    def confirm_generator_change(self, name):
+        if not name in self.function_dict:
+            self.tts_enabled=False
+            self.tts_state.emit(self.tts_enabled,'')
+        if not hasattr(self, 'generator'):
+            self.set_generator(name)
+            self.current_generator = name
+            return
+            
+        # 与当前生成器相同时不处理
+        if name == self.current_generator:
+            return
+            
+        reply = QMessageBox.question(
+            self,
+            '生成器更换',
+            f'生成器将被更换为{name}，旧任务将被抛弃，要继续吗？',
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+        
+        if reply == QMessageBox.Yes:
+            self.set_generator(name)
+            self.current_generator = name
+            self.tts_enabled=True
+            self.tts_state.emit(self.tts_enabled,name)
+        else:
+            # 还原到更改前的选项
+            self.generator_selector.blockSignals(True)  # 临时阻塞信号
+            self.generator_selector.setCurrentText(self.current_generator)
+            self.generator_selector.blockSignals(False)  # 恢复信号连接
+
+
+    def set_generator(self, name):
+        if not name in self.function_dict:
+            self.generator=None
+            self.mini_setting.deleteLater()
+            return
+        self.generator=self.function_dict[name](self.application_path)
+        self.mini_setting=TTSMainSettingMini(parent=self.generator)
+        self.agent_layout.addWidget(self.mini_setting,0,1,1,1)
+
+    def send_tts_request(self,name,text):
+        if not self.tts_enabled:
+            return
+        self.generator.send_tts_request(name=name,text=text)
+
+    def show_setting(self):
+        self.generator.show()
+    
+    def get_mini_setting_window(self):
+        return getattr(self,'mini_setting',QLabel('尚未初始化'))
+    
+    def patch_chatapi_full_response(self,message=''):
+        def list_subtract_count(a, b):
+            count_b = Counter(b)
+            result = []
+            for x in a:
+                if count_b.get(x, 0) > 0:
+                    count_b[x] -= 1  # 减少计数
+                else:
+                    result.append(x)  # 保留元素
+            return result
+        result = [s for s in re.split(r'[。.]', message) if s]
+
 
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
-    window = EdgeTTSMainSetting()
+    window = TTSAgent()
     window.show()
     sys.exit(app.exec_())
 

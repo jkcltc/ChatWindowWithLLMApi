@@ -60,7 +60,7 @@ except ImportError:
     print("GptToCad模块导入失败，CAD功能不可用。")
 
 try:
-    from mods.chatapi_tts import CosyVoiceTTSWindow
+    from mods.chatapi_tts import CosyVoiceTTSWindow,TTSAgent
 except ImportError as e:
     print("本地tts模块导入失败，TTS功能不可用。",e)
 
@@ -1497,33 +1497,6 @@ class MessagePreprocessor:
                 params['tools'] = function_definitions
         return params
 
-#tts处理器
-class TTSHandler:
-    def __init__(self):
-        self.enable_tts=False
-        if "mods.chatapi_tts" in sys.modules:
-            self.tts_window = CosyVoiceTTSWindow()
-            self.tts_window_enabled=True
-        else:
-            self.tts_window = None
-            self.tts_window_enabled=False
-    
-    def engage_chat_to_speech(self,income_message):
-        print('[Info] TTS Handler engaged')
-        # 前置条件检查
-        if not self.tts_window or not hasattr(self.tts_window, "send_tts_request"):
-            print("[Warn] TTS window not available or missing required method")
-            return
-        # 带异常处理的TTS请求
-        try:
-            self.tts_window.send_tts_request(income_message)
-        except ConnectionError:
-            print("[Error] TTS service unavailable")
-        except ValueError as e:
-            print(f"[Error] Invalid TTS request: {str(e)}")
-        except Exception as e:
-            print(f"[Critical] Unexpected TTS error: {str(e)}")
-
 #mod管理器
 class ModConfiger(QTabWidget):
     def __init__(self):
@@ -1646,7 +1619,6 @@ class MainWindow(QMainWindow):
         self.tokenpers=CharSpeedAnalyzer()
         self.repeat_processor=RepeatProcessor(self)
         self.ordered_model=RandomModelSelecter()
-        self.tts_handler=TTSHandler()
 
         screen_geometry = QApplication.primaryScreen().availableGeometry()
         
@@ -2227,16 +2199,8 @@ class MainWindow(QMainWindow):
     def add_tts_page(self):
         if not "mods.chatapi_tts" in sys.modules:
             return
-        tts_page = QWidget()
-        tts_page_layout = QGridLayout(tts_page)
-        enable_tts_button=QCheckBox("启用语音合成")
-        enable_tts_button.setChecked(self.tts_handler.enable_tts)
-        enable_tts_button.toggled.connect(lambda checked: setattr(self.tts_handler, 'enable_tts', checked))
-        tts_setting_button=QPushButton("语音合成设置")
-        tts_setting_button.clicked.connect(self.tts_handler.tts_window.show)
-        tts_page_layout.addWidget(enable_tts_button,0,0,1,1)
-        tts_page_layout.addWidget(tts_setting_button,0,1,1,1)
-        self.stat_tab_widget.addTab(tts_page, "自动播放")
+        self.tts_handler=TTSAgent(application_path=self.application_path)
+        self.stat_tab_widget.addTab(self.tts_handler, "语音生成")
 
     def show_mod_configer(self):
         self.mod_configer.show()
@@ -2668,9 +2632,7 @@ class MainWindow(QMainWindow):
             if getattr(self,'thinked'):
                 last_message['reasoning_content']=self.think_response
             self.chathistory.append(last_message)
-            #触发tts
-            if self.tts_handler.enable_tts:
-                self.tts_handler.engage_chat_to_speech(content)
+
             # 发出信号，通知主线程更新界面
             responce_text=StrTools.combined_remove_var_vast_replace(self)
             self.ai_response_text.setMarkdown(responce_text)
@@ -2697,12 +2659,11 @@ class MainWindow(QMainWindow):
             return
 
         # 发送请求并处理响应
-        #try:
-        if True:
+        try:
             self.send_request(params)
-        #except Exception as e:
-        #    self.return_message = f"Error in sending request: {e}"
-        #    self.update_response_signal.emit(100000,self.return_message)
+        except Exception as e:
+            self.return_message = f"Error in sending request: {e}"
+            self.update_response_signal.emit(100000,self.return_message)
 
     def send_request(self, params):# 0.25.4 等待重构
         """发送请求并处理流式响应"""
@@ -2894,6 +2855,7 @@ class MainWindow(QMainWindow):
                 message, params = preprocessor.prepare_message(tools=True)
                 StrTools.debug_chathistory(message)
                 self.send_request(params)
+                self.update_chat_history()
                 return
                 
             except json.JSONDecodeError:

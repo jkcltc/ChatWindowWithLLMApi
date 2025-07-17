@@ -1,16 +1,37 @@
 #chatapi_tts.py
-import requests,os,sys,tempfile
+import requests,os,sys,re
 from PyQt5.QtCore import *
 from PyQt5.QtWidgets import *
 from PyQt5.QtGui import *
 from PyQt5.QtMultimedia import QMediaPlayer, QMediaContent
 import threading
 import asyncio
-import uuid
+import random
 import json
-from utils.tools.init_functions import install_packages
-from utils.custom_widget import WindowAnimator
-install_packages({'edge-tts':'edge_tts'})
+
+class WindowAnimator:
+    @staticmethod
+    def animate_resize(window: QWidget, 
+                      start_size: QSize, 
+                      end_size: QSize, 
+                      duration: int = 300):
+        """
+        窗口尺寸平滑过渡动画
+        :param window: 要应用动画的窗口对象
+        :param start_size: 起始尺寸（QSize）
+        :param end_size: 结束尺寸（QSize）
+        :param duration: 动画时长（毫秒，默认300）
+        """
+        # 创建并配置动画
+        anim = QPropertyAnimation(window, b"size", window)
+        anim.setDuration(duration)
+        anim.setStartValue(start_size)
+        anim.setEndValue(end_size)
+        anim.setEasingCurve(QEasingCurve.InOutQuad)  # 平滑过渡
+        
+        # 启动动画
+        anim.start()
+
 import edge_tts
 from edge_tts import VoicesManager, Communicate
 
@@ -222,7 +243,7 @@ class CosyVoiceTTSWindow(QWidget):
 
 class EdgeTTSSelectionDialog(QWidget):
     preview_requested = pyqtSignal(dict)  # 发送试听请求信号
-    voice_selected = pyqtSignal(str, dict)  # 发送角色名称和语音配置
+    voice_selected = pyqtSignal(str, dict,int)  # 发送角色名称和语音配置
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -231,6 +252,7 @@ class EdgeTTSSelectionDialog(QWidget):
         self.setWindowTitle("语音角色设置")
         self.setSizePolicy(QSizePolicy.Expanding,QSizePolicy.Expanding)
         self.voice_data = []
+        self.voice_id=0
         self.setup_ui()
 
     def setup_ui(self):
@@ -356,9 +378,9 @@ class EdgeTTSSelectionDialog(QWidget):
         # 内置常见地区的友好名称映射
         locale_name_map = {
             "zh-CN": "中国大陆",
-            "zh-HK": "香港",
-            "zh-TW": "台湾",
-            "en-US": "美国英语",
+            "zh-HK": "中国香港",
+            "zh-TW": "中国台湾",
+            "en-US": "英语",
             "ja-JP": "日语",
             "ko-KR": "韩语"
         }
@@ -384,6 +406,8 @@ class EdgeTTSSelectionDialog(QWidget):
             # 显示友好名称，未知地区使用原始locale
             friendly_name = locale_name_map.get(loc, loc)
             self.lang_combo.addItem(friendly_name, loc)
+        
+        self.lang_combo.setCurrentText('中国大陆')
 
     def filter_voices(self):
         """根据选择的语言和性别筛选语音"""
@@ -487,7 +511,7 @@ class EdgeTTSSelectionDialog(QWidget):
         self.voice_selected.emit(role_name, {
             'Name': voice_info['Name'],
             'ShortName': voice_info['ShortName']
-        })
+        },self.voice_id)
         self.close()
 
     def mousePressEvent(self, event):
@@ -548,11 +572,41 @@ class EdgeTTSSelectionDialog(QWidget):
             # 非首次显示直接设置最终尺寸
             self.setFixedSize(target_size)
 
+    def close(self):
+        # 如果已经处于关闭动画中，则忽略
+        if hasattr(self, '_closing') and self._closing:
+            return
+        self._closing = True
+
+        # 禁用窗口
+        self.setEnabled(False)
+
+        # 创建动画组
+        self.anim_group = QParallelAnimationGroup()
+
+        # 透明度动画
+        opacity_anim = QPropertyAnimation(self, b"windowOpacity")
+        opacity_anim.setDuration(75)
+        opacity_anim.setStartValue(self.windowOpacity())
+        opacity_anim.setEndValue(0.0)
+
+        self.anim_group.addAnimation(opacity_anim)
+
+        # 动画结束后，真正关闭窗口
+        self.anim_group.finished.connect(self._real_close)
+        self.anim_group.start()
+
+    def _real_close(self):
+        # 断开信号，防止多次调用
+        self.anim_group.finished.disconnect()
+        # 调用父类的close
+        super().close()
+
 class EdgeTTSHandler(QObject):
     """Edge TTS功能处理器，支持在PyQt5中使用"""
     
     # 信号定义
-    tts_finished = pyqtSignal(bool)                   # TTS转换完成信号（是否成功）
+    tts_finished = pyqtSignal(str)                   # TTS转换完成信号（是否成功）
     voice_list_received = pyqtSignal(list)             # 接收到音色列表信号
     error_occurred = pyqtSignal(str)                  # 错误信号
     
@@ -574,14 +628,6 @@ class EdgeTTSHandler(QObject):
     def fetch_all_voices(self):
         """获取所有可用的音色列表"""
         self._start_thread(self._execute_fetch_all_voices)
-    
-    def fetch_voices_by_attr(self, **filters):
-        """根据属性筛选音色
-        
-        Args:
-            filters: 筛选条件（如 Gender="Female", Language="zh"）
-        """
-        self._start_thread(self._execute_fetch_by_attr, filters)
     
     def _start_thread(self, target, *args, **kwargs):
         """启动线程执行任务"""
@@ -621,9 +667,8 @@ class EdgeTTSHandler(QObject):
         try:
             communicate = edge_tts.Communicate(text, voice)
             await communicate.save(output_file)
-            self.tts_finished.emit(True)
+            self.tts_finished.emit(str(output_file))
         except Exception as e:
-            self.tts_finished.emit(False)
             self.error_occurred.emit(f"TTS转换失败: {str(e)}")
     
     async def _execute_fetch_all_voices(self):
@@ -644,106 +689,61 @@ class EdgeTTSHandler(QObject):
             self.error_occurred.emit(f"筛选音色失败: {str(e)}")
 
 class AudioPlayer(QObject):
-    """
-    MP3音频播放器类，提供播放控制和状态通知功能
-    信号：
-    - playback_completed: 音频播放完成时触发
-    - playback_started: 音频开始播放时触发
-    - playback_stopped: 音频停止播放时触发
-    """
-    playback_completed = pyqtSignal()
-    playback_started = pyqtSignal()
-    playback_stopped = pyqtSignal()
-
     def __init__(self, parent=None):
         super().__init__(parent)
         self.player = QMediaPlayer()
-        # 连接播放器状态变化信号
-        self.player.stateChanged.connect(self.handle_state_change)
+        self.play_queue = []        # 存储待播放文件路径
+        
         # 连接媒体状态变化信号
         self.player.mediaStatusChanged.connect(self.handle_media_status)
         
-        # 当前播放的文件路径
-        self.current_file = None
-
-    def load_and_play(self, mp3_path):
+    def add_play_task(self, mp3_path):
         """
-        加载并播放MP3文件
+        将MP3文件加入播放队列，自动按顺序播放
         :param mp3_path: MP3文件路径
         """
-        if not mp3_path:
-            return False
-
-        self.stop()  # 停止当前播放
-        self.current_file = mp3_path
-
-        # 创建媒体内容（支持本地文件路径）
-        media_content = QMediaContent(QUrl.fromLocalFile(mp3_path))
-        self.player.setMedia(media_content)
-        self.player.play()
-        return True
-
-    def play(self):
-        """继续播放当前音频"""
-        if self.player.media().isNull():
-            if self.current_file:
-                self.load_and_play(self.current_file)
-            return
-        self.player.play()
-
-    def pause(self):
-        """暂停播放"""
-        self.player.pause()
-
-    def stop(self):
-        """停止播放并重置位置"""
-        self.player.stop()
-        self.player.setPosition(0)  # 回到起始位置
-
-    def set_volume(self, volume):
-        """
-        设置播放音量
-        :param volume: 0-100之间的整数
-        """
-        self.player.setVolume(max(0, min(volume, 100)))
-
-    def handle_state_change(self, state):
-        """处理播放器状态变化"""
-        if state == QMediaPlayer.PlayingState:
-            self.playback_started.emit()
-        elif state == QMediaPlayer.StoppedState:
-            self.playback_stopped.emit()
+        # 添加到播放队列
+        self.play_queue.append(mp3_path)
+        
+        # 如果没有正在播放的项目，立即开始播放
+        if self.player.state() != QMediaPlayer.PlayingState:
+            self._play_next()
 
     def handle_media_status(self, status):
-        """处理媒体状态变化"""
-        if status == QMediaPlayer.EndOfMedia:
-            self.playback_completed.emit()
-            self.stop()  # 播放完成后自动停止并重置
-
-    def is_playing(self):
-        """检查是否正在播放"""
-        return self.player.state() == QMediaPlayer.PlayingState
-
-    def cleanup(self):
-        """清理资源"""
-        self.stop()
-        self.player.setMedia(QMediaContent())  # 清除媒体内容
-        self.current_file = None
+        """处理媒体状态变化事件"""
+        # 当前媒体播放完成且队列中有待播文件
+        if status == QMediaPlayer.EndOfMedia and self.play_queue:
+            self._play_next()
+    
+    def _play_next(self):
+        """播放队列中的下一个文件"""
+        if not self.play_queue:
+            return
+            
+        # 获取并移除队列中的首个文件
+        next_path = self.play_queue.pop(0)
+        media_content = QMediaContent(QUrl.fromLocalFile(next_path))
+        
+        # 设置媒体内容并开始播放
+        self.player.setMedia(media_content)
+        self.player.play()
 
 class VoiceItemWidget(QWidget):
-    request_delete = pyqtSignal(str)
-    def __init__(self, parent=None):
+    request_delete = pyqtSignal(int)
+    request_change = pyqtSignal(int)
+    def __init__(self, item_id,parent=None):
         super().__init__(parent)
         self.init_ui()
         self.setup_animation()
         self.setup_button_animation()
         self.setMouseTracking(True)  # 启用鼠标跟踪
+        self.item_id=item_id
 
     def init_ui(self):
         # 创建控件
-        self.name_edit = QLineEdit()
-        self.name_edit.setPlaceholderText("角色名")
-        self.voice_type_hint = QLabel('音色')
+        self.name_edit = QLabel()
+        self.voice_type_hint = QLabel('音色：')
+        self.voice_type_hint.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Minimum)
         self.voice_type = QLabel()
 
         self.delete_btn = QPushButton("删除")
@@ -752,13 +752,30 @@ class VoiceItemWidget(QWidget):
         self.btn_opacity_effect = QGraphicsOpacityEffect(self.delete_btn)
         self.btn_opacity_effect.setOpacity(0.0)  # 初始完全透明
         self.delete_btn.setGraphicsEffect(self.btn_opacity_effect)
+        
+        self.change_btn=QPushButton()
+        self.change_btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.change_btn.setStyleSheet('''
+QPushButton {
+    background: transparent;
+    border: 1px solid #d0d8e0;
+    border-radius: 4px; 
+    padding: 10px 20px;
+}
+''')
+        self.change_btn.clicked.connect(lambda _: self.request_change.emit(self.item_id))
+        self.change_btn.clicked.connect(self.start_highlight_animation)
 
         # 布局
-        layout = QHBoxLayout()
-        layout.addWidget(self.name_edit, 30)
-        layout.addWidget(self.voice_type_hint, 10)
-        layout.addWidget(self.voice_type, 60)
-        layout.addWidget(self.delete_btn, 10)
+        layout = QGridLayout()
+        layout.addWidget(self.name_edit,        0,0,1,1, alignment=Qt.AlignVCenter | Qt.AlignHCenter)
+        layout.addWidget(self.voice_type_hint,  0,1,1,1,alignment=Qt.AlignVCenter | Qt.AlignRight)
+        layout.addWidget(self.voice_type,       0,2,1,2)
+
+        #作为背景重叠在信息上面
+        layout.addWidget(self.change_btn,       0,0,1,5)
+
+        layout.addWidget(self.delete_btn,       0,4,1,1)
 
         self.setLayout(layout)
 
@@ -773,8 +790,10 @@ class VoiceItemWidget(QWidget):
         self.opacity_effect.setOpacity(1.0)
         self.highlight_overlay.setGraphicsEffect(self.opacity_effect)
 
-        self.delete_btn.clicked.connect(lambda _: self.request_delete.emit(self.name_edit.text()))
-        self.delete_btn.clicked.connect(self.start_highlight_animation)
+        self.delete_btn.clicked.connect(lambda _: self.request_delete.emit(self.item_id))
+
+        self.setMaximumHeight(self.sizeHint().height())
+        
 
     def setup_animation(self):
         # 创建动画组
@@ -862,121 +881,19 @@ class VoiceItemWidget(QWidget):
         self.highlight_overlay.hide()
         self.opacity_effect.setOpacity(1.0)  # 重置透明度以备下次使用
 
-class VoiceSettingsList(QListWidget):
-    """支持音色配对管理的列表控件"""
-    def __init__(self, manager, parent=None):
-        super().__init__(parent)
-        self.manager = manager
-        self.itemDoubleClicked.connect(self.handle_item_double_click)
-        
-    def refresh_list(self):
-        """刷新列表显示"""
-        self.clear()
-        for pairing in self.manager.get_all_pairings():
-            item = QListWidgetItem(pairing['role_name'])
-            item.setData(Qt.UserRole, pairing['id'])
-            self.addItem(item)
-            
-    def handle_item_double_click(self, item):
-        """双击项目处理"""
-        unique_id = item.data(Qt.UserRole)
-        self.manager.set_edit_id(unique_id)
-        
-        # 通知父控件打开编辑对话框
-        if self.parent().edit_pairing():
-            self.refresh_list()
-
-class VoiceSettingsManager:
-    """音色配对数据管理器"""
-    def __init__(self):
-        self.voice_pairings = {}  # 存储所有音色配对
-        self.current_edit_id = None  # 当前正在编辑的配对ID
-        
-    def add_pairing(self, role_name, voice_config):
-        """添加新音色配对"""
-        unique_id = str(uuid.uuid4())
-        self.voice_pairings[unique_id] = {
-            'id': unique_id,
-            'role_name': role_name,
-            'voice_config': voice_config
-        }
-        return unique_id
-        
-    def remove_pairing(self, unique_id):
-        """删除指定音色配对"""
-        if unique_id in self.voice_pairings:
-            del self.voice_pairings[unique_id]
-            return True
-        return False
-        
-    def update_role_name(self, unique_id, new_role_name):
-        """更新角色名称"""
-        if unique_id in self.voice_pairings:
-            self.voice_pairings[unique_id]['role_name'] = new_role_name
-            return True
-        return False
-        
-    def update_voice_config(self, unique_id, new_voice_config):
-        """更新音色配置"""
-        if unique_id in self.voice_pairings:
-            self.voice_pairings[unique_id]['voice_config'] = new_voice_config
-            return True
-        return False
-        
-    def get_pairing(self, unique_id):
-        """获取指定配对的详细信息"""
-        return self.voice_pairings.get(unique_id)
-        
-    def get_all_pairings(self):
-        """获取所有音色配对信息"""
-        return list(self.voice_pairings.values())
-        
-    def save_to_file(self, filename):
-        """保存配置到文件"""
-        with open(filename, 'w') as f:
-            json.dump(self.voice_pairings, f, indent=2)
-            
-    def load_from_file(self, filename):
-        """从文件加载配置"""
-        try:
-            with open(filename) as f:
-                data = json.load(f)
-                self.voice_pairings = {
-                    k: {
-                        'id': k,
-                        'role_name': v['role_name'],
-                        'voice_config': v['voice_config']
-                    } for k, v in data.items()
-                }
-            return True
-        except FileNotFoundError:
-            return False
-        except json.JSONDecodeError:
-            return False
-
-    def set_edit_id(self, unique_id):
-        """设置当前编辑的配对ID"""
-        self.current_edit_id = unique_id
-        
-    def get_edit_id(self):
-        """获取当前编辑的配对ID"""
-        return self.current_edit_id
-        
-    def clear_edit_id(self):
-        """清除当前编辑的配对ID"""
-        self.current_edit_id = None
-
-class EdgeTTSMainSetting(QWidget):
+class EdgeTTSMainSettingWindow(QWidget):
     def __init__(self):
         super().__init__()
-        self.manager = VoiceSettingsManager()  # 创建数据管理器
         self.setup_ui()
-        
-        
+
     def setup_ui(self):
         # 设置窗口大小和标题
-        self.setGeometry(0, 0, 943, 751)
         self.setWindowTitle("EdgeTTS")
+        screen_size=app.primaryScreen().size()
+        target_width=min(screen_size.width(),1200)
+        target_height=min(int(screen_size.height()/1.66),600)
+        self.setMinimumWidth(target_width)
+        self.setMinimumHeight(target_height)
         
         # 创建网格布局
         self.grid_layout = QGridLayout(self)
@@ -987,7 +904,7 @@ class EdgeTTSMainSetting(QWidget):
         
         # 创建标签："音色绑定列表"
         self.label = QLabel("音色绑定列表")
-        self.grid_layout.addWidget(self.label, 0, 1)
+        self.grid_layout.addWidget(self.label, 0, 1,1,2,alignment=Qt.AlignVCenter | Qt.AlignHCenter)
         
         # 创建占位符组件（左边）
         self.place_holder2 = QFrame()
@@ -997,10 +914,21 @@ class EdgeTTSMainSetting(QWidget):
         self.grid_layout.addWidget(self.place_holder2, 1, 0)
         
         # 创建列表视图
-        self.voice_binding_list = VoiceSettingsList(self.manager, self)
-        self.voice_binding_list.setMinimumWidth(557)
-        self.voice_binding_list.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
-        self.grid_layout.addWidget(self.voice_binding_list, 1, 1, 1, 2)  # 占据1行2列
+        self.scroll_area = QScrollArea()
+        self.scroll_area.setWidgetResizable(True)  # 重要：允许内容部件自动调整大小
+        self.scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOn)  # 始终显示垂直滚动条
+        self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)  # 禁用水平滚动条
+        
+        # 创建滚动区域的内容部件
+        self.scroll_content = QWidget()
+        self.voice_binding_layout = QVBoxLayout(self.scroll_content)
+        self.voice_binding_layout.setSizeConstraint(QLayout.SetMinAndMaxSize)  # 确保布局可以收缩到最小
+        self.scroll_content.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)  # 优先竖向最小
+        
+        # 设置滚动区域的内容部件
+        self.scroll_area.setWidget(self.scroll_content)
+        self.scroll_area.setMinimumWidth(600)
+        self.grid_layout.addWidget(self.scroll_area, 1, 1, 1, 2)  # 占据1行2列
         
         # 创建占位符组件（右边）
         self.place_holder = QFrame()
@@ -1011,17 +939,246 @@ class EdgeTTSMainSetting(QWidget):
         
        # 创建添加按钮
         self.add_button = QPushButton("添加")
-        self.add_button.clicked.connect(self.open_voice_selection_dialog)
-        self.add_button.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
-        self.grid_layout.addWidget(self.add_button, 2, 2, alignment=Qt.AlignLeft | Qt.AlignTop)
-        
-        # 创建并配置语音选择对话框
-        self.voice_dialog = EdgeTTSSelectionDialog()
-        self.voice_dialog.voice_selected.connect(self.add_voice_item)
-        self.voice_dialog.setVisible(False)  # 初始时隐藏
+        self.add_button.setEnabled(False)
+        self.grid_layout.addWidget(self.add_button, 2, 2)
+
+        self.enable_extract_button=QCheckBox('启用对话提取')
+        self.grid_layout.addWidget(self.enable_extract_button,2,1)
 
         # 设置布局
         self.setLayout(self.grid_layout)
+
+class EdgeTTSMainSettingMini(QGroupBox):
+    def __init__(self,title='',parent=None):
+        super().__init__(title=title)
+        widget_layout=QGridLayout()
+        self.parent_wiget=parent
+        self.setLayout(widget_layout)
+
+        self.use_extract=QCheckBox('启用对话提取')
+        self.use_extract.clicked.connect(lambda state: setattr(self.parent_wiget,'enable_dialog_extract',state))
+        widget_layout.addWidget(self.use_extract,0,0,1,1)
+
+        self.show_mainsetting=QPushButton('打开主设置')
+        self.show_mainsetting.clicked.connect(
+            lambda _: parent.show() if self.parent_wiget else None
+            )
+        widget_layout.addWidget(self.show_mainsetting)
+
+class EdgeTTSMainSetting(EdgeTTSMainSettingWindow):
+    def __init__(self,application_path=''):
+        super().__init__()
+        self.voice_binding={}
+        self.voice_library=[]
+        self.enable_dialog_extract=False
+        self.save_path=os.path.join(application_path,'audio')
+        self.setup_player()
+        self.setup_tts_handler()
+        self.setup_ui_connection()
+        self.load_binding_from_json()
+     
+    
+    def setup_tts_handler(self):
+        self.tts_handler=EdgeTTSHandler()
+        self.tts_handler.tts_finished.connect(self.player.add_play_task)
+        self.fetched_mark=False#不希望实例化时立刻更新，在打开窗口时再考虑更新。
+        self.tts_handler.voice_list_received.connect(self._handle_tts_list_update)
+
+    def setup_player(self):
+        self.player=AudioPlayer()
+
+    def setup_ui_connection(self):
+        self.add_button.clicked.connect(self._handle_add_button_click)
+        self.enable_extract_button.clicked.connect(
+            lambda state: setattr(self,'enable_dialog_extract',state))
+
+    def _handle_tts_list_update(self,voice_list):
+        self.voice_library=voice_list
+        self.add_button.setEnabled(True)
+
+    def _handle_add_button_click(self):
+        self.voice_choice_window=EdgeTTSSelectionDialog()
+        self.voice_choice_window.preview_requested.connect(self._shoot_tts_request)
+        self.voice_choice_window.set_voice_data(self.voice_library)
+        self.voice_choice_window.voice_selected.connect(self.add_voice_binding)
+        self.voice_choice_window.show()
+ 
+    def add_voice_binding(self,name,voice_info,binding_id=0):
+        voice=voice_info['ShortName']
+        if not binding_id:
+            binding_id= random.randint(100000, 999999)
+        voice_item=VoiceItemWidget(binding_id)
+        voice_item.item_id=binding_id   #用于唤起修改窗口
+        voice_item.set_info(name=name,voice=voice)
+        voice_item.request_delete.connect(self.del_voice_binding)
+        voice_item.request_change.connect(self._handle_voice_change)
+
+        self.voice_binding[binding_id]={
+            'name':name,
+            'voice_id':voice,
+            'item':voice_item
+        }
+        self.voice_binding_layout.addWidget(voice_item)
+
+        self.save_binding_to_json()
+
+    def add_voice_binding_load_mode(self,name,voice_info,binding_id=0):
+        voice=voice_info['ShortName']
+        if not binding_id:
+            binding_id= random.randint(100000, 999999)
+        voice_item=VoiceItemWidget(binding_id)
+        voice_item.item_id=binding_id   #用于唤起修改窗口
+        voice_item.set_info(name=name,voice=voice)
+        voice_item.request_delete.connect(self.del_voice_binding)
+        voice_item.request_change.connect(self._handle_voice_change)
+
+        self.voice_binding[binding_id]={
+            'name':name,
+            'voice_id':voice,
+            'item':voice_item
+        }
+        self.voice_binding_layout.addWidget(voice_item)
+
+
+    def del_voice_binding(self, binding_id):
+        if binding_info := self.voice_binding.pop(binding_id, None):
+            item = binding_info['item']
+            
+            # 从布局移除
+            layout = self.voice_binding_layout
+            layout.removeWidget(item)
+            
+            # 安全删除
+            item.setParent(None)
+            item.deleteLater()
+
+        self.save_binding_to_json()
+    
+    def _handle_voice_change(self,binding_id):
+        self.voice_change_window=EdgeTTSSelectionDialog()
+        self.voice_change_window.set_voice_data(self.voice_library)
+        self.voice_change_window.voice_id=binding_id
+        self.voice_change_window.name_edit.setText(self.voice_binding[binding_id]['name'])
+        self.voice_change_window.voice_selected.connect(self.change_voice_binding)
+        self.voice_change_window.show()
+
+    def change_voice_binding(self,name,voice_info,binding_id=None):
+        if not binding_id:
+            print('what?',name,voice_info)
+        voice=voice_info['ShortName']
+        self.voice_binding[binding_id]['name']=name
+        self.voice_binding[binding_id]['voice_id']=voice
+        self.voice_binding[binding_id]['item'].name_edit.setText(name)
+        self.voice_binding[binding_id]['item'].voice_type.setText(voice)
+
+        self.save_binding_to_json()
+
+    def _shoot_tts_request(self,voice_type,content='你好，这是我的声音！'):
+        voice=voice_type['ShortName']
+        result_id=str(random.randint(100000,999999))
+        output_file=os.path.join(self.save_path,result_id+' '+voice+'.mp3')
+        self.tts_handler.run_tts(text=content,voice=voice,output_file=output_file)
+
+    def handle_tts(self,name,message):
+        voice_type=''
+        for bind_id,item in self.voice_binding.items():
+            if name==item['name']:
+                voice_type=item['voice_id']
+                print('voice_type found',voice_type)
+        if not voice_type and self.voice_binding:
+            print('not found,using default')
+            voice_type=self.voice_binding[self.voice_binding.keys()[0]]['voice_id']
+        if self.enable_dialog_extract:
+            message=self.extract_dialogue(message)
+        self._shoot_tts_request(voice_type=voice_type,content=message)
+
+    def save_binding_to_json(self):
+        """
+        将音色绑定配置保存为JSON格式
+        保存格式为字典: {id数字: {'name':名称, 'voice_id':音色ID}}
+        """
+        
+        # 创建保存配置的数据结构
+        binding_data = {}
+        for binding_id, binding_info in self.voice_binding.items():
+            binding_data[binding_id] = {
+                'name': binding_info['name'],
+                'voice_id': binding_info['voice_id']
+            }
+        
+        # 创建配置目录路径
+        os.makedirs(self.save_path, exist_ok=True)  # 确保目录存在
+        config_file = os.path.join(self.save_path, 'voice_binding.json')
+        
+        # 写入JSON文件
+        try:
+            with open(config_file, 'w', encoding='utf-8') as f:
+                json.dump(binding_data, f, indent=4, ensure_ascii=False)
+            print(f"音色绑定配置已保存至: {config_file}")
+    
+        except Exception as e:
+            print(f"保存配置失败: {str(e)}")
+
+    
+    def load_binding_from_json(self):
+        """
+        从JSON文件加载音色绑定配置
+        加载格式与保存格式一致：{id: {'name':名称, 'voice_id':音色ID}}
+        """
+        
+        # 创建配置目录路径
+        os.makedirs(self.save_path, exist_ok=True)  # 确保目录存在
+        config_file = os.path.join(self.save_path, 'voice_binding.json')
+        
+        # 检查配置文件是否存在
+        if not os.path.exists(config_file):
+            return
+        
+        try:
+            # 读取并解析JSON文件
+            with open(config_file, 'r', encoding='utf-8') as f:
+                binding_data = json.load(f)
+                
+            # 清除当前所有绑定
+            current_binding_ids = list(self.voice_binding.keys())
+            for binding_id in current_binding_ids:
+                self.del_voice_binding(binding_id)
+            
+            # 加载新的绑定配置
+            for binding_id_str, binding_info in binding_data.items():
+                # 将字符串ID转换为整数
+                binding_id = int(binding_id_str)
+                
+                # 创建临时voice_info结构（与现有API兼容）
+                voice_info = {"ShortName": binding_info["voice_id"]}
+                
+                # 添加绑定（注意：使用原有的binding_id）
+                self.add_voice_binding_load_mode(
+                    name=binding_info["name"],
+                    voice_info=voice_info,
+                    binding_id=binding_id  # 使用原有ID而非生成新ID
+                )
+            
+            print(f"成功加载音色绑定配置: {config_file}")
+            return True
+            
+        except Exception as e:
+            print(f"加载配置失败: {str(e)}")
+            return False
+    
+    def extract_dialogue(self,text):
+        # 正则表达式模式匹配中文和英文的引号内容（包括单引号）
+        # 使用非贪婪匹配，支持跨行内容
+        pattern = r'[“"‘\'](.*?)[”"’\']'
+        dialogues = re.findall(pattern, text, flags=re.DOTALL)
+        return ''.join([d.strip() for d in dialogues if d.strip()])
+    
+    def show(self):
+        if not self.fetched_mark:
+            self.tts_handler.fetch_all_voices()
+            self.fetched_mark=True
+        return super().show()
+
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)

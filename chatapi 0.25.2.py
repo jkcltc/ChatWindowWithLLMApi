@@ -60,7 +60,7 @@ except ImportError:
     print("GptToCad模块导入失败，CAD功能不可用。")
 
 try:
-    from mods.chatapi_tts import CosyVoiceTTSWindow,TTSAgent
+    from mods.chatapi_tts import TTSAgent
 except ImportError as e:
     print("本地tts模块导入失败，TTS功能不可用。",e)
 
@@ -2108,6 +2108,10 @@ class MainWindow(QMainWindow):
         self.think_response=''
         self.full_response=''
 
+        #TTS
+        self.tts_enabled=False
+        self.tts_provider='不使用TTS'
+
     def init_response_manager(self):
         # AI响应更新控制
         self.ai_last_update_time = 0
@@ -2200,6 +2204,13 @@ class MainWindow(QMainWindow):
         if not "mods.chatapi_tts" in sys.modules:
             return
         self.tts_handler=TTSAgent(application_path=self.application_path)
+        if hasattr(self,'tts_enabled'):
+            self.tts_handler.tts_enabled=self.tts_enabled
+        if hasattr(self,'tts_provider') and self.tts_provider!='不使用TTS':
+            self.tts_handler.generator_selector.setCurrentText(self.tts_provider)
+        self.tts_handler.tts_state.connect(
+            lambda state,provider:setattr(self,'tts_enabled',state) or setattr(self,'tts_provider',provider)
+            )
         self.stat_tab_widget.addTab(self.tts_handler, "语音生成")
 
     def show_mod_configer(self):
@@ -2487,6 +2498,14 @@ class MainWindow(QMainWindow):
             self.chat_history_bubbles.set_role_nickname('assistant', role_ai)
             self.chat_history_bubbles.set_role_nickname('user', role_user)
             self.chat_history_bubbles.set_chat_history(self.chathistory)
+            try:
+                self.tts_handler.send_tts_request(
+                    self.name_ai,
+                    self.full_response,
+                    force_remain=True
+                )
+            except Exception as e:
+                print('tts_handler.send_tts_request',e)
 
         else:
             self.chat_history_bubbles.streaming_scroll(True)
@@ -2576,7 +2595,14 @@ class MainWindow(QMainWindow):
         )
 
         #0.25.1 气泡
-        self.chat_history_bubbles.update_bubble(msg_id=request_id,content=self.full_response,streaming='streaming')
+        #self.chat_history_bubbles.update_bubble(msg_id=request_id,content=self.full_response,streaming='streaming')
+        try:
+            self.tts_handler.send_tts_request(
+                self.name_ai,
+                self.full_response
+            )
+        except Exception as e:
+            print('tts_handler.send_tts_request',e)
 
         # 更新时间戳
         self.ai_last_update_time = QDateTime.currentDateTime().toMSecsSinceEpoch()

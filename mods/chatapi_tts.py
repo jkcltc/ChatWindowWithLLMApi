@@ -254,6 +254,7 @@ class EdgeTTSSelectionDialog(QWidget):
         self.setSizePolicy(QSizePolicy.Expanding,QSizePolicy.Expanding)
         self.voice_data = []
         self.voice_id=0
+        self.oldPos = None
         self.setup_ui()
 
     def setup_ui(self):
@@ -520,10 +521,15 @@ class EdgeTTSSelectionDialog(QWidget):
             self.oldPos = event.globalPos()
 
     def mouseMoveEvent(self, event):
-        if event.buttons() == Qt.LeftButton:
-            delta = QPoint(event.globalPos() - self.oldPos)
-            self.move(self.x() + delta.x(), self.y() + delta.y())
-            self.oldPos = event.globalPos()
+        try:
+            if self.oldPos is None:
+                return
+            if event.buttons() == Qt.LeftButton:
+                delta = QPoint(event.globalPos() - self.oldPos)
+                self.move(self.x() + delta.x(), self.y() + delta.y())
+                self.oldPos = event.globalPos()
+        except Exception as e:
+            print('tts selection mouse event',e)
     
     def paintEvent(self, event):
         # 调用父类的绘制方法（确保基础样式被应用）
@@ -1438,7 +1444,7 @@ class TTSAgent(QGroupBox):
         self.call_iter+=1
         if not self.tts_enabled or not text:
             return
-        if not force_remain and self.call_iter%5!=0:
+        if not force_remain and self.call_iter%3!=0:
             return
         text=self.patch_sentence(message=text,force_remain=force_remain)
         if text:

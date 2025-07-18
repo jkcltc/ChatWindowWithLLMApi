@@ -669,8 +669,8 @@ class ReasoningDisplay(MarkdownTextBrowser):
         self.setWordWrapMode(QTextOption.WrapAtWordBoundaryOrAnywhere)
         self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.setVisible(False)
-        min_height=min(QApplication.primaryScreen().availableGeometry().height() * 0.1,100)
-        self.setMinimumHeight(min_height)
+        #min_height=min(QApplication.primaryScreen().availableGeometry().height() * 0.1,100)
+        #self.setMinimumHeight(min_height)
 
 
     def setMarkdown(self, text, is_streaming=False):

@@ -8,3 +8,4 @@ config.ini
 *.json
 /background.jpg
 /audio
+utils/system_prompt_presets/当前对话.json

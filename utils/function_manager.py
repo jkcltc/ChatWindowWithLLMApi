@@ -94,7 +94,7 @@ class FunctionManager:
             }
         }
         """
-        print(f"Function call dict: {function_call_dict}")
+        #print(f"Function call dict: {function_call_dict}")
         # 参数校验
         if not isinstance(function_call_dict, dict):
             raise ValueError("Function call must be a dictionary")

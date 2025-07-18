@@ -67,8 +67,16 @@ class SystemPromptUI(QWidget):
         # 初始化文件管理器
         self.file_manager = FileManager(folder_path)
 
-        self.resize(900,600)
+        screen_geometry = QApplication.primaryScreen().availableGeometry()
         
+        width = int(screen_geometry.width() * 0.8)
+        height = int(screen_geometry.height() * 0.8)
+        
+        left = (screen_geometry.width() - width) // 2
+        top = (screen_geometry.height() - height) // 2
+        
+        self.setGeometry(left, top, width, height)
+
         # 当前选中的文件
         self.current_file = None
         
@@ -160,6 +168,7 @@ class SystemPromptUI(QWidget):
 
         # 内部变量
         self.default_current_filename='当前对话'
+        self.ignore_changes = False
         
         # 加载初始文件列表
         self.load_file_list()
@@ -215,29 +224,46 @@ class SystemPromptUI(QWidget):
             self.file_list.addItem(preset["file_name"])
     
     def on_file_selected(self):
-        """当选择文件时加载内容"""
+        """当选择文件时加载内容（修复循环保存问题）"""
+        selected_items = self.file_list.selectedItems()
+        if not selected_items:
+            return  # 无选中项直接返回
+        
+        # 保存当前修改（如果有）
+        if self.is_modified:
+            # 阻塞列表信号，防止保存时刷新列表触发重复选择事件
+            self.file_list.blockSignals(True)
+            try:
+                self.save_current_config(show_window=False)  # 不弹窗提示
+            finally:
+                self.file_list.blockSignals(False)  # 确保信号恢复
+        
+        # 重新获取选中项（可能因保存后列表刷新导致索引变化）
         selected_items = self.file_list.selectedItems()
         if not selected_items:
             return
         
-        # 保存当前修改
-        if self.is_modified:
-            self.save_current_config()
-
-        # 加载新文件
+        # 加载新选中的文件
         file_name = selected_items[0].text()
         presets = self.file_manager.get_all_presets()
         for preset in presets:
             if preset["file_name"] == file_name:
                 self.current_file = preset["file_path"]
+                
+                # 临时忽略内容变化信号（避免程序加载触发修改标记）
+                self.ignore_changes = True
                 self.name_edit.setText(preset["name"])
                 self.content_edit.setText(preset["content"])
+                self.ignore_changes = False  # 恢复信号响应
+                
                 self.is_modified = False
                 self.save_button.setEnabled(False)
                 break
-    
+
     def on_content_changed(self):
-        """内容变化时标记为已修改"""
+        """内容变化时标记为已修改（仅响应用户手动修改）"""
+        if self.ignore_changes:  # 新增：程序自动修改时忽略
+            return
         self.is_modified = True
         self.save_button.setEnabled(True)
     
@@ -303,18 +329,19 @@ class SystemPromptUI(QWidget):
                         QMessageBox.critical(self, "删除失败", "无法删除配置文件")
                     break
     
-    def save_current_config(self,show_window=True):
-        """保存当前配置文件"""
+    def save_current_config(self, show_window=True):
+        """保存当前配置文件（优化列表刷新逻辑）"""
         if not self.current_file or not self.is_modified:
-            return
+            return False  # 无修改则不保存
         
         # 获取当前数据
         name = self.name_edit.text().strip()
         content = self.content_edit.toPlainText()
         
         if not name:
-            QMessageBox.warning(self, "无效名称", "配置名称不能为空")
-            return
+            if show_window:
+                QMessageBox.warning(self, "无效名称", "配置名称不能为空")
+            return False
         
         # 构建保存数据
         save_data = {
@@ -324,28 +351,43 @@ class SystemPromptUI(QWidget):
         }
         
         # 检查是否需要重命名
-        new_file_path = os.path.join(
-            self.file_manager.folder_path, 
-            f"{name}.json"
-        )
+        new_file_name = f"{name}.json"
+        new_file_path = os.path.join(self.file_manager.folder_path, new_file_name)
+        old_file_name = os.path.basename(self.current_file)
         
-        # 如果文件名已更改
-        if new_file_path != self.current_file:
-            # 删除旧文件
-            if os.path.exists(self.current_file):
-                os.remove(self.current_file)
-            self.current_file = new_file_path
+        # 文件名变更时删除旧文件
+        file_renamed = new_file_path != self.current_file
+        if file_renamed and os.path.exists(self.current_file):
+            os.remove(self.current_file)
+        self.current_file = new_file_path
         
         # 保存文件
         if self.file_manager.save_preset(self.current_file, save_data):
             self.is_modified = False
             self.save_button.setEnabled(False)
-            self.load_file_list()  # 刷新列表（如果名称改变）
+            
+            # 仅在文件名变更或列表项变化时刷新列表
+            if file_renamed or old_file_name not in [self.file_list.item(i).text() for i in range(self.file_list.count())]:
+                # 刷新列表前记录新文件名，用于恢复选中
+                current_selected_name = new_file_name
+                # 阻塞信号防止刷新时触发选择事件
+                self.file_list.blockSignals(True)
+                self.load_file_list()  # 刷新列表
+                self.file_list.blockSignals(False)
+                
+                # 恢复选中状态（定位新文件名）
+                for i in range(self.file_list.count()):
+                    if self.file_list.item(i).text() == current_selected_name:
+                        self.file_list.setCurrentRow(i)
+                        break
+            
             if show_window:
                 QMessageBox.information(self, "保存成功", "配置文件已成功保存")
+            return True
         else:
-            QMessageBox.critical(self, "保存失败", "无法保存配置文件")
-    
+            if show_window:
+                QMessageBox.critical(self, "保存失败", "无法保存配置文件")
+            return False    
     def send_current_content(self):
         """发送当前内容"""
         # 保存当前状态以便恢复

@@ -108,12 +108,12 @@ class CosyVoiceTTSClient(QObject):
         self.server_url = new_url
 
 class CosyVoiceTTSWindow(QWidget):
+    enable_dialog_extract=pyqtSignal(bool)
     def __init__(self,_=''):
         super().__init__()
         # 初始化客户端
         self.setWindowTitle("CosyVoice TTS设置/测试")
         self.tts_client = CosyVoiceTTSClient()
-        self.enable_dialog_extract=True
 
 
         # 连接信号
@@ -150,7 +150,7 @@ class CosyVoiceTTSWindow(QWidget):
         self.main_layout.addWidget(self.send_request)
 
         self.extract_dialogue_checkbox = QCheckBox("尝试提取对话内容")
-        self.extract_dialogue_checkbox.clicked.connect(lambda state:setattr(self,'enable_dialog_extract',state))
+        self.extract_dialogue_checkbox.clicked.connect(self.enable_dialog_extract.emit)
         self.main_layout.addWidget(self.extract_dialogue_checkbox)
 
         self.check_tts_server_button = QPushButton("检查TTS服务")
@@ -182,14 +182,13 @@ class CosyVoiceTTSWindow(QWidget):
             text = self.send_text.text()
         prompt=self.prompt_text.text()
         audio=self.audio_path.text()
-        extract_dialogue = self.enable_dialog_extract
         
         # 发起请求
         # 使用threading创建新线程
         thread = threading.Thread(
             target=self.tts_client.send_request,
             args=(text, prompt),
-            kwargs={'audio': audio, 'extract_dialogue': extract_dialogue}
+            kwargs={'audio': audio, 'extract_dialogue': False}
         )
         self.stat.setText("正在发送请求...")
         thread.daemon = True  # 设置为守护线程
@@ -643,22 +642,26 @@ class EdgeTTSHandler(QObject):
         self._thread.start()
     
     def _run_async(self, task_func, *args, **kwargs):
-        """在新线程中运行异步任务"""
-        # 创建新事件循环
-        self._loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(self._loop)
-        
+        """在新线程中运行异步任务（修复事件循环管理）"""
         try:
+            # 每个线程独立创建并管理事件循环
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            
             # 运行异步任务
-            self._loop.run_until_complete(task_func(*args, **kwargs))
+            loop.run_until_complete(task_func(*args, **kwargs))
         except Exception as e:
             self.error_occurred.emit(str(e))
         finally:
-            # 清理事件循环
-            if self._loop.is_running():
-                self._loop.stop()
-            self._loop.close()
-            self._loop = None
+            # 安全关闭事件循环
+            try:
+                if loop.is_running():
+                    loop.stop()
+                # 关闭前先执行待定回调
+                loop.run_until_complete(loop.shutdown_asyncgens())
+                loop.run_until_complete(loop.shutdown_default_executor())
+            finally:
+                loop.close()
     
     async def _execute_tts(self, text, voice, output_file):
         """执行TTS转换的异步实现"""
@@ -888,9 +891,10 @@ class EdgeTTSMainSettingWindow(QWidget):
     def setup_ui(self):
         # 设置窗口大小和标题
         self.setWindowTitle("EdgeTTS")
-        screen_size=app.primaryScreen().size()
-        target_width=min(screen_size.width(),1200)
-        target_height=min(int(screen_size.height()/1.66),600)
+        screen = QApplication.primaryScreen()
+        screen_size = screen.size()
+        target_width=min(screen_size.width(),1600)
+        target_height=min(int(screen_size.height()/1.33),1000)
         self.setMinimumWidth(target_width)
         self.setMinimumHeight(target_height)
         
@@ -998,11 +1002,11 @@ class EdgeTTSMainSettingWindow(QWidget):
         self.fade_out.start()
 
 class EdgeTTSMainSetting(EdgeTTSMainSettingWindow):
+    enable_dialog_extract=pyqtSignal(bool)
     def __init__(self,application_path=''):
         super().__init__()
         self.voice_binding={}
         self.voice_library=[]
-        self.enable_dialog_extract=False
         self.save_path=os.path.join(application_path,'audio')
         self.setup_player()
         self.setup_tts_handler()
@@ -1020,8 +1024,7 @@ class EdgeTTSMainSetting(EdgeTTSMainSettingWindow):
 
     def setup_ui_connection(self):
         self.add_button.clicked.connect(self._handle_add_button_click)
-        self.enable_extract_button.clicked.connect(
-            lambda state: setattr(self,'enable_dialog_extract',state))
+        self.enable_extract_button.clicked.connect(self.enable_dialog_extract.emit)
 
     def _handle_tts_list_update(self,voice_list):
         self.voice_library=voice_list
@@ -1095,6 +1098,7 @@ class EdgeTTSMainSetting(EdgeTTSMainSettingWindow):
         self.voice_change_window.set_voice_data(self.voice_library)
         self.voice_change_window.voice_id=binding_id
         self.voice_change_window.name_edit.setText(self.voice_binding[binding_id]['name'])
+        self.voice_change_window.preview_requested.connect(self._shoot_tts_request)
         self.voice_change_window.voice_selected.connect(self.change_voice_binding)
         self.voice_change_window.closeing.connect(self.hide_mask_animation)
         self.hide_mask.clicked.connect(self.voice_change_window.close)
@@ -1112,7 +1116,10 @@ class EdgeTTSMainSetting(EdgeTTSMainSettingWindow):
         self.save_binding_to_json()
 
     def _shoot_tts_request(self,voice_type,content='你好，这是我的声音！'):
-        voice=voice_type['ShortName']
+        if type(voice_type)==dict:
+            voice=voice_type['ShortName']
+        elif type(voice_type)==str:
+            voice=voice_type
         result_id=str(random.randint(100000,999999))
         output_file=os.path.join(self.save_path,result_id+' '+voice+'.mp3')
         self.tts_handler.run_tts(text=content,voice=voice,output_file=output_file)
@@ -1123,10 +1130,8 @@ class EdgeTTSMainSetting(EdgeTTSMainSettingWindow):
             if name==item['name']:
                 voice_type=item['voice_id']
         if not voice_type and self.voice_binding:
-            print('not found,using default')
-            voice_type=self.voice_binding[self.voice_binding.keys()[0]]['voice_id']
-        if self.enable_dialog_extract:
-            text=self.extract_dialogue(text)
+            print(f'name {name} not found,using default')
+            voice_type=self.voice_binding[list(self.voice_binding.keys())[0]]['voice_id']
         self._shoot_tts_request(voice_type=voice_type,content=text)
 
     def save_binding_to_json(self):
@@ -1201,13 +1206,6 @@ class EdgeTTSMainSetting(EdgeTTSMainSettingWindow):
             print(f"加载配置失败: {str(e)}")
             return False
     
-    def extract_dialogue(self,text):
-        # 正则表达式模式匹配中文和英文的引号内容（包括单引号）
-        # 使用非贪婪匹配，支持跨行内容
-        pattern = r'[“"‘\'](.*?)[”"’\']'
-        dialogues = re.findall(pattern, text, flags=re.DOTALL)
-        result= ''.join([d.strip() for d in dialogues if d.strip()])
-        return result if result else text
     
     def show(self):
         if not self.fetched_mark:
@@ -1219,6 +1217,7 @@ class EdgeTTSMainSetting(EdgeTTSMainSettingWindow):
 
 
 class TTSMainSettingMini(QGroupBox):
+    enable_dialog_extract=pyqtSignal(bool)
     def __init__(self,title='快速设置',parent=None):
         super().__init__(title=title)
         widget_layout=QGridLayout()
@@ -1226,7 +1225,7 @@ class TTSMainSettingMini(QGroupBox):
         self.setLayout(widget_layout)
 
         self.use_extract=QCheckBox('启用对话提取')
-        self.use_extract.clicked.connect(lambda state: setattr(self.parent_wiget,'enable_dialog_extract',state))
+        self.use_extract.clicked.connect(self.enable_dialog_extract.emit)
         widget_layout.addWidget(self.use_extract,0,0,1,1)
 
         self.show_mainsetting=QPushButton('打开主设置')
@@ -1234,6 +1233,134 @@ class TTSMainSettingMini(QGroupBox):
             lambda _: parent.show() if self.parent_wiget else None
             )
         widget_layout.addWidget(self.show_mainsetting,1,0,1,1)
+
+class TTSIncomeMessageHandler:
+    def __init__(self):
+        """初始化TTS消息处理器
+        
+        属性:
+        - previous_income: 记录上次已处理的文本内容
+        - TERMINATORS: 句子终止符集合（中英文标点）
+        - result_list: 临时存储提取的句子列表
+        - trans_table: Markdown符号过滤表（替换为空格）
+        """
+        self.previous_income=''
+        self.TERMINATORS = frozenset({'。', '.', '!', '?', '！', '？'})
+        self.result_list=[]
+        mark_down_symbols = [
+            '*', '#', '>', '-', '`', '|', '=', '[', ']', '(', ')', '!', 
+            '^', '@', '$', '~', ':', '{', '}', ' ', '\n', '_'
+        ]
+        self.trans_table=str.maketrans({c: ' ' for c in mark_down_symbols})
+
+
+    def _find_sentence(self, message: str) -> str:
+        if not message or not isinstance(message, str):
+            return ''
+            
+        prev_len = len(self.previous_income)
+        
+        # 使用字符串方法替代切片比较
+        if prev_len > 0 and not message.startswith(self.previous_income):
+            self.previous_income = ''
+            prev_len = 0
+
+        # 直接遍历原始字符串，避免生成中间切片
+        for i in range(prev_len, len(message)):
+            if message[i] in self.TERMINATORS:
+                end_index = i + 1
+                self.previous_income = message[:end_index]
+                # 直接返回切片，避免多次计算长度
+                return message[prev_len:end_index]
+        
+        return ''
+
+    def patch_sentence(self, message='',target_length=20,force_remain=False,extrat_dialog=False):
+        """消息分句处理（按终止符拆分）
+        
+        参数:
+        - message: 输入文本
+        - target_length: 输出触发长度（默认20字符）
+        - force_remain: 强制返回剩余文本模式
+        
+        返回:
+        - 达到目标长度: 返回拼接的完整句子
+        - 未达目标长度: 返回空字符串
+        - 强制模式: 直接返回剩余文本
+        
+        处理流程:
+        1. 清洗消息（移除Markdown符号）
+        2. 强制模式直接返回未处理内容
+        3. 循环提取完整句子存入result_list
+        4. 结果长度达标后清空缓存并返回
+        """
+        message=self.clean_message(message)
+        if extrat_dialog:
+            message=self.extract_dialogue(message)
+        if force_remain:
+            result=message.replace(self.previous_income,'')
+            self.previous_income=message
+            return result
+        iters=0
+        final=''
+        while iters<20:
+            iters+=1
+            this_round_result=self._find_sentence(message)
+            if this_round_result=="":
+                break
+            else:
+                self.result_list+=[this_round_result]
+            final=''.join(self.result_list)
+        if len(final)>target_length:
+            self.result_list=[]
+            return final
+        else:
+            return ''
+        
+    def clean_message(self,message):
+        """消息清洗器
+        
+        参数:
+        - message: 原始文本
+        
+        返回:
+        - 清洗后的文本（无Markdown符号和空格）
+        
+        处理逻辑:
+        1. 通过转换表替换符号为空格
+        2. 移除所有空格
+        """
+        cleaned = message.translate(self.trans_table)
+        
+        return cleaned.replace(' ','')
+
+    def extract_dialogue(self,text):
+        # 用于存储匹配结果的列表
+        dialogues = []
+        
+        # 匹配完整的引号对（包括单双引号）
+        paired_pattern = r'([“"‘\'])(.*?)([”"’\'])'
+        for match in re.finditer(paired_pattern, text, flags=re.DOTALL):
+            dialogues.append(match.group(2))  # 只捕获引号中间的内容
+        
+        # 检查未匹配部分（通过替换已匹配区域）
+        placeholder = "\x00"  # 使用非常见字符作为占位符
+        temp_text = re.sub(paired_pattern, placeholder, text, flags=re.DOTALL)
+        
+        # 匹配只有左引号（未闭合）的情况
+        lonely_left = r'([“"‘\'])((?!.*[”"’\']).*$)'
+        left_matches = re.findall(lonely_left, temp_text)
+        for match in left_matches:
+            dialogues.append(match[1])  # 添加左引号后的内容
+        
+        # 匹配只有右引号（未闭合）的情况
+        lonely_right = r'^((?!.*[“"‘\']).*?)([”"’\'])'
+        right_matches = re.findall(lonely_right, temp_text)
+        for match in right_matches:
+            dialogues.append(match[0])  # 添加右引号前的内容
+        # 合并结果
+        result = ''.join(d.strip() for d in dialogues if d.strip())
+        return result if result else text
 
 class TTSAgent(QGroupBox):
     tts_state=pyqtSignal(bool,str)
@@ -1243,20 +1370,23 @@ class TTSAgent(QGroupBox):
             'Edge-tts':EdgeTTSMainSetting,
             'CosyVoice':CosyVoiceTTSWindow
         }
+        self.message_handler=TTSIncomeMessageHandler()
         self.tts_enabled=False
         self.application_path=application_path
         self.agent_layout=QGridLayout()
         self.setLayout(self.agent_layout)
-
+        self.agent_layout.addWidget(QLabel('声音合成器'),0,0,1,1)
         self.generator_selector=QComboBox()
         self.generator_selector.addItems(['不使用TTS']+list(self.function_dict.keys()))
-        self.agent_layout.addWidget(self.generator_selector,0,0,1,1)
+        self.agent_layout.addWidget(self.generator_selector,1,0,1,1)
 
         self.current_generator = self.generator_selector.currentText()
 
         self.generator_selector.currentTextChanged.connect(self.confirm_generator_change)
+        self.enable_dialog_extract=False
 
-        self.message_holder=[]
+        self.call_iter=0
+
     
     def confirm_generator_change(self, name):
         if not name in self.function_dict:
@@ -1282,7 +1412,6 @@ class TTSAgent(QGroupBox):
         if reply == QMessageBox.Yes:
             self.set_generator(name)
             self.current_generator = name
-            self.tts_enabled=True
             self.tts_state.emit(self.tts_enabled,name)
         else:
             # 还原到更改前的选项
@@ -1294,45 +1423,43 @@ class TTSAgent(QGroupBox):
     def set_generator(self, name):
         if not name in self.function_dict:
             self.generator=None
-            self.mini_setting.deleteLater()
+            self.tts_enabled=False
+            if hasattr(self,'mini_setting'):
+                self.mini_setting.deleteLater()
             return
         self.generator=self.function_dict[name](self.application_path)
+        self.generator.enable_dialog_extract.connect(lambda state:setattr(self,'enable_dialog_extract',state))
         self.mini_setting=TTSMainSettingMini(parent=self.generator)
-        self.agent_layout.addWidget(self.mini_setting,0,1,1,1)
+        self.mini_setting.enable_dialog_extract.connect(lambda state:setattr(self,'enable_dialog_extract',state))
+        self.agent_layout.addWidget(self.mini_setting,0,1,3,1)
+        self.tts_enabled=True
 
-    def send_tts_request(self,name,text):
-        if not self.tts_enabled:
+    def send_tts_request(self,name,text,force_remain=False):
+        self.call_iter+=1
+        if not self.tts_enabled or not text:
             return
-        self.generator.send_tts_request(name=name,text=text)
+        if not force_remain and self.call_iter%5!=0:
+            return
+        text=self.patch_sentence(message=text,force_remain=force_remain)
+        if text:
+            self.generator.send_tts_request(name=name,text=text)
 
     def show_setting(self):
         self.generator.show()
     
     def get_mini_setting_window(self):
         return getattr(self,'mini_setting',QLabel('尚未初始化'))
-    
-    def patch_chatapi_full_response(self,message=''):
-        def list_subtract_count(a, b):
-            count_b = Counter(b)
-            result = []
-            for x in a:
-                if count_b.get(x, 0) > 0:
-                    count_b[x] -= 1  # 减少计数
-                else:
-                    result.append(x)  # 保留元素
-            return result
-        result = [s for s in re.split(r'[。.]', message) if s]
 
-
+    def patch_sentence(self,message='',target_length=20,force_remain=False):
+        result= self.message_handler.patch_sentence(
+            message=message,
+            target_length=target_length,
+            force_remain=force_remain,
+            extrat_dialog=self.enable_dialog_extract)
+        return result
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
     window = TTSAgent()
     window.show()
     sys.exit(app.exec_())
-
-#if __name__ == "__main__":
-#    app = QApplication(sys.argv)
-#    window = TTSWindow()
-#    window.show()
-#    sys.exit(app.exec_())

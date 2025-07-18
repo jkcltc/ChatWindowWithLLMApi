@@ -13,7 +13,8 @@ def install_packages(package_map={}):
             "lxml": "lxml",
             "pygments": "pygments",
             "markdown": "markdown",
-            "jsonfinder": "jsonfinder"
+            "jsonfinder": "jsonfinder",
+            'edge-tts':'edge_tts'
         }
     
     # 检查是否有缺失包

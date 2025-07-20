@@ -2,6 +2,7 @@ from PyQt5.QtWidgets import *
 from PyQt5.QtCore import *
 from PyQt5.QtGui import *
 import json,os
+from jsonfinder import jsonfinder
 
 #函数管理器
 class FunctionManager:
@@ -94,7 +95,7 @@ class FunctionManager:
             }
         }
         """
-        #print(f"Function call dict: {function_call_dict}")
+        print(f"Function call dict: {function_call_dict}")
         # 参数校验
         if not isinstance(function_call_dict, dict):
             raise ValueError("Function call must be a dictionary")
@@ -103,10 +104,59 @@ class FunctionManager:
             # 提取关键信息
             func_name = function_call_dict["function"]["name"]
             arguments = function_call_dict["function"]["arguments"]
-            
+
             # 类型安全校验
             if not isinstance(arguments, dict):
-                raise TypeError(f"Arguments should be dict, got {type(arguments)}")
+                if isinstance(arguments, str):
+                    print('using kimi k2 huh?')
+                    print('another str incoming', arguments, '\nfunc_name:', func_name)
+                    
+                    # 已经做了ast,json.load,结果还是字符串,接下来用json finder
+                    try:
+                        for _, __, obj in jsonfinder(arguments):
+                            if isinstance(obj, dict):  # 确保我们提取到的是JSON数组
+                                arguments=obj
+                        print('using jsonfinder ,the result is ',type(arguments))
+                        if not isinstance(arguments,dict):
+                            arguments = function_call_dict["function"]["arguments"]
+                            print(f"jsonfinder 都救不了这逆天json: {e}")
+                            
+                            # 没招了，启发式修复
+
+                            # 检查是否以 '{' 开头和 '}' 结尾
+                            cleaned_args = arguments.strip()
+                            if not cleaned_args.startswith('{'):
+                                cleaned_args = '{' + cleaned_args
+                            if not cleaned_args.endswith('}'):
+                                cleaned_args += '}'
+                                
+                            # 尝试再次解析
+                        try:
+                            arguments = json.loads(cleaned_args)
+                        except json.JSONDecodeError as e2:
+                            print(f"第一次修复后解析失败: {e2}")
+                            
+                            # 尝试更激进的修复：替换内部双引号为单引号
+                            try:
+                                # 找到最外层的 { 和 }
+                                start_idx = cleaned_args.find('{')
+                                end_idx = cleaned_args.rfind('}')
+                                if start_idx >= 0 and end_idx > start_idx:
+                                    content = cleaned_args[start_idx+1:end_idx]
+                                    # 简单替换：假设内容中的双引号都是需要转义的
+                                    # 注意：这是一个启发式方法，可能不适用于所有情况
+                                    content = content.replace('"', '\\"')
+                                    fixed_json = '{' + content + '}'
+                                    arguments = json.loads(fixed_json)
+                                else:
+                                    raise e2
+                            except json.JSONDecodeError as e3:
+                                print(f"第二次修复后解析失败: {e3}")
+                                raise RuntimeError(f"无法解析参数: {arguments}") from e3
+                    except Exception as e:
+                        print('Error found at arguments fixing, f ck kimi')
+            if not isinstance(arguments, dict):
+                raise TypeError(f"Arguments should be dict, got {type(arguments)}, arguments dump:{arguments}")
             
             # 调用核心逻辑
             return self._execute_function(func_name, arguments)

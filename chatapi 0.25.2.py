@@ -474,7 +474,7 @@ class APIConfigWidget(QWidget):
         button_layout.setSpacing(15)
         button_layout.addStretch(1)
         
-        self.update_btn = QPushButton("更新模型库")
+        self.update_btn = QPushButton("更新模型库（新供应商重启后有效）")
         self.update_btn.setFixedHeight(40)
         self.update_btn.clicked.connect(self.on_update_models)
         button_layout.addWidget(self.update_btn)
@@ -1254,7 +1254,7 @@ class StrTools:
                     for j, tool_call in enumerate(message['tool_calls']):
                         func_info = tool_call.get('function', {})
                         name = func_info.get('name', '未知工具')
-                        args = func_info.get('arguments', '')
+                        args = func_info.get('arguments', {})
                         print(f"  工具 {j+1}: {name}")
                         print(f"  参数: {args}",type(args))
                         print("-" * 20)
@@ -1495,6 +1495,7 @@ class MessagePreprocessor:
             
             if function_definitions:
                 params['tools'] = function_definitions
+        print(params)
         return params
 
 #mod管理器
@@ -1794,7 +1795,7 @@ class MainWindow(QMainWindow):
         self.edit_question_button=QPushButton("修改问题")
         self.edit_question_button.clicked.connect(self.edit_user_last_question)
 
-        self.edit_message_button=QPushButton("修改回答")
+        self.edit_message_button=QPushButton("原始记录")
         self.edit_message_button.clicked.connect(self.edit_chathistory)
 
         self.web_search_button=SearchButton("启用联网搜索")
@@ -2847,7 +2848,24 @@ class MainWindow(QMainWindow):
                         self.think_response_signal.emit(request_id,self.think_response)
         if chatting_tool_call and chatting_tool_call["function"]["arguments"]:
             try:
-                arguments = json.loads(chatting_tool_call["function"]["arguments"])  # 验证 JSON 是否合法
+                try:
+                    arguments = json.loads(chatting_tool_call["function"]["arguments"])  # 验证 JSON 是否合法
+                    if isinstance(arguments,str):
+                        print('kimi的字符串load结果又来了\n')
+                        import ast
+                        arguments = ast.literal_eval(chatting_tool_call["function"]["arguments"])
+                except json.JSONDecodeError:
+                    print("函数参数 JSON 解析失败:", chatting_tool_call["function"]["arguments"],
+                          '\n尝试python原生导入')
+                    try:
+                        import ast
+                        arguments = ast.literal_eval(chatting_tool_call["function"]["arguments"])
+                    except Exception as e:
+                        arguments=chatting_tool_call["function"]["arguments"]
+                        print('python原生导入也不行','函数调用的时候再救')
+                except Exception as e:
+                    print(f'狗日的救不回来：{e}','函数调用的时候再救')
+
                 full_function_call = {
                     "id": chatting_tool_call["id"],
                     "type": chatting_tool_call["type"],
@@ -2862,7 +2880,7 @@ class MainWindow(QMainWindow):
                     "type": chatting_tool_call["type"],
                     "function": {
                         "name": chatting_tool_call["function"]["name"],
-                        "arguments": json.dumps(arguments, ensure_ascii=False)
+                        "arguments": chatting_tool_call["function"]["arguments"]#json.dumps(arguments, ensure_ascii=False)
                     }
                 }
                 if not isinstance(tool_result, str):
@@ -2881,11 +2899,12 @@ class MainWindow(QMainWindow):
                 message, params = preprocessor.prepare_message(tools=True)
                 StrTools.debug_chathistory(message)
                 self.send_request(params)
-                self.update_chat_history()
+                #self.update_chat_history()
                 return
+            except Exception as e:
+                print('Failed function calling:',type(e),e)
                 
-            except json.JSONDecodeError:
-                print("函数参数 JSON 解析失败:", chatting_tool_call["function"]["arguments"])
+            
         
         
         update_info()

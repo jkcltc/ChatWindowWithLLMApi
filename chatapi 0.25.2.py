@@ -2473,7 +2473,7 @@ class MainWindow(QMainWindow):
         self.history_text_view.show()
         self.history_text_view.raise_()
 
-    #更新聊天记录框，会清除用户和AI的输入框
+    #流式处理的末端方法
     def update_chat_history(self, clear=True, new_msg=None,msg_id=''):
         # 清空界面元素
         if clear and not new_msg:
@@ -2523,7 +2523,16 @@ class MainWindow(QMainWindow):
         if user_input == "/bye":
             self.close()
             return
-        self.chathistory.append({'role': 'user', 'content': user_input,'info':{"id":random.randint(100000,999999)}})
+        self.chathistory.append(
+            {
+                'role': 'user', 
+                'content': user_input,
+                'info':{
+                    "id":random.randint(100000,999999),
+                    'time':time.strftime("%Y-%m-%d %H:%M:%S")
+                    }
+            }
+        )
         self.update_chat_history()
         if self.stream_receive:
             self.response=None
@@ -2903,6 +2912,8 @@ class MainWindow(QMainWindow):
                 return
             except Exception as e:
                 print('Failed function calling:',type(e),e)
+                self.return_message = f"Failed function calling: {e}"
+                self.update_response_signal.emit(100000,self.return_message)
                 
             
         

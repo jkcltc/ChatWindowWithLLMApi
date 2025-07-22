@@ -136,7 +136,7 @@ def _read_existing_config():
     api_data = {}
     
     try:
-        if not config.read(API_CONFIG_FILE):
+        if not config.read(API_CONFIG_FILE,encoding='utf-8'):
             raise FileNotFoundError
         
         for api_name in config.sections():

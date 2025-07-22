@@ -79,7 +79,7 @@ class ModelListUpdater:
             return {}
 
         config = configparser.ConfigParser()
-        config.read(config_path)
+        config.read(config_path, encoding='utf-8')
         
         api_configs = {}
         for section in config.sections():
@@ -91,7 +91,7 @@ class ModelListUpdater:
                 print(f"配置解析错误[{section}]: {str(e)}")
         
         return api_configs
-
+    
     @staticmethod
     def _correct_url(url: str) -> str:
         parsed = urllib.parse.urlparse(url)
@@ -694,7 +694,7 @@ class APIConfigWidget(QWidget):
                 
             except Exception as e:
                 QMessageBox.critical(self, "删除错误", f"删除时发生错误: {str(e)}")
-
+                
     def load_config(self) -> None:
         selected_models_map = self.model_map_manager.get_model_map()
         config_path = os.path.join(self.application_path, "api_config.ini")
@@ -706,7 +706,7 @@ class APIConfigWidget(QWidget):
             
         config = configparser.ConfigParser()
         try:
-            config.read(config_path)
+            config.read(config_path, encoding='utf-8')
             
             for section in config.sections():
                 # 处理预设API

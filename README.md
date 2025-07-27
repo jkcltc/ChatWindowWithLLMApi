@@ -71,7 +71,10 @@ git clone https://github.com/jkcltc/ChatWindowWithLLMApi.git
 - 准备音频文件并重命名为 2342.wav，放置于 CosyVoice 安装目录
 - 在主窗口中编辑 TTS 设置（Ctrl+Q 打开设置，左侧标签页第 3 页）
 
-#### edge & sovits  
+#### edge   
+- 已支持  
+
+#### sovits  
 - in plan  
 
 # ChatWindowWithLLMApi

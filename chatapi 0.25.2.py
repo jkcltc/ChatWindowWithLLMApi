@@ -865,11 +865,24 @@ class MessagePreprocessor:
 
     def _handle_user_and_char(self,message):
         message_copy = [dict(item) for item in message]
-        for item in message_copy:
+        if not self.god.name_ai:
+            ai_name=self.god.model_combobox.currentText()
+        else:
+            ai_name=self.god.name_ai
+        if not self.god.name_user:
+            user_name='user'
+        else:
+            user_name=self.god.name_user
+        item=message_copy[0]
+        if item['role']=='system':
             if '{{user}}' in item['content']:
-                item['content']=item['content'].replace('{{user}}',self.god.name_user)
+                item['content']=item['content'].replace('{{user}}',user_name)
             if '{{char}}' in item["content"]:
-                item['content']=item['content'].replace('{{char}}',self.god.name_ai)
+                item['content']=item['content'].replace('{{char}}',ai_name)
+            if '{{model}}' in item['content']:
+                item['content']=item['content'].replace('{{model}}',self.god.model_combobox.currentText())
+            if '{{time}}' in item["content"]:
+                item['content']=item['content'].replace('{{time}}',time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()))
         return message_copy
 
     def _handle_mod_functions(self,message):
@@ -3771,7 +3784,6 @@ class MainWindow(QMainWindow):
                 }
             }
         )
-        self.init_name_to_history()
 
 print(f'Chatapi Main window Class import finished, time cost:{time.time()-start_time_stamp:.2f}s')
 

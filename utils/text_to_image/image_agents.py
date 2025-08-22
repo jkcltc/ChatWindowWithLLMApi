@@ -36,7 +36,6 @@ class ImageAgent(QObject):
     
     def __init__(self, application_path):
         super().__init__()
-        # 完全保留原始变量名和结构
         self.generator_dict = {
             'novita': NovitaAgent,
             'siliconflow': SiliconFlowAgent,
@@ -47,16 +46,13 @@ class ImageAgent(QObject):
         self.application_path = application_path
         self.api_config_path = os.path.join(application_path, 'api_config.ini')
         
-        # 新添加的缓存优化，不影响原始接口
         self._model_cache = {}  # 缓存模型列表
         self._model_map_cache = None  # 缓存全局模型映射
-        
-        # 保留原始gengerators变量但改为缓存用途
+
         self.generators = {}
     
-    # 完全保留原始方法签名和功能
     def set_generator(self, name):
-        """设置当前使用的图片生成器 - 保持原始实现"""
+        """设置当前使用的图片生成器"""
         self.generator_name = name
         
         # 清空之前的生成器连接
@@ -80,19 +76,19 @@ class ImageAgent(QObject):
             self.generator.pull_success.connect(lambda path:print('generator.pull_success',path))
             self.generator.failure.connect(self.failure.emit)
         else:
-            # 保留OtherAgent接口但暂时报错
+            # OtherAgent接口，报错
             self.failure.emit(name, "Provider not supported")
             self.generator = None
     
-    # 完全保留原始方法
+    # 创建主函数
     def create(self, params_dict):
-        """创建图片请求 - 与原始实现相同"""
+        """创建图片请求"""
         if self.generator:
             self.generator.create(
                 self.generator.translate_params(params_dict)
             )
     
-    # 新增方法：获取所有供应商的模型映射
+    # 获取所有供应商的模型映射
     def get_model_map(self):
         """新增：获取所有提供商的模型映射{provider: [models]}"""
         if self._model_map_cache:
@@ -105,14 +101,13 @@ class ImageAgent(QObject):
         self._model_map_cache = model_map
         return model_map
     
-    # 保留原始方法签名和功能
+    # 获取模型列表
     def get_model_list(self, provider):
         """获取指定供应商的模型列表 - 优化缓存"""
         # 优先使用缓存
         if provider in self._model_cache:
             return self._model_cache[provider]
         
-        # 原始逻辑但添加缓存
         if provider in self.generator_dict:  
             try:
                 # 轻量级获取模型列表
@@ -125,21 +120,19 @@ class ImageAgent(QObject):
         else:
             return ['Fail:no model list found']
     
-    # 完全保留原始方法
+    #获取当前模型列表
     def current_model_list(self):
-        """获取当前生成器的模型列表 - 原始实现"""
+        """获取当前生成器的模型列表"""
         if self.generator:
             return self.generator.get_model_list()
         return []
-    
-    # 保留原始方法但优化实现
+
     def update_models(self):
         """更新模型列表 - 优化缓存管理"""
         # 清除所有缓存
         self._model_cache = {}
         self._model_map_cache = None
         
-        # 保持原始循环结构但优化实例使用
         for name in self.generator_dict:
             # 重用现有generators字典中的实例或创建新实例
             if name not in self.generators:
@@ -153,10 +146,11 @@ class ImageAgent(QObject):
                 self.generators[name].pull_success.connect(self.pull_success.emit)
                 self.generators[name].failure.connect(self.failure.emit)
             
-            # 执行模型更新 - 原始逻辑
+            # 执行模型更新
             try:
                 self.generators[name].update_model_list()
                 # 更新缓存
                 self._model_cache[name] = self.generators[name].get_model_list()
             except Exception as e:
                 self.failure.emit(name, f"模型更新失败: {str(e)}")
+

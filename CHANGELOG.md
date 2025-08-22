@@ -1,3 +1,9 @@
+# 0.25.2 in building (25.08.22)  
+--- 
+- 优化、重构了API的模型导入设置界面
+- 系统提示现在支持`{{model}}`:模型ID和`{{time}}`:时间
+
+
 # 0.25.2 in building (25.07.15)  
 ---  
 ## 头像创建  
@@ -7,7 +13,6 @@
   
 ## 特性优化  
 - 优化了纯文本窗口，提高了可读性，一些元素可根据选项更新  
-- 
   
 ## BUG修复  
 - 解决了气泡在流式过程中的异常扩展，缓解了抖动问题  
@@ -42,4 +47,5 @@ Significant code refactoring
 Fixed crash caused by system prompt update window  
 
 - 暗色主题正常工作了  
+
 Dark Theme now functions properly  

@@ -17,13 +17,14 @@ class ChatHistoryTools:
         request_id=100001
         for item in chathistory:
             if not "info" in item:
-                item['info']={'id':request_id}
+                item['info']={'id':str(request_id)}
                 request_id+=1
         if (not 'name' in chathistory[0]['info']) and names:
             chathistory[0]['info']['name']=names
         if (not 'avatar' in chathistory[0]['info']) and avatar:
             chathistory[0]['info']['avatar']=avatar
-        chathistory[0]['info']['id']=999999#system prompt它就应该
+        if chathistory[0]['role']=='system' or chathistory[0]['role']==['developer']:
+            chathistory[0]['info']['id']='system_prompt'
         return chathistory
     
     @staticmethod

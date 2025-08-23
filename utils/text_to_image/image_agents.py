@@ -18,7 +18,7 @@ class ImageApiConfigReader:
             raise AttributeError('api_config should be a .ini file')
         
         config = configparser.ConfigParser()
-        config.read(application_path)
+        config.read(application_path,encoding='utf-8')
         return config[provider_name]['key']
 
     @staticmethod
@@ -27,7 +27,7 @@ class ImageApiConfigReader:
             raise AttributeError('api_config should be a .ini file')
         
         config = configparser.ConfigParser()
-        config.read(application_path)
+        config.read(application_path,encoding='utf-8')
         return config[provider_name]['url']
 
 class ImageAgent(QObject):

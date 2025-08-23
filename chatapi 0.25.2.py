@@ -920,7 +920,11 @@ class MessagePreprocessor:
         params = {
             'model': self.god.model_combobox.currentText(),
             'messages': message,
-            'stream': stream
+            'stream': stream,
+            'extra_headers':{
+                "HTTP-Referer": "https://github.com/jkcltc/ChatWindowWithLLMApi/",
+                "X-Title": "ChatWindowWithLLMApi", #
+            }
         }
         
         # 添加现有参数
@@ -1061,9 +1065,9 @@ class ModConfiger(QTabWidget):
 
 #主类
 class MainWindow(QMainWindow):
-    update_response_signal = pyqtSignal(int,str)
-    ai_response_signal= pyqtSignal(int,str)
-    think_response_signal= pyqtSignal(int,str)
+    update_response_signal = pyqtSignal(str,str)
+    ai_response_signal= pyqtSignal(str,str)
+    think_response_signal= pyqtSignal(str,str)
     back_animation_finished = pyqtSignal()
     update_background_signal= pyqtSignal(str)
 
@@ -1989,7 +1993,7 @@ class MainWindow(QMainWindow):
                 'role': 'user', 
                 'content': user_input,
                 'info':{
-                    "id":random.randint(100000,999999),
+                    "id":str(int(time.time)),
                     'time':time.strftime("%Y-%m-%d %H:%M:%S")
                     }
             }
@@ -2188,6 +2192,11 @@ class MainWindow(QMainWindow):
                 self.thinked=True
                 self.think_response += content.reasoning_content
                 self.think_response_signal.emit(request_id,self.think_response)
+            
+            if hasattr(content, "reasoning") and content.reasoning:
+                self.thinked=True
+                self.think_response += content.reasoning
+                self.think_response_signal.emit(request_id,self.think_response)
 
         def to_serializable(obj):
             """递归将对象转换为可序列化的基本类型（字典/列表/基本类型）"""
@@ -2258,7 +2267,7 @@ class MainWindow(QMainWindow):
                 return {}
 
         StrTools.debug_chathistory(params['messages'])
-        request_id=random.randint(100000,999999)
+        request_id=str(int(time.time()))
         self.thinked=False
         api_provider = self.api_var.currentText()
         client = openai.Client(
@@ -2270,6 +2279,7 @@ class MainWindow(QMainWindow):
         self.think_response = "### AI 思考链\n---\n"
         temp_response = ""
         chatting_tool_call = None
+        flag_id_received_from_completion=False
 
         try:
             content= self.response.choices[0].message
@@ -2286,6 +2296,11 @@ class MainWindow(QMainWindow):
             if self.pause_flag:
                 print('暂停接收')
                 return
+            
+            if not flag_id_received_from_completion:
+                if hasattr(event,'id'):
+                    request_id=event.id
+                    flag_id_received_from_completion=True
 
             if not hasattr(event, "choices") or not event.choices:
                 continue
@@ -3153,13 +3168,13 @@ class MainWindow(QMainWindow):
             # 替换系统背景
             
             self.sysrule=pervious_sysrule+'\n'+LongChatImprovePersetVars.before_last_summary+return_story
-            self.chathistory[0]={"role":"system","content":self.sysrule,'info':{'id':999999}}
+            self.chathistory[0]={"role":"system","content":self.sysrule,'info':{'id':'system_prompt'}}
             self.last_summary=return_story
             print('长对话处理一次,历史记录第一位更新为：',self.chathistory[0]["content"])
             self.autosave_save_chathistory()
         except Exception as e:
             # 如果线程中发生异常，也通过信号通知主线程
-            self.update_response_signal.emit(random.randint(10000,99999),f"Error: {str(e)}")
+            self.update_response_signal.emit(f'error:{int(time.time())}',f"Error: {str(e)}")
             print('长对话优化报错，Error code:',e)
 
     #对话设置，主设置，全局设置
@@ -3692,12 +3707,12 @@ class MainWindow(QMainWindow):
     # 0.24.4 模型并发信号
     def concurrentor_content_receive(self,msg_id,content):
         self.full_response=content
-        self.update_ai_response_text(msg_id,content)
+        self.update_ai_response_text(str(msg_id),content)
 
     def concurrentor_reasoning_receive(self,msg_id,content):
         self.think_response=content
         self.thinked=True
-        self.update_think_response_text(msg_id,content)
+        self.update_think_response_text(str(msg_id),content)
 
     def concurrentor_finish_receive(self,msg_id,content):
         self.last_chat_info = self.concurrent_model.get_concurrentor_info()
@@ -3736,7 +3751,7 @@ class MainWindow(QMainWindow):
     # 头像和历史记录同步更新
     def update_avatar_to_system_prompt(self,name,path):
         if not 'info' in self.chathistory[0]:
-            self.chathistory[0]['info']={"id":999999}#999999固定分配系统提示
+            self.chathistory[0]['info']={"id":'system_prompt'}
         if not 'avatar' in self.chathistory[0]['info']:
             self.chathistory[0]['info']['avatar']={'user':'','assistant':''}#path
         self.chathistory[0]['info']['avatar'][name]=path
@@ -3747,6 +3762,7 @@ class MainWindow(QMainWindow):
             self.chat_history_bubbles.avatars=self.chathistory[0]['info']['avatar']
         else:
             self.chat_history_bubbles.avatars={'user':'','assistant':''}
+            return
         self.chat_history_bubbles.update_all_avatars()
 
     #气泡名称更新
@@ -3761,29 +3777,36 @@ class MainWindow(QMainWindow):
             'assistant':self.name_ai
         }
 
-    
-    #默认头像，用于后续指定
-    def init_avartor_to_history(self):#等一个默认路径
-        self.chathistory[0]['info']['avatar']={
-            'user':'',
-            'assistant':''
-        }
-    
     #创建新消息
     def creat_new_chathistory(self):
-        self.sysrule=self.init_sysrule()
         self.chathistory = []
-        self.chathistory.append(
+        self.init_system_message()
+    
+    #初始化系统提示
+    def init_system_message(self):
+        self.sysrule=self.init_sysrule()
+        ai_avatar_path=os.path.join(self.application_path,'pics','avatar','AI_avatar.png')
+        ai_avatar_path= ai_avatar_path if os.path.exists(ai_avatar_path) else ''
+
+        user_avatar_path=os.path.join(self.application_path,'pics','avatar','USER_avatar.png')
+        user_avatar_path= user_avatar_path if os.path.exists(user_avatar_path) else ''
+        
+        system_message=(
             {
             'role': 'system', 
             'content': self.sysrule,
             'info':{
-                'id':999999,
+                'id':'system_prompt',
                 'name':{'user':self.name_user,'assistant':self.name_ai},
-                'avatar':{'user':'','assistant':''},
+                'avatar':{'user':user_avatar_path,'assistant':ai_avatar_path},
                 }
             }
         )
+        
+        if self.chathistory:
+            self.chathistory[0] = system_message
+        else:
+            self.chathistory.append(system_message)
 
 print(f'Chatapi Main window Class import finished, time cost:{time.time()-start_time_stamp:.2f}s')
 

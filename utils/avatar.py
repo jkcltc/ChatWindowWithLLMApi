@@ -5,6 +5,7 @@ from PyQt5.QtGui import *
 import os,json
 from jsonfinder import jsonfinder
 import copy
+import time
 
 if __name__=='__main__':
     from chat_history_manager import ChatHistoryTools
@@ -902,7 +903,7 @@ class AvatarCreatorWindow(QWidget):
             char_id = self.character_for_map.get(self.character_for.currentText(), "")
             result_path=os.path.join(
                     self.avatar_folder,
-                    f"{self.character_for.currentText()}.jpg"
+                    f"{self.character_for.currentText()}-{int(time.time())}.jpg"
                     )
             self.result_preview.pixmap().save(
                  result_path

@@ -1078,7 +1078,7 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setupUi()
-        self.setWindowTitle("早上好！夜之城！")
+        self.setWindowTitle("CWLA - Chat Window with LLM Api")
         self.setWindowIcon(self.render_svg_to_icon(MAIN_ICON))
         self.tokenpers=CharSpeedAnalyzer()
         self.repeat_processor=RepeatProcessor(self)
@@ -1993,7 +1993,7 @@ class MainWindow(QMainWindow):
                 'role': 'user', 
                 'content': user_input,
                 'info':{
-                    "id":str(int(time.time)),
+                    "id":str(int(time.time())),
                     'time':time.strftime("%Y-%m-%d %H:%M:%S")
                     }
             }
@@ -3802,7 +3802,7 @@ class MainWindow(QMainWindow):
                 }
             }
         )
-        
+
         if self.chathistory:
             self.chathistory[0] = system_message
         else:

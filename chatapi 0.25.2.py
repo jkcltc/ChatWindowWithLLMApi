@@ -174,25 +174,33 @@ user_input = ''
 pause_flag = False  # 暂停标志变量，默认为 False（未暂停）
 
 #tps处理
-class CharSpeedAnalyzer:
+class StatusAnalyzer:
     def __init__(self):
         self.history = deque()  # 存储(time, char_count)的队列
         self.current_rate = 0.0
         self.peak_rate = 0.0     # 速率峰值（绝对值最大）
+        self.model=''
+        self.provider=''
+        self.request_send_time=0.0 #time.time()
+        self.first_token_receive_time=0.0 #time.time()
+
+    def start_record(self,model='',provider='',request_send_time=0):
+        self.history = deque()
+        if model:
+            self.model=model
+        if provider:
+            self.provider=provider
+        self.request_send_time=request_send_time if request_send_time else time.time()
+
 
     def process_input(self, input_str):
         current_time = time.time()
         current_char_count = len(input_str)
 
-        # 移除三秒前的旧数据
-        cutoff_time = current_time - 3
-        while self.history and self.history[0][0] < cutoff_time:
-            self.history.popleft()
-
         # 添加新数据
         self.history.append((current_time, current_char_count))
 
-        # 计算三秒窗口内的平均速率
+        # 当前对话内的平均速率
         if len(self.history) >= 2:
             oldest = self.history[0]
             newest = self.history[-1]
@@ -202,7 +210,7 @@ class CharSpeedAnalyzer:
         else:
             self.current_rate = 0.0
 
-        # 计算三秒窗口内的速率峰值（取绝对值）
+        # 当前对话内的速率峰值（取绝对值）
         self.peak_rate = 0.0
         if len(self.history) >= 2:
             max_speed = 0.0
@@ -222,6 +230,12 @@ class CharSpeedAnalyzer:
 
     def get_peak_rate(self):
         return self.peak_rate
+
+    def get_first_token(self):
+        if self.history:
+            return abs(self.history[0][0]-self.first_token_receive_time)
+        else:
+            return 0
 
 #强制降重
 class RepeatProcessor:
@@ -1080,7 +1094,7 @@ class MainWindow(QMainWindow):
         self.setupUi()
         self.setWindowTitle("CWLA - Chat Window with LLM Api")
         self.setWindowIcon(self.render_svg_to_icon(MAIN_ICON))
-        self.tokenpers=CharSpeedAnalyzer()
+        self.message_status=StatusAnalyzer()
         self.repeat_processor=RepeatProcessor(self)
         self.ordered_model=RandomModelSelecter()
 
@@ -1217,7 +1231,7 @@ class MainWindow(QMainWindow):
         self.init_chat_history_bubbles()
 
         # AI 回复文本框
-        ai_response_label = QLabel("AI 回复：")
+        ai_response_label = QLabel("AI 状态")
         self.ai_response_text = ChatapiTextBrowser()
         self.ai_response_text.anchorClicked.connect(lambda url: os.startfile(url.toString()))
         self.ai_response_text.setOpenExternalLinks(False)
@@ -1982,38 +1996,6 @@ class MainWindow(QMainWindow):
             if not new_msg:
                 self.autosave_save_chathistory()
 
-    #预处理用户输入，并创建发送信息的线程
-    def send_message_toapi(self):
-        user_input = self.user_input_text.toPlainText()
-        if user_input == "/bye":
-            self.close()
-            return
-        self.chathistory.append(
-            {
-                'role': 'user', 
-                'content': user_input,
-                'info':{
-                    "id":str(int(time.time())),
-                    'time':time.strftime("%Y-%m-%d %H:%M:%S")
-                    }
-            }
-        )
-        self.update_chat_history()
-        if self.stream_receive:
-            self.response=None
-            self.previous_response = None
-            self.temp_full_response = ''
-            if self.use_concurrent_model.isChecked():
-                self.send_message_thread_stream()
-            else:
-                thread1 = threading.Thread(target=self.send_message_thread_stream)
-                thread1.start()
-        else:
-            try:
-                threading.Thread(target=self.send_message_thread).start()
-            except Exception as e:
-                print(e)
-
     #更新AI回复
     def update_ai_response_text(self,request_id,content):
         self._handle_update(
@@ -2061,16 +2043,13 @@ class MainWindow(QMainWindow):
     #实施更新
     def perform_ai_actual_update(self,request_id):
         # 更新界面和滚动条
-        actual_response = StrTools.combined_remove_var_vast_replace(self)
-
-        self.ai_response_text.setMarkdown(actual_response)
-        self.update_chat_history(new_msg=actual_response,msg_id=request_id)
-        self.ai_response_text.verticalScrollBar().setValue(
-            self.ai_response_text.verticalScrollBar().maximum()
+        self.ai_response_text.setMarkdown(
+            self.get_status_str()
         )
+        actual_response = StrTools.combined_remove_var_vast_replace(self)
+        self.update_chat_history(new_msg=actual_response,msg_id=request_id)
 
         #0.25.1 气泡
-        #self.chat_history_bubbles.update_bubble(msg_id=request_id,content=self.full_response,streaming='streaming')
         try:
             self.tts_handler.send_tts_request(
                 self.name_ai,
@@ -2081,17 +2060,12 @@ class MainWindow(QMainWindow):
 
         # 更新时间戳
         self.ai_last_update_time = QDateTime.currentDateTime().toMSecsSinceEpoch()
-        self.tokenpers.process_input(self.think_response+self.full_response)
-        self.enforce_lower_repeat.setText("强制去重   "+f"tps: {self.tokenpers.get_current_rate():.2f}|peak: {self.tokenpers.get_peak_rate():.2f}")
+        self.message_status.process_input(self.think_response+self.full_response)
 
     def perform_think_actual_update(self,request_id):
 
         # 更新界面和滚动条
         self.think_text_box.setMarkdown(self.think_response.replace(r'\n','\n'))
-        response_lenth=len(self.think_response)
-        self.ai_response_text.setText("正在思考...\n"+
-                                          '\n已思考字数：'+str(response_lenth)
-                                          )
         self.think_text_box.verticalScrollBar().setValue(
             self.think_text_box.verticalScrollBar().maximum()
         )
@@ -2101,8 +2075,10 @@ class MainWindow(QMainWindow):
         
         # 更新时间戳
         self.think_last_update_time = QDateTime.currentDateTime().toMSecsSinceEpoch()
-        self.tokenpers.process_input(self.think_response+self.full_response)
-        self.enforce_lower_repeat.setText("强制去重   "+f"tps: {self.tokenpers.get_current_rate():.2f}|peak: {self.tokenpers.get_peak_rate():.2f}")
+        self.message_status.process_input(self.think_response+self.full_response)
+        self.ai_response_text.setMarkdown(
+            self.get_status_str()
+        )
 
     #接受信息，信息后处理
     def receive_message(self,request_id,content):
@@ -2276,7 +2252,7 @@ class MainWindow(QMainWindow):
         )
         self.response = client.chat.completions.create(**params)
         self.full_response = ""
-        self.think_response = "### AI 思考链\n---\n"
+        self.think_response = ""
         temp_response = ""
         chatting_tool_call = None
         flag_id_received_from_completion=False
@@ -2557,6 +2533,38 @@ class MainWindow(QMainWindow):
             self.send_button.setEnabled(False)
             self.ai_response_text.setText("已发送，等待回复...")
             self.send_message_toapi()
+
+    #预处理用户输入，并创建发送信息的线程
+    def send_message_toapi(self):
+        user_input = self.user_input_text.toPlainText()
+        if user_input == "/bye":
+            self.close()
+            return
+        self.chathistory.append(
+            {
+                'role': 'user', 
+                'content': user_input,
+                'info':{
+                    "id":str(int(time.time())),
+                    'time':time.strftime("%Y-%m-%d %H:%M:%S")
+                    }
+            }
+        )
+        self.update_chat_history()
+        self.message_status.start_record()
+        if self.stream_receive:
+            self.response=None
+            
+            if self.use_concurrent_model.isChecked():
+                self.send_message_thread_stream()
+            else:
+                thread1 = threading.Thread(target=self.send_message_thread_stream)
+                thread1.start()
+        else:
+            try:
+                threading.Thread(target=self.send_message_thread).start()
+            except Exception as e:
+                print(e)
 
     #尝试连接，未使用
     def try_parse_url(self, url):
@@ -3785,7 +3793,7 @@ class MainWindow(QMainWindow):
             new_path=self.chathistory[0]['info']['avatar']
             )
 
-    
+    #0.25.2
     #初始化系统提示
     def init_system_message(self):
         self.sysrule=self.init_sysrule()
@@ -3811,6 +3819,21 @@ class MainWindow(QMainWindow):
             self.chathistory[0] = system_message
         else:
             self.chathistory.append(system_message)
+
+    #状态分析器
+    def get_status_str(self):
+        model_info=f'''模型:{self.message_status.provider}/{self.message_status.model}'''
+        len_CoT= f"""思维链字数:{len(self.think_response)}\n""" if self.think_response else ''
+        len_CoN= f"""推理字数:{len(self.full_response)}""" if self.full_response else '正在等待思维链结束...'
+        speed=f"tps: {self.message_status.get_current_rate():.2f}|peak: {self.message_status.get_peak_rate():.2f}"
+        latency=f'首token延迟:{self.message_status.get_first_token()*1000}ms'
+        return f'''对话状态
+{model_info}
+{len_CoT}{len_CoN}
+{speed}
+{latency}
+'''
+    
 
 print(f'Chatapi Main window Class import finished, time cost:{time.time()-start_time_stamp:.2f}s')
 

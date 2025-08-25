@@ -3781,6 +3781,10 @@ class MainWindow(QMainWindow):
     def creat_new_chathistory(self):
         self.chathistory = []
         self.init_system_message()
+        self.chat_history_bubbles.update_all_avatars(
+            new_path=self.chathistory[0]['info']['avatar']
+            )
+
     
     #初始化系统提示
     def init_system_message(self):

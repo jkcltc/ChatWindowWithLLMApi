@@ -1430,8 +1430,10 @@ class ChatHistoryWidget(QFrame):
             nickname = self.nicknames.get(role, role.capitalize())
             bubble.update_nickname(nickname)
     
-    def update_all_avatars(self):
+    def update_all_avatars(self,new_path={}):
         """更新所有气泡的头像显示"""
+        if new_path:
+            self.avatars=new_path
         for bubble in self.bubbles.values():
             role = bubble.role
             avatar_path = self.avatars.get(role, '')

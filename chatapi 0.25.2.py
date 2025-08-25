@@ -244,6 +244,15 @@ class StatusAnalyzer:
             return self.first_token_receive_time
         else:
             return 0
+
+    def get_chat_rounds(self,history):
+        return len(history)
+    
+    def get_chat_length(self,history):
+        total_length=0
+        for item in history:
+            total_length+=len(item['content'])
+        return total_length
 #强制降重
 class RepeatProcessor:
     def __init__(self, main_class):
@@ -979,7 +988,6 @@ class MessagePreprocessor:
             
             if function_definitions:
                 params['tools'] = function_definitions
-        print('sending:',params)
         return params
 
 #mod管理器
@@ -2111,7 +2119,7 @@ class MainWindow(QMainWindow):
             self.chathistory.append(last_message)
 
             # AI响应状态栏更新
-            self.ai_response_text.setMarkdown(self.get_status_str()+'\n生成成功结束。')
+            self.ai_response_text.setMarkdown(self.get_status_str(message_finished=True))
 
             # mod后处理
             self.mod_configer.handle_new_message(self.full_response,self.chathistory)
@@ -2130,7 +2138,7 @@ class MainWindow(QMainWindow):
             message, params = preprocessor.prepare_message()
         except Exception as e:
             self.return_message = f"Error in preparing message: {e}"
-            self.update_response_signal.emit(100000,self.return_message)
+            self.update_response_signal.emit('100000',self.return_message)
             return
         if self.use_concurrent_model.isChecked():
             self.concurrent_model.start_workflow(params)
@@ -2141,7 +2149,7 @@ class MainWindow(QMainWindow):
             self.send_request(params)
         except Exception as e:
             self.return_message = f"Error in sending request: {e}"
-            self.update_response_signal.emit(100000,self.return_message)
+            self.update_response_signal.emit('100000',self.return_message)
 
     def send_request(self, params):# 0.25.4 等待重构
         """发送请求并处理流式响应"""
@@ -2376,7 +2384,7 @@ class MainWindow(QMainWindow):
             except Exception as e:
                 print('Failed function calling:',type(e),e)
                 self.return_message = f"Failed function calling: {e}"
-                self.update_response_signal.emit(100000,self.return_message)
+                self.update_response_signal.emit('100000',self.return_message)
                 
             
         
@@ -2397,7 +2405,7 @@ class MainWindow(QMainWindow):
             print('send_message_thread @ full',message)
         except Exception as e:
             self.return_message = f"Error in preparing message: {e}"
-            self.update_response_signal.emit(100000,self.return_message)
+            self.update_response_signal.emit('100000',self.return_message)
             return
 
         # 发送请求并处理响应
@@ -2405,7 +2413,7 @@ class MainWindow(QMainWindow):
             self.send_request(params)
         except Exception as e:
             self.return_message = f"Error in sending request: {e}"
-            self.update_response_signal.emit(100000,self.return_message)
+            self.update_response_signal.emit('100000',self.return_message)
 
     #检查当前消息数是否是否触发最大对话数
     def fix_max_message_rounds(self,max_round_bool=True,max_round=0):
@@ -2791,7 +2799,6 @@ class MainWindow(QMainWindow):
             try:
                 with open(file_path, "w", encoding="utf-8") as file:
                     json.dump(self.chathistory, file, ensure_ascii=False, indent=4)
-                print("聊天记录已保存到", file_path)
             except Exception as e:
                 print('saving chathistory',self.chathistory)
                 QMessageBox.critical(self, "保存失败", f"保存聊天记录时发生错误：{e}")
@@ -3228,7 +3235,7 @@ class MainWindow(QMainWindow):
             self.main_setting_window=MainSettingWindow(config=config)
             self._connect_signal_mcsw_window()
         #自动模型库更新完成后需要更新模型盒子
-        self.main_setting_window.config=config
+        self.main_setting_window.populate_values(config)
         self.main_setting_window.update_api_provider_combo()
         self.main_setting_window.show()
         self.main_setting_window.raise_()
@@ -3837,7 +3844,7 @@ class MainWindow(QMainWindow):
             self.chathistory.append(system_message)
 
     #状态分析器
-    def get_status_str(self):
+    def get_status_str(self,message_finished=False):
         # 表格头部
         header = "| 指标          | 数值                               |\n| :------------ | :--------------------------------- |"
         
@@ -3858,13 +3865,20 @@ class MainWindow(QMainWindow):
             rows.append("| **回复**        | 正在等待思维链结束...")
 
         # 性能指标
-        speed = f"当前 `{self.message_status.get_current_rate():.2f}` / 峰值 `{self.message_status.get_peak_rate():.2f}`"
+        speed = f"平均 `{self.message_status.get_current_rate():.2f}` / 峰值 `{self.message_status.get_peak_rate():.2f}`"
         latency = f"`{int(self.message_status.get_first_token()*1000)}` ms"
         duration = f"`{int(self.message_status.get_completion_time())}` s"
         
         rows.append(f"| **速度 (TPS)**  | {speed}")
         rows.append(f"| **首Token延迟** | {latency}")
         rows.append(f"| **总耗时**      | {duration}")
+        
+        if message_finished:
+            total_rounds=self.message_status.get_chat_rounds(self.chathistory)
+            total_length=self.message_status.get_chat_length(self.chathistory)
+            rows.append(f"| **对话总轮数**      | {total_rounds}")
+            rows.append(f"| **对话总字数**      | {total_length}")
+            rows.append(f"对话成功结束。")
 
         # 将所有行数据补全表格格式并连接
         table_body = "\n".join([f"{row:<20}|" for row in rows])

@@ -330,6 +330,38 @@ class MainSettingWindow(QWidget):
         except ValueError:
             pass
 
+    def populate_values(self,config):
+        """填充控件值的方法"""
+        self.config=config
+        # 最大对话轮数设置
+        self.max_rounds_edit.setText(str(self.config.get('max_message_rounds', 10)))
+        self.max_rounds_slider.setValue(self.config.get('max_message_rounds', 10))
+
+        # 长对话优化设置
+        self.long_chat_checkbox.setChecked(self.config.get('long_chat_improve_var', False))
+        self.placement_combo.setCurrentText(self.config.get('long_chat_placement', '系统提示'))
+        self.include_system_prompt.setChecked(self.config.get('enable_lci_system_prompt', True))
+        self.api_provider_combo.setCurrentText(self.config.get('long_chat_improve_api_provider', ''))
+        self.model_combo.setCurrentText(self.config.get('long_chat_improve_model', ''))
+        self.custom_hint_edit.setText(self.config.get('long_chat_hint', ''))
+        
+        # 参数设置
+        self.top_p_checkbox.setChecked(self.config.get('top_p_enable', False))
+        self.top_p_edit.setText(str(self.config.get('top_p', 0.7)))
+        self.temp_checkbox.setChecked(self.config.get('temperature_enable', False))
+        self.temp_edit.setText(str(self.config.get('temperature', 1.0)))
+        self.penalty_checkbox.setChecked(self.config.get('presence_penalty_enable', False))
+        self.penalty_edit.setText(str(self.config.get('presence_penalty', 0.0)))
+        
+        # 自动替换设置
+        self.autoreplace_checkbox.setChecked(self.config.get('autoreplace_var', False))
+        self.autoreplace_from_edit.setText(self.config.get('autoreplace_from', ''))
+        self.autoreplace_to_edit.setText(self.config.get('autoreplace_to', ''))
+        
+        # 代称设置
+        self.user_name_edit.setText(self.config.get('name_user', '用户'))
+        self.ai_name_edit.setText(self.config.get('name_ai', 'AI'))
+
 if __name__=='__main__':
     app = QApplication(sys.argv)
     

@@ -1205,7 +1205,7 @@ class ChatHistoryWidget(QFrame):
         try:
             new_ids = {msg['info']['id']: msg for msg in history}
         except:
-            print(history)
+            print('new_ids_fail',history)
         
         old_ids = {bubble.msg_id: bubble for bubble in self.bubble_list}
         

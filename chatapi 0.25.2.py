@@ -233,10 +233,17 @@ class StatusAnalyzer:
 
     def get_first_token(self):
         if self.history:
-            return abs(self.history[0][0]-self.first_token_receive_time)
+            self.first_token_receive_time=abs(self.history[0][0]-self.request_send_time)
+            return self.first_token_receive_time
         else:
             return 0
-
+    
+    def get_completion_time(self):
+        if self.history:
+            self.first_token_receive_time=abs(self.history[-1][0]-self.request_send_time)
+            return self.first_token_receive_time
+        else:
+            return 0
 #强制降重
 class RepeatProcessor:
     def __init__(self, main_class):
@@ -972,7 +979,7 @@ class MessagePreprocessor:
             
             if function_definitions:
                 params['tools'] = function_definitions
-        print(params)
+        print('sending:',params)
         return params
 
 #mod管理器
@@ -1954,15 +1961,7 @@ class MainWindow(QMainWindow):
 
     #流式处理的末端方法
     def update_chat_history(self, clear=True, new_msg=None,msg_id=''):
-        # 清空界面元素
-        if clear and not new_msg:
-            self.user_input_text.clear()
-
         buffer = []
-        append = buffer.append
-        total_len = 0
-        max_length = 18000
-        truncated = False  # 截断标志
         if self.name_ai=='':
             role_ai=self.model_combobox.currentText()
         else:
@@ -1972,6 +1971,7 @@ class MainWindow(QMainWindow):
             role_user='user'
         else:
             role_user=self.name_user
+    
 
         if not new_msg:
             self.chat_history_bubbles.streaming_scroll(False)
@@ -2110,15 +2110,17 @@ class MainWindow(QMainWindow):
                 last_message['reasoning_content']=self.think_response
             self.chathistory.append(last_message)
 
-            # 发出信号，通知主线程更新界面
-            responce_text=StrTools.combined_remove_var_vast_replace(self)
-            self.ai_response_text.setMarkdown(responce_text)
+            # AI响应状态栏更新
+            self.ai_response_text.setMarkdown(self.get_status_str()+'\n生成成功结束。')
+
+            # mod后处理
             self.mod_configer.handle_new_message(self.full_response,self.chathistory)
         except Exception as e:
             print(e)
             self.update_response_signal.emit(request_id,f"Error: {str(e)}")
         finally:
             self.send_button.setEnabled(True)
+            print(self.chathistory)
             self.update_chat_history()
 
     #流式接收线程
@@ -2241,6 +2243,16 @@ class MainWindow(QMainWindow):
                 return self.last_chat_info
             except:
                 return {}
+
+        def check_finish_reason(event):
+            try:
+                print(time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()),
+                      'Chat complete, finish reason:',
+                      event.choices[0].finish_reason
+                      )
+            except (AttributeError, IndexError):
+                print(event)
+                return None
 
         StrTools.debug_chathistory(params['messages'])
         request_id=str(int(time.time()))
@@ -2371,6 +2383,7 @@ class MainWindow(QMainWindow):
         
         
         update_info()
+        check_finish_reason(event)
 
         print(f'\n返回长度：{len(self.full_response)}\n思考链长度: {len(self.think_response)}')
         self.update_response_signal.emit(request_id,self.full_response)
@@ -2537,6 +2550,7 @@ class MainWindow(QMainWindow):
     #预处理用户输入，并创建发送信息的线程
     def send_message_toapi(self):
         user_input = self.user_input_text.toPlainText()
+        self.user_input_text.clear()
         if user_input == "/bye":
             self.close()
             return
@@ -2551,7 +2565,10 @@ class MainWindow(QMainWindow):
             }
         )
         self.update_chat_history()
-        self.message_status.start_record()
+        self.message_status.start_record(
+            model=self.model_combobox.currentText(),
+            provider=self.api_var.currentText()
+        )
         if self.stream_receive:
             self.response=None
             
@@ -3822,17 +3839,42 @@ class MainWindow(QMainWindow):
 
     #状态分析器
     def get_status_str(self):
-        model_info=f'''模型:{self.message_status.provider}/{self.message_status.model}'''
-        len_CoT= f"""思维链字数:{len(self.think_response)}\n""" if self.think_response else ''
-        len_CoN= f"""推理字数:{len(self.full_response)}""" if self.full_response else '正在等待思维链结束...'
-        speed=f"tps: {self.message_status.get_current_rate():.2f}|peak: {self.message_status.get_peak_rate():.2f}"
-        latency=f'首token延迟:{self.message_status.get_first_token()*1000}ms'
-        return f'''对话状态
-{model_info}
-{len_CoT}{len_CoN}
-{speed}
-{latency}
-'''
+        # 表格头部
+        header = "| 指标          | 数值                               |\n| :------------ | :--------------------------------- |"
+        
+        rows = []
+        
+        # 模型信息
+        model_info = f"`{self.message_status.provider}/{self.message_status.model}`"
+        rows.append(f"| **模型**        | {model_info}")
+
+        # 思维链 (CoT) 字数
+        if self.think_response:
+            rows.append(f"| **思维链字数**  | `{len(self.think_response)}` 字")
+
+        # 回复 (CoN) 字数或状态
+        if self.full_response:
+            rows.append(f"| **回复字数**    | `{len(self.full_response)}` 字")
+        else:
+            rows.append("| **回复**        | 正在等待思维链结束...")
+
+        # 性能指标
+        speed = f"当前 `{self.message_status.get_current_rate():.2f}` / 峰值 `{self.message_status.get_peak_rate():.2f}`"
+        latency = f"`{int(self.message_status.get_first_token()*1000)}` ms"
+        duration = f"`{int(self.message_status.get_completion_time())}` s"
+        
+        rows.append(f"| **速度 (TPS)**  | {speed}")
+        rows.append(f"| **首Token延迟** | {latency}")
+        rows.append(f"| **总耗时**      | {duration}")
+
+        # 将所有行数据补全表格格式并连接
+        table_body = "\n".join([f"{row:<20}|" for row in rows])
+
+        return f"""## 📊 对话状态
+---
+{header}
+{table_body}
+"""
     
 
 print(f'Chatapi Main window Class import finished, time cost:{time.time()-start_time_stamp:.2f}s')

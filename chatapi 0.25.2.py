@@ -2116,11 +2116,10 @@ class MainWindow(QMainWindow):
             # mod后处理
             self.mod_configer.handle_new_message(self.full_response,self.chathistory)
         except Exception as e:
-            print(e)
+            print('receive fail',e)
             self.update_response_signal.emit(request_id,f"Error: {str(e)}")
         finally:
             self.send_button.setEnabled(True)
-            print(self.chathistory)
             self.update_chat_history()
 
     #流式接收线程
@@ -2251,7 +2250,7 @@ class MainWindow(QMainWindow):
                       event.choices[0].finish_reason
                       )
             except (AttributeError, IndexError):
-                print(event)
+                print('check_finish_reason fail:',event)
                 return None
 
         StrTools.debug_chathistory(params['messages'])
@@ -2395,7 +2394,7 @@ class MainWindow(QMainWindow):
             preprocessor = MessagePreprocessor(self)  # 创建预处理器实例
             preprocessor.stream=False
             message, params = preprocessor.prepare_message()
-            print(message)
+            print('send_message_thread @ full',message)
         except Exception as e:
             self.return_message = f"Error in preparing message: {e}"
             self.update_response_signal.emit(100000,self.return_message)
@@ -2794,7 +2793,7 @@ class MainWindow(QMainWindow):
                     json.dump(self.chathistory, file, ensure_ascii=False, indent=4)
                 print("聊天记录已保存到", file_path)
             except Exception as e:
-                print(self.chathistory)
+                print('saving chathistory',self.chathistory)
                 QMessageBox.critical(self, "保存失败", f"保存聊天记录时发生错误：{e}")
         else:
             QMessageBox.warning(self, "取消保存", "未选择保存路径，聊天记录未保存。")

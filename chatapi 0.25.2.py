@@ -2310,6 +2310,12 @@ class MainWindow(QMainWindow):
 
         for event in self.response:
             if self.pause_flag:
+                try:
+                    self.response.close()
+                except Exception as e:
+                    print('response.close失败，正在强制停止本地接收。',
+                          '\nError Code:',e)
+
                 print('暂停接收')
                 return
             

@@ -326,6 +326,7 @@ class BackgroundSettingsWidget(QWidget):
         self.background_image_path = None
         self.setup_ui()
         self.setup_connections()
+        self.initing=False#信号已经block了，但文件选择框还是触发了
         
     def setup_ui(self):
         # 主窗口设置
@@ -542,7 +543,7 @@ class BackgroundSettingsWidget(QWidget):
         """
         # 使用信号阻塞确保初始化时不触发事件
         self.blockSignals(True)
-        
+        self.initing=True
         # 保存模型映射到实例变量
         self.model_map = settings_dict.get('model_map', {})
         self.image_model_map = settings_dict.get('image_model_map', {})
@@ -608,8 +609,11 @@ class BackgroundSettingsWidget(QWidget):
             else:
                 self.preview_area.clear()
                 self.preview_area.setText("背景预览区域")
+        except Exception as e:
+            print('init background generate fail:',e)
         finally:
             # 解除信号阻塞
+            self.initing=False
             self.blockSignals(False)
 
 
@@ -693,6 +697,8 @@ class BackgroundSettingsWidget(QWidget):
     def on_specify_background_toggled(self, checked):
         """处理指定背景复选框状态变化"""
         # 当选中时选择图片
+        if self.initing:
+            return
         if checked:
             self.enable_update_check.setChecked(False)  # 取消选中后台更新
             file_path, _ = QFileDialog.getOpenFileName(

@@ -174,7 +174,7 @@ class SystemPromptUI(QWidget):
         self.load_file_list()
     
     def load_income_prompt(self,system_prompt,name={}):
-        if self.is_modified:
+        if self.is_modified and system_prompt != self.content_edit.toPlainText():
             # 给用户保存更改的机会
             reply = QMessageBox.question(
                 self,

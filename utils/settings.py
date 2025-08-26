@@ -44,6 +44,12 @@ class SendMethodWindow(QWidget):
         
         self.setLayout(layout)
 
+    def setState(self,state):
+        self.blockSignals(True)
+        self.stream_receive_radio.setChecked(state)
+        self.complete_receive_radio.setChecked(not state)
+        self.blockSignals(False)
+
 class MainSettingWindow(QWidget):
     # 定义所有信号
     max_rounds_changed = pyqtSignal(int)
@@ -87,7 +93,7 @@ class MainSettingWindow(QWidget):
         row+=1
 
         # 最大对话轮数设置
-        grid_layout.addWidget(QLabel("上传对话数"), row, 0)
+        grid_layout.addWidget(QLabel("上传对话数(无上限)"), row, 0)
         self.max_rounds_edit = QLineEdit()
         self.max_rounds_edit.setText(str(self.config.get('max_message_rounds', 10)))
         grid_layout.addWidget(self.max_rounds_edit, row, 1)
@@ -96,7 +102,7 @@ class MainSettingWindow(QWidget):
 
         self.max_rounds_slider = QSlider(Qt.Horizontal)
         self.max_rounds_slider.setMinimum(-1)
-        self.max_rounds_slider.setMaximum(50)
+        self.max_rounds_slider.setMaximum(500)
         self.max_rounds_slider.setValue(self.config.get('max_message_rounds', 10))
         grid_layout.addWidget(self.max_rounds_slider, row, 0, 1, 2)
         
@@ -226,7 +232,7 @@ class MainSettingWindow(QWidget):
         row+=1
 
         # 确认按钮
-        self.confirm_button = QPushButton("确认")
+        self.confirm_button = QPushButton("完成")
         grid_layout.addWidget(self.confirm_button, row, 0, 1, 2)
         
         self.setLayout(grid_layout)
@@ -336,6 +342,9 @@ class MainSettingWindow(QWidget):
         # 最大对话轮数设置
         self.max_rounds_edit.setText(str(self.config.get('max_message_rounds', 10)))
         self.max_rounds_slider.setValue(self.config.get('max_message_rounds', 10))
+
+        #流式设置
+        self.stream_setting.setState(self.config.get('stream_receive',True))
 
         # 长对话优化设置
         self.long_chat_checkbox.setChecked(self.config.get('long_chat_improve_var', False))

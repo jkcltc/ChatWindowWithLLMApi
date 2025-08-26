@@ -1,6 +1,6 @@
 import time
 start_time_stamp=time.time()
-print(f'Chatapi Main window init timer start, time cost:{time.time()-start_time_stamp:.2f}s')
+print(f'CWLA init timer start, time cost:{time.time()-start_time_stamp:.2f}s')
 import concurrent.futures
 import configparser
 import copy
@@ -22,7 +22,7 @@ warnings.filterwarnings("ignore", message="libpng warning: iCCP: known incorrect
 #基础类初始化
 from utils.tools.init_functions import *
 
-print(f'Chatapi Main window iner import finished, time cost:{time.time()-start_time_stamp:.2f}s')
+print(f'CWLA iner import finished, time cost:{time.time()-start_time_stamp:.2f}s')
 
 install_packages()
 
@@ -34,7 +34,7 @@ from PyQt5.QtSvg import *
 import requests
 import openai
 
-print(f'Chatapi Main window 3rd party lib import finished, time cost:{time.time()-start_time_stamp:.2f}s')
+print(f'CWLA 3rd party lib import finished, time cost:{time.time()-start_time_stamp:.2f}s')
 
 #自定义类初始化
 from utils.custom_widget import *
@@ -51,7 +51,7 @@ from utils.online_rag import *
 from utils.avatar import AvatarCreatorWindow
 from utils.background_generate import BackgroundAgent
 
-print(f'Chatapi Main window custom lib import finished, time cost:{time.time()-start_time_stamp:.2f}s')
+print(f'CWLA custom lib import finished, time cost:{time.time()-start_time_stamp:.2f}s')
 
 #自定义插件初始化
 try:
@@ -74,7 +74,7 @@ try:
 except ImportError as e:
     print('主线生成器未挂载')
 
-print(f'Chatapi Main window mod lib import finished, time cost:{time.time()-start_time_stamp:.2f}s')
+print(f'CWLA mod lib import finished, time cost:{time.time()-start_time_stamp:.2f}s')
 
 #路径初始化
 if getattr(sys, 'frozen', False):
@@ -1510,7 +1510,6 @@ class MainWindow(QMainWindow):
         self.think_response_signal.connect(self.update_think_response_text)
         self.thread_event = threading.Event()
         self.installEventFilter(self)
-        self.read_hotkey_config()
         self.bind_enter_key()
         self.update_opti_bar()
 
@@ -1518,7 +1517,7 @@ class MainWindow(QMainWindow):
         self.recover_ui_status()
         #UI创建后
         self.init_post_ui_creation()
-        print(f'Chatapi Main window init finished, time cost:{time.time()-start_time_stamp:.2f}s')
+        print(f'CWLA init finished, time cost:{time.time()-start_time_stamp:.2f}s')
 
     def init_self_params(self):
         self.setting_img = setting_img
@@ -1823,7 +1822,7 @@ class MainWindow(QMainWindow):
             {"上级名称": "系统", "按钮变量名": "self.start_mod_configer", "提示语": "MOD管理器", "执行函数": "self.show_mod_configer"},
             {"上级名称": "记录", "按钮变量名": "self.save_button", "提示语": "保存记录", "执行函数": "self.save_chathistory"},
             {"上级名称": "记录", "按钮变量名": "self.load_button", "提示语": "导入记录", "执行函数": "self.load_chathistory"},
-            {"上级名称": "记录", "按钮变量名": "self.edit_button", "提示语": "修改当前聊天", "执行函数": "self.edit_chathistory"},
+            {"上级名称": "记录", "按钮变量名": "self.edit_button", "提示语": "修改原始记录", "执行函数": "self.edit_chathistory"},
             {"上级名称": "记录", "按钮变量名": "self.analysis_window_button", "提示语": "对话分析", "执行函数": "self.show_analysis_window"},
             {"上级名称": "对话", "按钮变量名": "self.chat_lenth", "提示语": "对话设置", "执行函数": "self.open_max_send_lenth_window"},
             {"上级名称": "对话", "按钮变量名": "self.enforce_chat_opti", "提示语": "强制触发长对话优化", "执行函数": "self.long_chat_improve"},
@@ -2151,6 +2150,27 @@ class MainWindow(QMainWindow):
             self.return_message = f"Error in sending request: {e}"
             self.update_response_signal.emit('100000',self.return_message)
 
+    #完整接受线程
+    def send_message_thread(self):
+        # 预处理消息和参数
+        try:
+            preprocessor = MessagePreprocessor(self)  # 创建预处理器实例
+            preprocessor.stream=False
+            message, params = preprocessor.prepare_message()
+            print('send_message_thread @ full',message)
+        except Exception as e:
+            self.return_message = f"Error in preparing message: {e}"
+            self.update_response_signal.emit('100000',self.return_message)
+            return
+
+        # 发送请求并处理响应
+        try:
+            self.send_request(params)
+        except Exception as e:
+            self.return_message = f"Error in sending request: {e}"
+            self.update_response_signal.emit('100000',self.return_message)
+
+    ###发送请求主函数
     def send_request(self, params):# 0.25.4 等待重构
         """发送请求并处理流式响应"""
         # 处理常规响应内容
@@ -2262,7 +2282,7 @@ class MainWindow(QMainWindow):
                 return None
 
         StrTools.debug_chathistory(params['messages'])
-        request_id=str(int(time.time()))
+        request_id=str(int(time.time())+1)
         self.thinked=False
         api_provider = self.api_var.currentText()
         client = openai.Client(
@@ -2278,6 +2298,7 @@ class MainWindow(QMainWindow):
 
         try:
             content= self.response.choices[0].message
+            request_id=self.response.id
             temp_response += content.content
             handle_response(content,temp_response)
             update_info_none_stream(self.response)
@@ -2385,35 +2406,12 @@ class MainWindow(QMainWindow):
                 print('Failed function calling:',type(e),e)
                 self.return_message = f"Failed function calling: {e}"
                 self.update_response_signal.emit('100000',self.return_message)
-                
-            
-        
-        
+
         update_info()
         check_finish_reason(event)
 
         print(f'\n返回长度：{len(self.full_response)}\n思考链长度: {len(self.think_response)}')
         self.update_response_signal.emit(request_id,self.full_response)
-
-    #完整接受线程
-    def send_message_thread(self):
-        # 预处理消息和参数
-        try:
-            preprocessor = MessagePreprocessor(self)  # 创建预处理器实例
-            preprocessor.stream=False
-            message, params = preprocessor.prepare_message()
-            print('send_message_thread @ full',message)
-        except Exception as e:
-            self.return_message = f"Error in preparing message: {e}"
-            self.update_response_signal.emit('100000',self.return_message)
-            return
-
-        # 发送请求并处理响应
-        try:
-            self.send_request(params)
-        except Exception as e:
-            self.return_message = f"Error in sending request: {e}"
-            self.update_response_signal.emit('100000',self.return_message)
 
     #检查当前消息数是否是否触发最大对话数
     def fix_max_message_rounds(self,max_round_bool=True,max_round=0):
@@ -2611,7 +2609,7 @@ class MainWindow(QMainWindow):
 
     def _handle_api_init(self, config_data: dict={}) -> None:
         """处理配置更新信号"""
-        print(f'Chatapi Main window model update finished, time cost:{time.time()-start_time_stamp:.2f}s')
+        print(f'CWLA model update finished, time cost:{time.time()-start_time_stamp:.2f}s')
         global MODEL_MAP
         if not config_data=={}:
             self.api = {
@@ -2914,12 +2912,6 @@ class MainWindow(QMainWindow):
         else:
             QMessageBox.warning(self,'重传无效','至少需要发送过一次消息')
 
-    #流式设置
-    def open_send_method_window(self):
-        self.send_method_window=SendMethodWindow()
-        # 显示子窗口
-        self.send_method_window.show()
-
     #重写关闭事件，添加自动保存聊天记录和设置
     def closeEvent(self, event):
         """窗口关闭事件"""
@@ -2964,7 +2956,6 @@ class MainWindow(QMainWindow):
                 self.send_message_var = config.getboolean('HotkeyConfig', 'send_message_var')
                 self.autoslide_var = config.getboolean('HotkeyConfig', 'autoslide_var')
                 self.hotkey_sysrule_var=config.getboolean('HotkeyConfig', 'hotkey_sysrule_var')
-                print("配置已从 hot_key.ini 文件中读取。")
             else:
                 print("配置文件中没有找到 HotkeyConfig 部分。")
         except Exception as e:
@@ -3199,7 +3190,7 @@ class MainWindow(QMainWindow):
             # 替换系统背景
             
             self.sysrule=pervious_sysrule+'\n'+LongChatImprovePersetVars.before_last_summary+return_story
-            self.chathistory[0]={"role":"system","content":self.sysrule,'info':{'id':'system_prompt'}}
+            self.chathistory[0]["content"]=self.sysrule
             self.last_summary=return_story
             print('长对话处理一次,历史记录第一位更新为：',self.chathistory[0]["content"])
             self.autosave_save_chathistory()
@@ -3230,6 +3221,7 @@ class MainWindow(QMainWindow):
             'name_user': self.name_user,
             'name_ai': self.name_ai,
             'enable_lci_system_prompt':self.enable_lci_system_prompt,
+            'stream_receive':self.stream_receive,
         }
         if not hasattr(self,"main_setting_window"):
             self.main_setting_window=MainSettingWindow(config=config)
@@ -3530,7 +3522,7 @@ class MainWindow(QMainWindow):
         )
         add_connection(
             self.background_agent.setting_window.updateIntervalChanged,
-            lambda i: setattr(self, 'max_background_rounds', i)
+            lambda i: setattr(self, 'max_background_rounds', i) or self.update_opti_bar()
         )
         add_connection(
             self.background_agent.setting_window.historyLengthChanged,
@@ -3890,7 +3882,7 @@ class MainWindow(QMainWindow):
 """
     
 
-print(f'Chatapi Main window Class import finished, time cost:{time.time()-start_time_stamp:.2f}s')
+print(f'CWLA Class import finished, time cost:{time.time()-start_time_stamp:.2f}s')
 
 def start():
     app = QApplication(sys.argv)
@@ -3899,7 +3891,7 @@ def start():
         ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(appid)
     window = MainWindow()
     window.show()
-    print(f'Chatapi Main window shown on desktop, time cost:{time.time()-start_time_stamp:.2f}s')
+    print(f'CWLA shown on desktop, time cost:{time.time()-start_time_stamp:.2f}s')
     sys.exit(app.exec_())
 
 if __name__=="__main__":

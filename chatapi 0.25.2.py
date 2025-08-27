@@ -2302,7 +2302,6 @@ class MainWindow(QMainWindow):
             temp_response += content.content
             handle_response(content,temp_response)
             update_info_none_stream(self.response)
-            print(f'\n返回长度：{len(self.full_response)}\n思考链长度: {len(self.think_response)}')
             self.update_response_signal.emit(request_id,self.full_response)
             return
         except Exception as e:
@@ -2416,7 +2415,6 @@ class MainWindow(QMainWindow):
         update_info()
         check_finish_reason(event)
 
-        print(f'\n返回长度：{len(self.full_response)}\n思考链长度: {len(self.think_response)}')
         self.update_response_signal.emit(request_id,self.full_response)
 
     #检查当前消息数是否是否触发最大对话数

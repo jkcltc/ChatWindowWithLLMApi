@@ -141,7 +141,7 @@ class FullFunctionRequestHandler(QObject):
     ask_repeat_request=pyqtSignal(str,list) #request id, a list of chat history
 
     #请求结果
-    request_finished=pyqtSignal(str,list) #request id, chat history or None
+    request_finished=pyqtSignal(list) # a list of chat history
 
     def __init__(self):
         super().__init__()
@@ -205,7 +205,6 @@ class FullFunctionRequestHandler(QObject):
             self._handle_stream_request()
 
         self.request_finished.emit(
-            self.request_id,
             self._assembly_result_message()
         )
     
@@ -258,6 +257,15 @@ class FullFunctionRequestHandler(QObject):
             
             return True
         
+        def is_dsuk(obj): # {'url': 'str','key': 'str'}
+            if not isinstance(obj, dict):
+                return False
+            if not 'url' in obj:
+                return False
+            elif not 'key' in obj:
+                return False
+            return True
+
         #检查是否传入了api_config，如果没有，就去仓库找
         if not api_config:
             api_key,url=self._get_api_info(provider)
@@ -280,6 +288,11 @@ class FullFunctionRequestHandler(QObject):
         elif is_dsds(api_config):
             url=api_config[provider]['url']
             api_key=api_config[provider]['key']
+        
+        # {'url': 'str','key': 'str'}
+        elif is_dsuk(api_config):
+            url=api_config['url']
+            api_key=api_config['key']
         
         # 都没找到，报错
         else:
@@ -343,11 +356,18 @@ class FullFunctionRequestHandler(QObject):
             error_msg = f"处理结束原因时出错: {str(e)}"
             self.completion_failed.emit(self.request_id,error_msg)
     
-    def _special_block_handler(self,content,                      #incoming content                     #function to call
-                                  starter='<think>', 
-                                  ender='</think>',
-                                  extra_params=None             #extra params to fullfill
-                                  ):
+    def pause(self):
+        self.pause_flag=True
+
+    def _special_block_handler(
+            self,
+            content,                      #incoming content
+            signal,                       #function to call
+            request_id,
+            starter='<think>', 
+            ender='</think>',
+            extra_params=None,             #extra params to fullfil
+        ):
         """处理自定义块内容"""
         if starter in content :
             content = content.split(starter)[1]
@@ -356,7 +376,7 @@ class FullFunctionRequestHandler(QObject):
             if extra_params:
                 if hasattr(self, extra_params):
                     setattr(self, extra_params, content)
-
+            signal(request_id,content)
             return {"starter":True,"ender":False}
         return {"starter":False,"ender":False}
 
@@ -397,22 +417,22 @@ class FullFunctionRequestHandler(QObject):
         - Qt signals are emitted synchronously from within this method.
         """
         if hasattr(content, "content") and content.content:
-            special_block_handler_result=self._special_block_handler(self,
-                                temp_response,
-                                self.think_response_signal.emit,
-                                self.request_id,
-                                starter='<think>', ender='</think>',
-                                extra_params='think_response'
-                                )
-        if special_block_handler_result["starter"] and special_block_handler_result["ender"]:#如果思考链结束
-            self.ai_event_response.emit(self.request_id,content.content)
-            self.full_response+= content.content
-            self.full_response.replace('</think>\n\n', '')
-            self.ai_response_signal.emit(self.request_id,self.full_response)
-        elif not (special_block_handler_result["starter"]):#如果没有思考链
-            self.ai_event_response.emit(self.request_id,content.content)
-            self.full_response += content.content
-            self.ai_response_signal.emit(self.request_id,self.full_response)
+            special_block_handler_result=self._special_block_handler(
+                temp_response,
+                self.think_response_signal.emit,
+                self.request_id,
+                starter='<think>', ender='</think>',
+                extra_params='think_response'
+            )
+            if special_block_handler_result["starter"] and special_block_handler_result["ender"]:#如果思考链结束
+                self.ai_event_response.emit(self.request_id,content.content)
+                self.full_response+= content.content
+                self.full_response.replace('</think>\n\n', '')
+                self.ai_response_signal.emit(self.request_id,self.full_response)
+            elif not (special_block_handler_result["starter"]):#如果没有思考链
+                self.ai_event_response.emit(self.request_id,content.content)
+                self.full_response += content.content
+                self.ai_response_signal.emit(self.request_id,self.full_response)
 
         # 处理思考链内容
         if hasattr(content, "reasoning_content") and content.reasoning_content:
@@ -476,12 +496,12 @@ class FullFunctionRequestHandler(QObject):
                     "content":self.full_response,
                     'tool_calls':list(self.chatting_tool_call.values()),
                     'reasoning_content':self.think_response,
-                    'info':self._update_info()
+                    'info':self.last_chat_info
                 }
             )
-            for tool_call_item in self.chatting_tool_call:
-                arguments=self._load_tool_arguments(tool_call_item)
-                tool_result = self.function_manager.call_function(arguments)
+            for index,tool_call_item in self.chatting_tool_call.items():
+                tool_call_item['function']['arguments']=self._load_tool_arguments(tool_call_item)
+                tool_result = self.function_manager.call_function(tool_call_item)
                 if not isinstance(tool_result, str):
                     tool_result = json.dumps(tool_result, ensure_ascii=False)
                 chathistory.append(
@@ -646,7 +666,7 @@ class FullFunctionRequestHandler(QObject):
             
             # 检测是否接受过ID，没接收过就尝试解析
             if not flag_id_received_from_completion:
-                if hasattr(event,'id'):
+                if hasattr(event,'id') and event.id:
                     self.request_id=event.id
                     flag_id_received_from_completion=True
 
@@ -686,4 +706,3 @@ class FullFunctionRequestHandler(QObject):
                 'info':self.last_chat_info
             }]
         return message
-        

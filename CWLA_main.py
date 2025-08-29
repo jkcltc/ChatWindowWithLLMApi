@@ -1656,8 +1656,19 @@ class MainWindow(QMainWindow):
             setattr(self,'request_id',id) 
             or 
             setattr(self,'full_response',content)
-        )
-        self.requester.completion_failed.connect(self.update_response_signal.emit)
+            )
+        
+        self.requester.completion_failed.connect(
+            lambda id,content:
+            self.pop_up.show(
+                level='error',
+                text=f'id:{id}\n{content}'
+                )
+            )
+
+        self.requester.request_finished.connect(self.receive_message)
+
+        self.requester.ask_repeat_request.connect(self.resend_message_by_tool)
 
     def init_pop_up(self):
         self.pop_up=ToastManager(self)
@@ -2129,7 +2140,41 @@ class MainWindow(QMainWindow):
             self.get_status_str()
         )
 
+    #打包一个从返回信息中做re替换的方法
+    def _replace_for_receive_message(self,message):
+        for item in message:
+            content=item['content']
+            content = re.sub(r'<think>.*?</think>', '', content, flags=re.DOTALL)
+            if content.startswith("\n\n"):
+                content = content[2:]
+            content = content.replace('</think>', '')
+            content = StrTools.combined_remove_var_vast_replace(self,content=content)
+            item['content']=content
+        return message
+
+
     #接受信息，信息后处理
+    def _receive_message(self,message):
+        try:
+            if self.pause_flag:
+                if self.chathistory and self.chathistory[-1]['role'] == 'user':
+                    self.edit_user_last_question()
+                return
+            message=self._replace_for_receive_message(message)
+            self.chathistory.append(message)
+
+            # AI响应状态栏更新
+            self.ai_response_text.setMarkdown(self.get_status_str(message_finished=True))
+
+            # mod后处理
+            self.mod_configer.handle_new_message(self.full_response,self.chathistory)
+        except Exception as e:
+            print('receive fail',e)
+            self.pop_up.show(level='error',text='receive fail '+str(e))
+        finally:
+            self.send_button.setEnabled(True)
+            self.update_chat_history()
+
     def receive_message(self,request_id,content):
         try:
             if self.pause_flag:
@@ -2469,7 +2514,6 @@ class MainWindow(QMainWindow):
     #发送消息前的预处理，防止报错,触发长文本优化,触发联网搜索
     def sending_rule(self):           
         user_input = self.user_input_text.toPlainText()
-        print('已获取输入：',user_input)
         if self.chathistory[-1]['role'] == "user":
             # 创建一个自定义的 QMessageBox
             msg_box = QMessageBox(self)

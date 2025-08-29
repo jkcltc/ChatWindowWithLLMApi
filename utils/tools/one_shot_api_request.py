@@ -138,7 +138,7 @@ class FullFunctionRequestHandler(QObject):
     report_finish_reason=pyqtSignal(str,str,str) #request id, finish_reason_raw, finish_reason_readable
 
     #要求重新发送对话，可用于工具调用
-    ask_repeat_request=pyqtSignal(str,list) #request id, a list of chat history
+    ask_repeat_request=pyqtSignal(list) # a list of chat history
 
     #请求结果
     request_finished=pyqtSignal(list) # a list of chat history
@@ -512,6 +512,7 @@ class FullFunctionRequestHandler(QObject):
                         'info':tool_call_item
                     }
                 )
+            self.ask_repeat_request.emit(chathistory)
             return chathistory
         except Exception as e:
             print('Failed function calling:',type(e),e)

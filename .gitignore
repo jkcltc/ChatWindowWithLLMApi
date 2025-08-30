@@ -12,3 +12,5 @@ utils/system_prompt_presets/当前对话.json
 background.jpg
 utils/config.ini
 utils/global_presets/MODEL_MAP.json
+/utils/system_prompt_presets
+*.log

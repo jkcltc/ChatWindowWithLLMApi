@@ -52,7 +52,7 @@ from utils.background_generate import BackgroundAgent
 from utils.tools.one_shot_api_request import FullFunctionRequestHandler
 
 #UI组件初始化
-from utils.widgets.pop_up import ToastManager
+from utils.info_module import ToastManager,InfoManager,LogManager
 
 print(f'CWLA custom lib import finished, time cost:{time.time()-start_time_stamp:.2f}s')
 
@@ -1526,7 +1526,7 @@ class MainWindow(QMainWindow):
         self.recover_ui_status()
         #UI创建后
         self.init_post_ui_creation()
-        print(f'CWLA init finished, time cost:{time.time()-start_time_stamp:.2f}s')
+        self.info_manager.log(f'CWLA init finished, time cost:{time.time()-start_time_stamp:.2f}s')
 
     def init_self_params(self):
         self.setting_img = setting_img
@@ -1660,18 +1660,25 @@ class MainWindow(QMainWindow):
         
         self.requester.completion_failed.connect(
             lambda id,content:
-            self.pop_up.show(
+            self.info_manager.notify(
                 level='error',
                 text=f'id:{id}\n{content}'
                 )
             )
 
-        self.requester.request_finished.connect(self.receive_message)
+        self.requester.request_finished.connect(self._receive_message)
 
         self.requester.ask_repeat_request.connect(self.resend_message_by_tool)
 
     def init_pop_up(self):
-        self.pop_up=ToastManager(self)
+        self.info_manager=InfoManager(
+            anchor_widget=self,
+            log_manager=LogManager(
+                name='CWLA',
+                file_path=os.path.join(self.application_path,'cwla_run_time.log')
+                ),
+        )
+        self.info_manager.notify('start up','success')
 
     def init_function_call(self):
         self.function_manager = FunctionManager()
@@ -1863,7 +1870,7 @@ class MainWindow(QMainWindow):
             self.tree_view.setGeometry(0, 0, int(self.width() * 0.3), int(self.height()))
         except Exception as e:
             if not 'past_chat_frame' in str(e):
-                print('changeEvent failed, Error code:',e)
+                self.info_manager.notify(f'changeEvent failed, Error code:{e}','error')
         super().changeEvent(event)
 
     #设置界面：函数库
@@ -2045,7 +2052,7 @@ class MainWindow(QMainWindow):
                     force_remain=True
                 )
             except Exception as e:
-                print('tts_handler.send_tts_request',e)
+                self.info_manager.notify(f'tts_handler.send_tts_request{e}','warning')
 
         else:
             self.chat_history_bubbles.streaming_scroll(True)
@@ -2116,7 +2123,7 @@ class MainWindow(QMainWindow):
                 self.full_response
             )
         except Exception as e:
-            print('tts_handler.send_tts_request',e)
+            self.info_manager.notify(f'tts_handler.send_tts_request{e}','error')
 
         # 更新时间戳
         self.ai_last_update_time = QDateTime.currentDateTime().toMSecsSinceEpoch()
@@ -2161,7 +2168,7 @@ class MainWindow(QMainWindow):
                     self.edit_user_last_question()
                 return
             message=self._replace_for_receive_message(message)
-            self.chathistory.append(message)
+            self.chathistory.extend(message)
 
             # AI响应状态栏更新
             self.ai_response_text.setMarkdown(self.get_status_str(message_finished=True))
@@ -2169,8 +2176,7 @@ class MainWindow(QMainWindow):
             # mod后处理
             self.mod_configer.handle_new_message(self.full_response,self.chathistory)
         except Exception as e:
-            print('receive fail',e)
-            self.pop_up.show(level='error',text='receive fail '+str(e))
+            self.info_manager.notify(level='error',text='receive fail '+str(e))
         finally:
             self.send_button.setEnabled(True)
             self.update_chat_history()
@@ -2210,7 +2216,7 @@ class MainWindow(QMainWindow):
             # mod后处理
             self.mod_configer.handle_new_message(self.full_response,self.chathistory)
         except Exception as e:
-            print('receive fail',e)
+            self.info_manager.notify(f'receive fail{e}','error')
             self.update_response_signal.emit(request_id,f"Error: {str(e)}")
         finally:
             self.send_button.setEnabled(True)
@@ -2223,8 +2229,7 @@ class MainWindow(QMainWindow):
             preprocessor = MessagePreprocessor(self)  # 创建预处理器实例
             message, params = preprocessor.prepare_message()
         except Exception as e:
-            self.return_message = f"Error in preparing message: {e}"
-            self.update_response_signal.emit('100000',self.return_message)
+            self.info_manager.notify('error',f"Error in preparing message: {e}")
             return
         if self.use_concurrent_model.isChecked():
             self.concurrent_model.start_workflow(params)
@@ -2234,275 +2239,15 @@ class MainWindow(QMainWindow):
         try:
             self.send_request(params)
         except Exception as e:
-            self.return_message = f"Error in sending request: {e}"
-            self.update_response_signal.emit('100000',self.return_message)
-
-    #完整接受线程
-    def send_message_thread(self):
-        # 预处理消息和参数
-        try:
-            preprocessor = MessagePreprocessor(self)  # 创建预处理器实例
-            preprocessor.stream=False
-            message, params = preprocessor.prepare_message()
-            print('send_message_thread @ full',message)
-        except Exception as e:
-            self.return_message = f"Error in preparing message: {e}"
-            self.update_response_signal.emit('100000',self.return_message)
-            return
-
-        # 发送请求并处理响应
-        try:
-            self.send_request(params)
-        except Exception as e:
-            self.return_message = f"Error in sending request: {e}"
-            self.update_response_signal.emit('100000',self.return_message)
+            self.info_manager.notify('error',f"Error in preparing message: {e}")
 
     ###发送请求主函数
-    def send_request(self, params):# 0.25.4 等待重构
-        """发送请求并处理流式响应"""
-        # 处理常规响应内容
-        def handle_response(content,temp_response):
-            if hasattr(content, "content") and content.content:
-                special_block_handler_result=StrTools.special_block_handler(self,
-                                    temp_response,
-                                    self.think_response_signal.emit,
-                                    request_id,
-                                    starter='<think>', ender='</think>',
-                                    extra_params='think_response'
-                                    )
-                if special_block_handler_result["starter"] and special_block_handler_result["ender"]:#如果思考链结束
-                    self.full_response+= content.content
-                    self.full_response.replace('</think>\n\n', '')
-                    self.thinked=True
-                    self.ai_response_signal.emit(request_id,self.full_response)
-                elif not (special_block_handler_result["starter"]):#如果没有思考链
-                    self.full_response += content.content
-                    self.ai_response_signal.emit(request_id,self.full_response)
-
-            # 处理思考链内容
-            if hasattr(content, "reasoning_content") and content.reasoning_content:
-                self.thinked=True
-                self.think_response += content.reasoning_content
-                self.think_response_signal.emit(request_id,self.think_response)
-            
-            if hasattr(content, "reasoning") and content.reasoning:
-                self.thinked=True
-                self.think_response += content.reasoning
-                self.think_response_signal.emit(request_id,self.think_response)
-
-        def to_serializable(obj):
-            """递归将对象转换为可序列化的基本类型（字典/列表/基本类型）"""
-            if isinstance(obj, (str, int, float, bool, type(None))):
-                return obj
-            
-            if isinstance(obj, dict):
-                return {k: to_serializable(v) for k, v in obj.items()}
-            
-            if isinstance(obj, list):
-                return [to_serializable(item) for item in obj]
-            
-            if hasattr(obj, '__dict__'):
-                # 处理普通对象
-                return to_serializable(vars(obj))
-            
-            if hasattr(obj, 'model_dump'):
-                # 处理Pydantic v2模型
-                return to_serializable(obj.model_dump())
-            
-            if hasattr(obj, 'dict'):
-                # 处理Pydantic v1模型
-                return to_serializable(obj.dict())
-            
-            # 其他不可识别类型
-            return str(obj)
-        
-        def update_info():
-            if event.usage:
-                # 递归转换所有嵌套结构
-                usage_dict = to_serializable(event.usage)
-                if isinstance(usage_dict, dict):
-                    pass
-                else:
-                    # 如果转换后不是字典（如某些API返回的列表结构）
-                    usage_dict = {'usage_data': usage_dict}
-            else:
-                usage_dict = {}
-            
-            self.last_chat_info = {
-                **usage_dict,
-                "model": event.model,
-                "id":request_id,
-                'time':time.strftime("%Y-%m-%d %H:%M:%S")
-            }
-            return self.last_chat_info
-        def update_info_none_stream(response):
-            try:
-                if response.usage:
-                    # 递归转换所有嵌套结构
-                    usage_dict = to_serializable(response.usage)
-                    if isinstance(usage_dict, dict):
-                        pass
-                    else:
-                        # 如果转换后不是字典（如某些API返回的列表结构）
-                        usage_dict = {'usage_data': usage_dict}
-                else:
-                    usage_dict = {}
-                
-                self.last_chat_info = {
-                    **usage_dict,
-                    "model": response.model,
-                    "id":request_id,
-                    'time':time.strftime("%Y-%m-%d %H:%M:%S")
-                }
-                return self.last_chat_info
-            except:
-                return {}
-
-        def check_finish_reason(event):
-            try:
-                print(time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()),
-                      'Chat complete, finish reason:',
-                      event.choices[0].finish_reason
-                      )
-            except (AttributeError, IndexError):
-                print('check_finish_reason fail:',event)
-                return None
-
-        StrTools.debug_chathistory(params['messages'])
-        request_id=str(int(time.time())+1)
-        self.thinked=False
-        api_provider = self.api_var.currentText()
-        client = openai.Client(
-            api_key=self.api[api_provider][1],
-            base_url=self.api[api_provider][0]
-        )
-        self.response = client.chat.completions.create(**params)
-        self.full_response = ""
-        self.think_response = ""
-        temp_response = ""
-        chatting_tool_call = None
-        flag_id_received_from_completion=False
-
-        try:
-            content= self.response.choices[0].message
-            request_id=self.response.id
-            temp_response += content.content
-            handle_response(content,temp_response)
-            update_info_none_stream(self.response)
-            self.update_response_signal.emit(request_id,self.full_response)
-            return
-        except Exception as e:
-            print('已进入流式状态')
-
-        for event in self.response:
-            if self.pause_flag:
-                try:
-                    self.response.close()
-                except Exception as e:
-                    print('response.close失败，正在强制停止本地接收。',
-                          '\nError Code:',e)
-
-                print('暂停接收')
-                return
-            
-            if not flag_id_received_from_completion:
-                if hasattr(event,'id'):
-                    request_id=event.id
-                    flag_id_received_from_completion=True
-
-            if not hasattr(event, "choices") or not event.choices:
-                continue
-
-            content = getattr(event.choices[0], "delta", None)
-            if not content:
-                continue
-            
-            if hasattr(content, "content") and content.content:
-                temp_response += content.content
-            handle_response(content,temp_response)
-
-            if hasattr(content, "tool_calls") and content.tool_calls:
-                temp_fcalls = content.tool_calls
-                if not chatting_tool_call:
-                    chatting_tool_call={
-                "id": temp_fcalls[0].id,
-                "type": "function",
-                "function": {"name": "", "arguments": ""}
-            }
-                for function_call in temp_fcalls:
-                    returned_function_call = getattr(function_call, "function", '')
-                    returned_name=getattr(returned_function_call, "name", "")
-                    if returned_name:
-                        chatting_tool_call["function"]["name"] += returned_name
-                    returned_arguments=getattr(returned_function_call, "arguments", "")
-                    if returned_arguments:
-                        chatting_tool_call["function"]["arguments"] += returned_arguments
-                        self.think_response += returned_arguments
-                        self.think_response_signal.emit(request_id,self.think_response)
-        if chatting_tool_call and chatting_tool_call["function"]["arguments"]:
-            try:
-                try:
-                    arguments = json.loads(chatting_tool_call["function"]["arguments"])  # 验证 JSON 是否合法
-                    if isinstance(arguments,str):
-                        print('kimi的字符串load结果又来了\n')
-                        import ast
-                        arguments = ast.literal_eval(chatting_tool_call["function"]["arguments"])
-                except json.JSONDecodeError:
-                    print("函数参数 JSON 解析失败:", chatting_tool_call["function"]["arguments"],
-                          '\n尝试python原生导入')
-                    try:
-                        import ast
-                        arguments = ast.literal_eval(chatting_tool_call["function"]["arguments"])
-                    except Exception as e:
-                        arguments=chatting_tool_call["function"]["arguments"]
-                        print('python原生导入也不行','函数调用的时候再救')
-                except Exception as e:
-                    print(f'狗日的救不回来：{e}','函数调用的时候再救')
-
-                full_function_call = {
-                    "id": chatting_tool_call["id"],
-                    "type": chatting_tool_call["type"],
-                    "function": {
-                        "name": chatting_tool_call["function"]["name"],
-                        "arguments": arguments
-                    }
-                }
-                tool_result = self.function_manager.call_function(full_function_call)
-                full_function_call = {
-                    "id": chatting_tool_call["id"],
-                    "type": chatting_tool_call["type"],
-                    "function": {
-                        "name": chatting_tool_call["function"]["name"],
-                        "arguments": chatting_tool_call["function"]["arguments"]#json.dumps(arguments, ensure_ascii=False)
-                    }
-                }
-                if not isinstance(tool_result, str):
-                    tool_result = json.dumps(tool_result, ensure_ascii=False)
-                self.chathistory.append({"role":"assistant",
-                                         "content":self.full_response,
-                                         'tool_calls':[full_function_call],
-                                         'reasoning_content':self.think_response,
-                                         'info':update_info()})
-                self.chathistory.append({"role":"tool",
-                                         "tool_call_id":chatting_tool_call["id"],
-                                         "content":tool_result,
-                                         'info':full_function_call})
-                
-                preprocessor = MessagePreprocessor(self)  # 创建预处理器实例
-                message, params = preprocessor.prepare_message(tools=True)
-                StrTools.debug_chathistory(message)
-                self.send_request(params)
-                #self.update_chat_history()
-                return
-            except Exception as e:
-                print('Failed function calling:',type(e),e)
-                self.return_message = f"Failed function calling: {e}"
-                self.update_response_signal.emit('100000',self.return_message)
-
-        update_info()
-        check_finish_reason(event)
-
-        self.update_response_signal.emit(request_id,self.full_response)
+    def send_request(self, params):
+        self.requester.set_provider(
+            provider=self.api_var.currentText(),
+            api_config=self.api
+            )
+        self.requester.send_request(params)
 
     #检查当前消息数是否是否触发最大对话数
     def fix_max_message_rounds(self,max_round_bool=True,max_round=0):
@@ -2559,27 +2304,33 @@ class MainWindow(QMainWindow):
                 newchat_lenth_bool=len(str(self.chathistory[-self.new_chat_rounds:]))>self.max_segment_length
                 long_chat_improve_bool=message_lenth_bool and newchat_rounds_bool or newchat_lenth_bool
 
-                print('长对话优化日志：',
-                    '\n当前对话次数:',len(self.chathistory)-1,
-                    '\n当前对话长度（包含system prompt）:',full_chat_lenth,
-                    '\n当前新对话轮次:',self.new_chat_rounds,'/',self.max_message_rounds,
-                    '\n新对话长度:',len(str(self.chathistory[-self.new_chat_rounds:])),
-                    '\n触发条件:',
-                    '\n总对话轮数达标:'
-                    '\n对话长度达达到',self.max_total_length,":", message_lenth_bool,
-                    '\n新对话轮次超过限制:', newchat_rounds_bool,
-                    '\n新对话长度超过限制:', newchat_lenth_bool,
-                    '\n触发长对话优化:',long_chat_improve_bool
+                self.info_manager.log(
+                    ''.join(
+                        [
+                            '长对话优化日志：',
+                            '\n当前对话次数:',len(self.chathistory)-1,
+                            '\n当前对话长度（包含system prompt）:',full_chat_lenth,
+                            '\n当前新对话轮次:',self.new_chat_rounds,'/',self.max_message_rounds,
+                            '\n新对话长度:',len(str(self.chathistory[-self.new_chat_rounds:])),
+                            '\n触发条件:',
+                            '\n总对话轮数达标:'
+                            '\n对话长度达达到',self.max_total_length,":", message_lenth_bool,
+                            '\n新对话轮次超过限制:', newchat_rounds_bool,
+                            '\n新对话长度超过限制:', newchat_lenth_bool,
+                            '\n触发长对话优化:',long_chat_improve_bool
+                            ]
+                        ),
+                        level='info'
                     )
                 
                 if long_chat_improve_bool:
                     self.new_chat_rounds=0
-                    print('条件达到,长文本优化已触发')
+                    self.info_manager.notify('条件达到,长文本优化已触发','info')
                     self.long_chat_improve()
             except Exception as e:
-                print("long chat improvement failed, Error code:",e)
+                self.info_manager.notify(f"long chat improvement failed, Error code:{e}",'error')
         if not self.back_ground_update_var:
-            print('背景更新日志:没启动')
+            self.info_manager.log('背景更新日志:没启动')
         if self.back_ground_update_var:
             try:
                 self.new_background_rounds+=2
@@ -2587,7 +2338,8 @@ class MainWindow(QMainWindow):
                 message_lenth_bool=(len(self.chathistory)>self.max_background_rounds or full_chat_lenth>self.max_backgound_lenth)
                 newchat_rounds_bool=self.new_background_rounds>self.max_background_rounds
                 long_chat_improve_bool=message_lenth_bool and newchat_rounds_bool
-                print('背景更新日志：',
+                self.info_manager.log(''.join(
+                        ['背景更新日志：',
                     '\n当前对话次数:',len(self.chathistory)-1,
                     '\n当前对话长度（包含system prompt）:',full_chat_lenth,
                     '\n当前新对话轮次:',self.new_background_rounds,'/',self.max_background_rounds,
@@ -2596,12 +2348,13 @@ class MainWindow(QMainWindow):
                     '\n总对话轮数达标:',
                     '\n对话长度达达到',self.max_backgound_lenth,":", message_lenth_bool,
                     '\n新对话轮次超过限制:', newchat_rounds_bool,
-                    '\n触发背景更新:',long_chat_improve_bool
-                    )
+                    '\n触发背景更新:',long_chat_improve_bool]
+                    ),
+                    level='info')
                 if long_chat_improve_bool:
                     self.new_background_rounds=0
                     
-                    print('条件达到,背景更新已触发')
+                    self.info_manager.notify('条件达到,背景更新已触发')
                     self.call_background_update()
                 
             except Exception as e:
@@ -2664,20 +2417,11 @@ class MainWindow(QMainWindow):
             model=self.model_combobox.currentText(),
             provider=self.api_var.currentText()
         )
-        if self.stream_receive:
-            self.response=None
-            
-            if self.use_concurrent_model.isChecked():
-                self.send_message_thread_stream()
-            else:
-                thread1 = threading.Thread(target=self.send_message_thread_stream)
-                thread1.start()
+        if self.use_concurrent_model.isChecked():
+            self.send_message_thread_stream()
         else:
-            try:
-                threading.Thread(target=self.send_message_thread).start()
-            except Exception as e:
-                print(e)
-
+            thread1 = threading.Thread(target=self.send_message_thread_stream)
+            thread1.start()
     #尝试连接，未使用
     def try_parse_url(self, url):
         try:
@@ -2990,17 +2734,18 @@ class MainWindow(QMainWindow):
         if self.chathistory[-1]["role"]=="user":
             self.user_input_text.setText(self.chathistory[-1]["content"])
             self.chathistory.pop()
-            self.send_message()
         elif self.chathistory[-1]["role"]=="assistant":
             while self.chathistory[-1]["role"]!="user":
                 self.chathistory.pop()
             self.user_input_text.setText(self.chathistory[-1]["content"])
             self.chathistory.pop()
-            self.send_message()
-        elif self.user_input_text.toPlainText():
-            self.send_message()
+        elif not self.user_input_text.toPlainText():
+            QMessageBox.warning(self,'重传无效','空信息')
+            return
         else:
             QMessageBox.warning(self,'重传无效','至少需要发送过一次消息')
+            return
+        self.send_message()
 
     #重写关闭事件，添加自动保存聊天记录和设置
     def closeEvent(self, event):
@@ -3972,8 +3717,12 @@ class MainWindow(QMainWindow):
 """
     
     #0.25.3
-    #def show(self):
-    #    super()
+    def resend_message_by_tool(self,message):
+        self._receive_message(message)
+        self.send_message()
+    def show(self):
+        super().show()
+        self.info_manager.notify(level='success',text='初始化完成')
 print(f'CWLA Class import finished, time cost:{time.time()-start_time_stamp:.2f}s')
 
 def start():

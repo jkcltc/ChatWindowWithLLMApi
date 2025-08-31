@@ -225,7 +225,8 @@ class FullFunctionRequestHandler(QObject):
                 if not isinstance(key, str):
                     return False
                 # 检查值是否为列表
-                if not isinstance(value, list):
+                if not isinstance(value, list) and not isinstance(value, tuple):
+                    print(type(value))
                     return False
                 # 检查列表中的每个元素是否为字符串
                 for item in value:

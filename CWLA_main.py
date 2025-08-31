@@ -2433,7 +2433,7 @@ class MainWindow(QMainWindow):
 
     def _handle_api_init(self, config_data: dict={}) -> None:
         """处理配置更新信号"""
-        self.info_manager.notify(f'模型列表更新成功','success')
+        self.info_manager.log(f'模型列表更新','success')
         global MODEL_MAP
         if not config_data=={}:
             self.api = {

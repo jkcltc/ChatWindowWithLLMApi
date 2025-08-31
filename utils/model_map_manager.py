@@ -705,12 +705,12 @@ class APIConfigWidget(QWidget):
             return
         
         # 执行保存并启动动画
-        if self._validate_and_save(show_message=True):
-            self.status_label.setText("正在保存配置...")
-            self.start_save_animation()
+        self.status_label.setText("正在保存配置...")
+        self.start_save_animation()
 
     def _on_save_animation_finished(self):
         """保存动画完成后关闭窗口"""
+        self._validate_and_save(show_message=True)
         self.save_btn_overlay.hide()
         self.save_in_progress = False
         self.close()

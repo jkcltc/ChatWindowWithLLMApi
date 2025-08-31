@@ -138,7 +138,7 @@ class FullFunctionRequestHandler(QObject):
     report_finish_reason=pyqtSignal(str,str,str) #request id, finish_reason_raw, finish_reason_readable
 
     #要求重新发送对话，可用于工具调用
-    ask_repeat_request=pyqtSignal(list) # a list of chat history
+    ask_repeat_request=pyqtSignal() # 只是要求重新发起对话
 
     #请求结果
     request_finished=pyqtSignal(list) # a list of chat history
@@ -207,7 +207,9 @@ class FullFunctionRequestHandler(QObject):
         self.request_finished.emit(
             self._assembly_result_message()
         )
-    
+        
+        if self.chatting_tool_call:
+            self.ask_repeat_request.emit()
     def set_provider(self,provider,api_config=None):
         def is_dsls(obj):#dict={'str':['str']} dsls: Dict:{String:List['String']}
             """
@@ -427,7 +429,7 @@ class FullFunctionRequestHandler(QObject):
             if special_block_handler_result["starter"] and special_block_handler_result["ender"]:#如果思考链结束
                 self.ai_event_response.emit(self.request_id,content.content)
                 self.full_response+= content.content
-                self.full_response.replace('</think>\n\n', '')
+                self.full_response=self.full_response.replace('</think>\n\n', '')
                 self.ai_response_signal.emit(self.request_id,self.full_response)
             elif not (special_block_handler_result["starter"]):#如果没有思考链
                 self.ai_event_response.emit(self.request_id,content.content)
@@ -453,7 +455,6 @@ class FullFunctionRequestHandler(QObject):
             if not self.chatting_tool_call:
                 self.chatting_tool_call={
                     0:{
-                        'index':0,
                         "id": temp_fcalls[0].id,
                         "type": "function",
                         "function": {"name": "", "arguments": ""}
@@ -488,36 +489,64 @@ class FullFunctionRequestHandler(QObject):
                     self.tool_response += returned_arguments
                     self.tool_response_signal.emit(self.request_id,self.tool_response)
     
-    def _handle_tool_call(self,chathistory):
+    def _handle_tool_call(self, chathistory):
         try:
-            chathistory.append(
-                {
-                    "role":"assistant",
-                    "content":self.full_response,
-                    'tool_calls':list(self.chatting_tool_call.values()),
-                    'reasoning_content':self.think_response,
-                    'info':self.last_chat_info
+            # 1) 构造“给模型看的”tool_calls（保证 arguments 是字符串，且不包含 index）
+            tool_calls_for_msg = []
+            for idx, call in (self.chatting_tool_call or {}).items():
+                args_str = call["function"].get("arguments", "")
+                if not isinstance(args_str, str):
+                    # 若之前被误改成了对象，序列化回字符串，兜底不再报错
+                    try:
+                        args_str = json.dumps(args_str, ensure_ascii=False)
+                    except Exception:
+                        args_str = str(args_str)
+
+                tool_calls_for_msg.append({
+                    "id": call.get("id"),
+                    "type": "function",
+                    "function": {
+                        "name": call["function"].get("name", ""),
+                        "arguments": args_str
+                    }
+                })
+
+            # 先把“assistant 带 tool_calls”的消息压入历史
+            chathistory.append({
+                "role": "assistant",
+                "content": self.full_response or "",
+                "tool_calls": tool_calls_for_msg,
+                 "reasoning_content": self.think_response,
+                 "info": self.last_chat_info
+            })
+
+            # 2) 逐个执行工具（这里用解析后的参数，但不要回写到 tool_calls_for_msg）
+            for _, call in (self.chatting_tool_call or {}).items():
+                parsed_args = self._load_tool_arguments(call)  # 返回 Python 对象
+                call_for_exec = {
+                    "id": call.get("id"),
+                    "type": "function",
+                    "function": {
+                        "name": call["function"].get("name", ""),
+                        "arguments": parsed_args
+                    }
                 }
-            )
-            for index,tool_call_item in self.chatting_tool_call.items():
-                tool_call_item['function']['arguments']=self._load_tool_arguments(tool_call_item)
-                tool_result = self.function_manager.call_function(tool_call_item)
+                tool_result = self.function_manager.call_function(call_for_exec)
                 if not isinstance(tool_result, str):
                     tool_result = json.dumps(tool_result, ensure_ascii=False)
-                chathistory.append(
-                    {
-                        "role":"tool",
-                        "tool_call_id":tool_call_item["id"],
-                        "content":tool_result,
-                        'info':tool_call_item
-                    }
-                )
-            self.ask_repeat_request.emit(chathistory)
+
+                chathistory.append({
+                    "role": "tool",
+                    "tool_call_id": call.get("id"),
+                    "content": tool_result,
+                    'info':call
+                })
+
             return chathistory
+
         except Exception as e:
-            print('Failed function calling:',type(e),e)
-            return_message = f"Failed function calling: {e}"
-            self.completion_failed.emit('FFR-tool_call',return_message)
+            print('Failed function calling:', type(e), e)
+            self.completion_failed.emit('FFR-tool_call', f"Failed function calling: {e}")
 
     def _load_tool_arguments(self,function_call):
         """
@@ -551,25 +580,22 @@ class FullFunctionRequestHandler(QObject):
         - The returned value is **not** guaranteed to be a dictionary; it can be
           any Python object that results from the deserialization steps above.
         """
+
+        raw = function_call.get("function", {}).get("arguments", "")
+        # 默认返回原始
+        arguments = raw
         try:
-            arguments = json.loads(function_call["function"]["arguments"])  # 验证 JSON 是否合法
-            if isinstance(arguments,str):
-                print('kimi的字符串load结果又来了\n')
-                import ast
-                arguments = ast.literal_eval(function_call["function"]["arguments"])
-        except json.JSONDecodeError:
-            print("函数参数 JSON 解析失败:", function_call["function"]["arguments"],
-                  '\n尝试python原生导入',e)
+            # 优先按 JSON 解析
+            arguments = json.loads(raw)
+        except Exception:
             try:
+                # 再尝试 Python 字面量（兼容部分厂商奇葩输出）
                 import ast
-                arguments = ast.literal_eval(function_call["function"]["arguments"])
-            except Exception as e:
-                arguments=function_call["function"]["arguments"]
-                print('python原生导入也不行','函数调用的时候再救',e)
-        except Exception as e:
-            print(f'狗日的救不回来：{e}','函数调用的时候再救',e)
-        finally:
-            return arguments
+                arguments = ast.literal_eval(raw)
+            except Exception:
+                # 都不行就返原始字符串
+                arguments = raw
+        return arguments
 
     def _to_serializable(self,obj):
         """递归将对象转换为可序列化的基本类型（字典/列表/基本类型）"""
@@ -627,10 +653,12 @@ class FullFunctionRequestHandler(QObject):
 
     def _handle_non_stream_request(self):
         try:
-            content= self.response.choices[0].message
-            self.request_id=self.response.id
-            temp_response += content.content
-            self._handle_response(content,temp_response)
+            content = self.response.choices[0].message
+            self.request_id = self.response.id
+            temp_response = ""
+            if getattr(content, "content", None):
+                temp_response += content.content
+            self._handle_response(content, temp_response)
             self._update_info(self.response)
             print(f'\n返回长度：{len(self.full_response)}\n思考链长度: {len(self.think_response)}')
             return

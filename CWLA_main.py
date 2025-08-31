@@ -2222,32 +2222,36 @@ class MainWindow(QMainWindow):
             self.send_button.setEnabled(True)
             self.update_chat_history()
 
-    #流式接收线程
-    def send_message_thread_stream(self):
-        # 预处理消息和参数
-        try:
-            preprocessor = MessagePreprocessor(self)  # 创建预处理器实例
-            message, params = preprocessor.prepare_message()
-        except Exception as e:
-            self.info_manager.notify('error',f"Error in preparing message: {e}")
-            return
-        if self.use_concurrent_model.isChecked():
-            self.concurrent_model.start_workflow(params)
-            return
-
-        # 发送请求并处理响应
-        try:
-            self.send_request(params)
-        except Exception as e:
-            self.info_manager.notify('error',f"Error in preparing message: {e}")
-
     ###发送请求主函数
-    def send_request(self, params):
-        self.requester.set_provider(
-            provider=self.api_var.currentText(),
-            api_config=self.api
-            )
-        self.requester.send_request(params)
+    def send_request(self,create_thread=True):
+        def target():#临时使用，需要重构
+            try:
+                # 预处理消息和参数
+                preprocessor = MessagePreprocessor(self)  # 创建预处理器实例
+                message, params = preprocessor.prepare_message()
+            except Exception as e:
+                self.info_manager.notify(level='error',text=f"Error in preparing message: {e}")
+                return
+            if self.use_concurrent_model.isChecked():
+                self.concurrent_model.start_workflow(params)
+                return
+            
+            # 发送请求并处理响应
+            try:
+                self.requester.set_provider(
+                provider=self.api_var.currentText(),
+                api_config=self.api
+                )
+                self.requester.send_request(params)
+            except Exception as e:
+                self.info_manager.notify(level='error',text=f"Error in sending request: {e}")
+        if create_thread:
+            thread1 = threading.Thread(target=target)
+            thread1.start()
+        else:
+            target()
+
+        
 
     #检查当前消息数是否是否触发最大对话数
     def fix_max_message_rounds(self,max_round_bool=True,max_round=0):
@@ -2417,21 +2421,7 @@ class MainWindow(QMainWindow):
             model=self.model_combobox.currentText(),
             provider=self.api_var.currentText()
         )
-        if self.use_concurrent_model.isChecked():
-            self.send_message_thread_stream()
-        else:
-            thread1 = threading.Thread(target=self.send_message_thread_stream)
-            thread1.start()
-    #尝试连接，未使用
-    def try_parse_url(self, url):
-        try:
-            response = requests.head(url, timeout=5)
-            if response.status_code == 200:
-                return True
-            else:
-                return False
-        except requests.RequestException as e:
-            return False
+        self.send_request(create_thread= not self.use_concurrent_model.isChecked())
 
     #api导入窗口
     def open_api_window(self):
@@ -2443,7 +2433,7 @@ class MainWindow(QMainWindow):
 
     def _handle_api_init(self, config_data: dict={}) -> None:
         """处理配置更新信号"""
-        print(f'CWLA model update finished, time cost:{time.time()-start_time_stamp:.2f}s')
+        self.info_manager.notify(f'模型列表更新成功','success')
         global MODEL_MAP
         if not config_data=={}:
             self.api = {
@@ -2542,7 +2532,31 @@ class MainWindow(QMainWindow):
 
     #绑定快捷键
     def bind_enter_key(self):
-        """根据设置绑定或解绑 Enter 键"""
+        """
+        根据当前设置动态绑定或解绑所有快捷键。
+        功能说明
+        ----------
+        1. 固定快捷键（始终生效）
+            - F11            : 切换全屏 / 正常窗口
+            - Ctrl+N         : 清空聊天记录
+            - Ctrl+O         : 加载聊天记录
+            - Ctrl+S         : 保存聊天记录
+            - Ctrl+M         : 打开mod配置窗口
+            - Ctrl+T         : 打开主题设置窗口
+            - Ctrl+D         : 打开对话设置窗口
+            - Ctrl+B         : 打开背景设置窗口
+        2. 可选快捷键（根据布尔变量动态启用 / 禁用）
+            - Ctrl+Enter     : 发送消息（由 send_message_var 控制）
+            - Tab            : 切换树形视图（由 autoslide_var 控制）
+            - Ctrl+Q         : 同上，切换树形视图
+            - Ctrl+E         : 打开系统提示窗口（由 hotkey_sysrule_var 控制）
+        实现细节
+        ----------
+        - 当对应布尔变量为 True 时，为相应功能创建并绑定 QShortcut。
+        - 当对应布尔变量为 False 且快捷键对象已存在时，将其键序列设为空，
+          从而临时禁用该快捷键，但保留对象以便后续重新绑定。
+        - 方法名虽为 bind_enter_key，但实际负责所有快捷键的绑定与解绑。
+        """
 
         QShortcut(QKeySequence("F11"), self).activated.connect(
             lambda: self.showFullScreen() if not self.isFullScreen() else self.showNormal()
@@ -2668,20 +2682,18 @@ class MainWindow(QMainWindow):
         if file_path:
             with open(file_path, "r", encoding="utf-8") as file:
                 self.chathistory = json.load(file)
-            self.chathistory=ChatHistoryTools.patch_history_0_25_1(self.chathistory,
-                                                                   names={
-                                                                       'user':self.name_user,
-                                                                       'assistant':self.name_ai
-                                                                       },
-                                                                    avatar={
-                                                                       'user':'',
-                                                                       'assistant':''
-                                                                       }
-                                                                    )
+            self.chathistory=ChatHistoryTools.patch_history_0_25_1(
+                    self.chathistory,
+                    names={
+                        'user':self.name_user,
+                        'assistant':self.name_ai
+                        },
+                    avatar={
+                    'user':'',
+                    'assistant':''
+                    }
+                )
             self.update_chat_history()  # 更新聊天历史显示
-            print("聊天记录已导入，当前聊天记录：", file_path,
-                  '\n对话长度',len(self.chathistory),
-                  '\n识别长度',len(self.chathistory[-1]['content']))
             #覆盖两人名字
             self.name_user=self.chathistory[0]['info']['name']['user'     ]
             self.name_ai  =self.chathistory[0]['info']['name']['assistant']
@@ -2692,7 +2704,12 @@ class MainWindow(QMainWindow):
             self.update_opti_bar()
             self.update_avatar_to_chat_bubbles()
             self.update_name_to_chatbubbles()
-        print(f'处理时间:{(time.perf_counter()-load_start_time)*1000:.2f}ms')
+            self.info_manager.notify(
+                f'''聊天记录已导入，当前聊天记录：{file_path}
+对话长度 {len(self.chathistory)},
+识别长度 {len(self.chathistory[-1]['content'])}
+处理时间 {(time.perf_counter()-load_start_time)*1000:.2f}ms''')
+
 
     #编辑记录
     def edit_chathistory(self):
@@ -2734,7 +2751,7 @@ class MainWindow(QMainWindow):
         if self.chathistory[-1]["role"]=="user":
             self.user_input_text.setText(self.chathistory[-1]["content"])
             self.chathistory.pop()
-        elif self.chathistory[-1]["role"]=="assistant":
+        elif self.chathistory[-1]["role"]=="assistant" or self.chathistory[-1]["role"]=="tool":
             while self.chathistory[-1]["role"]!="user":
                 self.chathistory.pop()
             self.user_input_text.setText(self.chathistory[-1]["content"])
@@ -3718,8 +3735,8 @@ class MainWindow(QMainWindow):
     
     #0.25.3
     def resend_message_by_tool(self,message):
-        self._receive_message(message)
-        self.send_message()
+        self._receive_message([])
+        self.send_request()
     def show(self):
         super().show()
         self.info_manager.notify(level='success',text='初始化完成')

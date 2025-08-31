@@ -1,4 +1,4 @@
-# Created by GPT-5 & Gemini 2.5 Pro
+# Created by GPT-5 & Gemini 2.5 Pro, Doc by Kimi k2
 # Introduced in 0.25.3
 from __future__ import annotations
 from PyQt5 import QtCore, QtGui, QtWidgets
@@ -10,7 +10,6 @@ from pathlib import Path
 import queue as _queue
 
 from typing import Any, Dict, Optional, Set, Mapping, Union
-
 class ToastBubble(QtWidgets.QWidget):
     '''
     ===========
@@ -51,9 +50,9 @@ class ToastBubble(QtWidgets.QWidget):
     公开方法
     --------
     setText(text: str)
-        修改显示文本并重新计算尺寸。
+        修改显示文本并重新计算尺寸（稳定的按宽算高）。
     setFixedWidth(w: int)
-        覆盖固定宽度，并将约束同步到内部控件。
+        覆盖固定宽度，并将约束同步到内部控件（稳定的按宽算高）。
     popup(end_pos: QPoint, duration_ms: int | None = None)
         在指定位置 `end_pos` 显示 Toast，带淡入动画与自动关闭计时器。
     shift_to(end_pos: QPoint, animate=True, duration=160)
@@ -70,7 +69,8 @@ class ToastBubble(QtWidgets.QWidget):
     --------
     - 实际绘制发生在内部面板 `_panel`，顶层窗口保持透明，避免闪烁。
     - 所有动画均通过 `DeleteWhenStopped` 自动清理。
-    - Toast 设计为一次性使用；调用 `fade_out` 后会自动删除。
+    - 为避免 Windows 下多行文本触发 setGeometry 日志，内部采用“按宽算高”的稳定几何计算，
+      并在 show 前用 resize 设置最终尺寸，而非 adjustSize。
     '''
     closed = QtCore.pyqtSignal(object)
 
@@ -155,6 +155,8 @@ class ToastBubble(QtWidgets.QWidget):
         if enable_click_to_close:
             self.mousePressEvent = lambda e: self.fade_out()
 
+    # ---------------- 尺寸计算（按宽算高，稳定几何） ----------------
+
     def _apply_panel_style(self):
         self._panel.setStyleSheet(
             """
@@ -166,10 +168,43 @@ class ToastBubble(QtWidgets.QWidget):
             % (self._bg.red(), self._bg.green(), self._bg.blue(), self._bg.alpha(), self._radius)
         )
 
+    def _label_width_for_outer(self, outer_w: int) -> int:
+        sl, st, sr, sb = self._shadow_margins
+        inner_w = max(60, outer_w - sl - sr)
+        l, t, r, b = self._padding
+        return max(1, inner_w - l - r)
+
+    def _height_for_width(self, outer_w: int) -> int:
+        # 计算给定总宽度下的总高度（包含 padding 与 shadow）
+        lw = self._label_width_for_outer(outer_w)
+        lh = self._label.heightForWidth(lw)
+        if lh < 0:
+            fm = self._label.fontMetrics()
+            br = fm.boundingRect(0, 0, lw, 10_000, QtCore.Qt.TextWordWrap, self._label.text() or "")
+            lh = br.height()
+
+        l, t, r, b = self._padding
+        sl, st, sr, sb = self._shadow_margins
+        panel_h = t + lh + b
+        return st + panel_h + sb
+
+    def _sync_size(self, outer_w: int | None = None):
+        if outer_w is None:
+            outer_w = max(self.width(), self.minimumWidth(), 60)
+        h = self._height_for_width(outer_w)
+        # 用 resize，而不是 adjustSize，避免隐藏时对几何“拍板”
+        self.resize(outer_w, h)
+
+    def sizeHint(self):
+        w = max(self.width(), self.minimumWidth(), 60)
+        return QtCore.QSize(w, self._height_for_width(w))
+
+    # ---------------- 公共 API ----------------
+
     def setText(self, text: str):
         self._label.setText(text)
-        self._label.adjustSize()
-        self.adjustSize()
+        # 文本变更后按当前宽度同步几何
+        self._sync_size()
 
     def setFixedWidth(self, w: int):
         # 外层窗口固定宽度
@@ -180,14 +215,10 @@ class ToastBubble(QtWidgets.QWidget):
         inner_w = max(60, w - sl - sr)
         self._panel.setFixedWidth(inner_w)
 
-        l, t, r, b = self._padding
-        self._label.setFixedWidth(max(30, inner_w - l - r))
+        self._label.setFixedWidth(self._label_width_for_outer(w))
 
-        self._label.adjustSize()
-        self.adjustSize()
-
-    def sizeHint(self):
-        return super().sizeHint()
+        # 同步整体尺寸，避免 show 时几何被平台“修正”
+        self._sync_size(w)
 
     # 顶层不再绘制任何内容，避免 layered 更新问题
     def paintEvent(self, e: QtGui.QPaintEvent):
@@ -197,7 +228,9 @@ class ToastBubble(QtWidgets.QWidget):
         if duration_ms is None:
             duration_ms = self._default_duration
 
-        self.adjustSize()
+        # 确保尺寸已是最终值（基于 width 和文本），避免 show 时几何被平台“修正”
+        self._sync_size()
+
         self.move(end_pos)
         self.setWindowOpacity(0.0)
         self.show()
@@ -271,6 +304,7 @@ class ToastBubble(QtWidgets.QWidget):
         self._apply_panel_style()
         self.update()
 
+
 # --------- 子类示例：成功、警告、错误提示 ----------
 class SuccessToast(ToastBubble):
     def __init__(self, parent=None, width=320, duration_ms=2600):
@@ -284,24 +318,26 @@ class SuccessToast(ToastBubble):
             shadow=True,
         )
 
+
 class WarningToast(ToastBubble):
     def __init__(self, parent=None, width=320, duration_ms=3500):
         super().__init__(
             parent=parent,
             width=width,
-            bg_color=QtGui.QColor(216, 144, 0, 235), # Amber color
+            bg_color=QtGui.QColor(216, 144, 0, 235),  # Amber color
             text_color=QtGui.QColor(255, 255, 255, 240),
             radius=10,
             duration_ms=duration_ms,
             shadow=True,
         )
 
+
 class ErrorToast(ToastBubble):
     def __init__(self, parent=None, width=320, duration_ms=5000):
         super().__init__(
             parent=parent,
             width=width,
-            bg_color=QtGui.QColor(180, 40, 40, 235), # Dark red color
+            bg_color=QtGui.QColor(180, 40, 40, 235),  # Dark red color
             text_color=QtGui.QColor(255, 255, 255, 240),
             radius=10,
             duration_ms=duration_ms,
@@ -361,19 +397,18 @@ class ToastManager(QtCore.QObject):
         self._margin = margin
         self._spacing = spacing
         self._max_visible = max_visible
-        # MODIFIED: Map levels to bubble classes
         self._bubble_classes = {
             "info": ToastBubble,
             "success": SuccessToast,
             "warning": WarningToast,
             "error": ErrorToast,
         }
-        
+
         self._toasts = []
         self._anchor.installEventFilter(self)
 
     def registerBubbleClass(self, level: str, cls: type):
-        """Register a custom bubble class for a given level string."""
+        """为给定 level 注册自定义 ToastBubble 子类。"""
         if issubclass(cls, ToastBubble):
             self._bubble_classes[level.lower()] = cls
         else:
@@ -381,34 +416,28 @@ class ToastManager(QtCore.QObject):
 
     def show(self, text: str, level: str = "info", duration_ms: int = None):
         """
-        Creates and shows a toast bubble.
-        
+        创建并显示一条 Toast。
         Args:
-            text (str): The message to display.
-            level (str): The type of toast ('info', 'success', 'warning', 'error').
-                         Defaults to 'info'.
-            duration_ms (int, optional): Duration in milliseconds. If None, uses the
-                                         default duration of the specific toast class.
+            text: 显示文本。
+            level: 'info'|'success'|'warning'|'error'。
+            duration_ms: 覆盖时长；None 则用对应类的默认。
         """
         level = level.lower()
         bubble_cls = self._bubble_classes.get(level, self._bubble_classes["info"])
-        
-        # Instantiate the bubble. We don't pass duration here, so it uses its own default.
-        # The duration passed to popup() below will override it if provided.
+
+        # 不在此处传入 duration；popup() 会用传入的或类默认值。
         bubble = bubble_cls(parent=self._anchor, width=self._width)
         bubble.setText(text)
         bubble.closed.connect(self._on_bubble_closed)
 
         self._toasts.insert(0, bubble)
 
-        # The duration for the popup animation timer.
-        # Priority: 1. `duration_ms` arg -> 2. Bubble's own default
+        # 计算目标位置（内部会先 setFixedWidth 从而稳定几何）
         popup_duration = duration_ms if duration_ms is not None else bubble._default_duration
 
         targets = self._compute_targets()
         for i, tb in enumerate(self._toasts):
             if tb is bubble:
-                # Use the resolved duration for the new bubble
                 tb.popup(targets[i], popup_duration)
             else:
                 tb.shift_to(targets[i], animate=True)
@@ -417,6 +446,9 @@ class ToastManager(QtCore.QObject):
             over = self._toasts[self._max_visible:]
             for tb in over:
                 tb.fade_out()
+
+        # 保险：在进入事件循环后再对齐一次（处理 DPI/字体回退导致的极少数像素误差）
+        QtCore.QTimer.singleShot(0, lambda: self._reflow(animated=False))
 
         return bubble
 
@@ -453,10 +485,9 @@ class ToastManager(QtCore.QObject):
         y_cursor = bottom
         for tb in self._toasts:
             tb.setFixedWidth(self._width)
-            tb.adjustSize()
-
+            # 不再调用 adjustSize；用稳定的 sizeHint（按宽算高）
             W = tb.width()
-            H = tb.sizeHint().height()  # 或 tb.height()；两者均可
+            H = tb.sizeHint().height()
             l, t, r, b = self._shadow_margins_of(tb)
 
             # 让“内容面板”的右、下分别对齐到 right/bottom
@@ -485,7 +516,6 @@ class ToastManager(QtCore.QObject):
         if max_visible is not None:
             self._max_visible = max_visible
         self._reflow(animated=False)
-
 
 # --------- Log管理器 ----------
 # 预定义 SUCCESS 等级（介于 INFO 与 WARNING 之间）
@@ -791,8 +821,8 @@ class InfoManager:
 
     默认路由策略
     ------------
-    - debug/info: 仅写日志，不弹 toast
-    - success/warning/error: 写日志 + 弹 toast
+    - debug: 仅写日志，不弹 toast
+    - info/success/warning/error: 写日志 + 弹 toast
 
     公开 API
     --------

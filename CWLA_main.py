@@ -3734,7 +3734,7 @@ class MainWindow(QMainWindow):
 """
     
     #0.25.3
-    def resend_message_by_tool(self,message):
+    def resend_message_by_tool(self):
         self._receive_message([])
         self.send_request()
     def show(self):

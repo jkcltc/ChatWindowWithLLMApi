@@ -223,7 +223,7 @@ class StatusAnalyzer:
                 delta_time = curr[0] - prev[0]
                 
                 if delta_time > 0:
-                    speed = abs((curr[1] - prev[1]) / delta_time)
+                    speed = max((curr[1] - prev[1]) / delta_time,0)
                     if speed > max_speed:
                         max_speed = speed
             self.peak_rate = max_speed

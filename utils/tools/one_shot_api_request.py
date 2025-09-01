@@ -82,8 +82,8 @@ class APIRequestHandler(QObject):
                 self.reasoning_response_received.emit(content.reasoning_content)
         #try:
         client = openai.Client(
-            api_key=self.api_config['key'],  # 替换为实际的 API 密钥
-            base_url=self.api_config['url']  # 替换为实际的 API 基础 URL
+            api_key=self.api_config['key'], 
+            base_url=self.api_config['url'] 
         )
         try: 
             print('AI回复(流式):',type(messages))

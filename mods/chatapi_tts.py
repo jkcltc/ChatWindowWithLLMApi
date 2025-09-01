@@ -806,7 +806,7 @@ QPushButton {
         # 创建动画组
         self.animation_group = QSequentialAnimationGroup(self)
 
-        # 宽度展开动画（保持原有参数）
+        # 宽度展开动画
         self.width_animation = QPropertyAnimation(self.highlight_overlay, b"geometry")
         self.width_animation.setDuration(400)
         self.width_animation.setEasingCurve(QEasingCurve.OutCubic)

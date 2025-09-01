@@ -164,7 +164,6 @@ class ChatHistoryTextView(QWidget):
         
         self.setLayout(main_layout)
     
-    # 其他方法保持不变（以下方法与前一个版本相同）...
     def _toggle_reasoning(self, state):
         self.show_reasoning = (state == Qt.Checked)
         self._load_chat_history()

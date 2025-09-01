@@ -11,7 +11,6 @@ from PyQt5.QtCore import *
 from PyQt5.QtGui import *
 
 class ModelMapManager:
-    # 保持原有代码不变
     _DEFAULT_FILE_PATH = Path("utils/global_presets/MODEL_MAP.json")
     
     def __init__(self, file_path: str = None):
@@ -63,7 +62,6 @@ class ModelMapManager:
 
 
 class ModelListUpdater:
-    # 保持原有代码不变
     _lock = threading.Lock()
 
     @staticmethod
@@ -212,16 +210,19 @@ class ModelListUpdater:
         return available_models
 
 
-class APIConfigDialogUpdateModelThread(QObject):
-    # 保持原有代码不变
+class APIConfigDialogUpdateModelThread(QThread):
     started_signal = pyqtSignal()
     finished_signal = pyqtSignal(dict)
     error_signal = pyqtSignal(str)
+    def __init__(self,application_path):
+        super().__init__()
+        self.application_path=application_path
+        self.finished_signal.connect(self.deleteLater)
 
-    def run(self, application_path='') -> None:
+    def run(self) -> None:
         try:
             self.started_signal.emit()
-            available_models = ModelListUpdater.update(application_path)
+            available_models = ModelListUpdater.update(self.application_path)
             self.finished_signal.emit(available_models)
         except Exception as e:
             self.error_signal.emit(str(e))
@@ -235,6 +236,8 @@ class APIConfigWidget(QWidget):
     configUpdated = pyqtSignal(dict)
     # 初始化完成时发射，携带可用模型数据（dict格式）
     initializationCompleted = pyqtSignal(dict)
+    # 告知主窗口保存完成
+    notificationRequested=pyqtSignal(str,str) #message,level
 
     def __init__(self, parent: Optional[QWidget] = None, application_path=''):
         super().__init__(parent)
@@ -651,8 +654,10 @@ class APIConfigWidget(QWidget):
     def on_update_models(self) -> None:
         """触发模型库更新（通过线程执行，避免界面卡顿）"""
         self.status_label.setText("正在更新模型库...")
-        # 创建更新线程（实际项目中需实现APIConfigDialogUpdateModelThread）
-        self.update_thread = APIConfigDialogUpdateModelThread()
+        # 创建更新线程
+        self.update_thread = APIConfigDialogUpdateModelThread(
+            application_path=self.application_path, 
+        )
         self.update_thread.started_signal.connect(
             lambda: self.status_label.setText("正在更新模型库..."))
         self.update_thread.finished_signal.connect(self._on_models_updated)  # 更新完成回调
@@ -660,11 +665,7 @@ class APIConfigWidget(QWidget):
             lambda msg: [self.status_label.setText(f"更新出错: {msg}"), self.stop_update_animation()])
         
         # 启动线程执行更新
-        runner = threading.Thread(
-            target=self.update_thread.run, 
-            args=(self.application_path,)
-        )
-        runner.start()
+        self.update_thread.start()
         self.start_update_animation()  # 显示更新动画
 
     def _on_models_updated(self, available_models: Dict[str, List[str]]) -> None:
@@ -710,9 +711,10 @@ class APIConfigWidget(QWidget):
 
     def _on_save_animation_finished(self):
         """保存动画完成后关闭窗口"""
-        self._validate_and_save(show_message=True)
+        config=self._validate_and_save(show_message=True)
         self.save_btn_overlay.hide()
         self.save_in_progress = False
+        self.notificationRequested.emit(f'模型列表更新完成。数量:{sum(map(len, config.values()))}','success')
         self.close()
 
     def add_custom_api(self) -> None:
@@ -942,7 +944,7 @@ class APIConfigWidget(QWidget):
                 
             # 发射配置更新信号
             self.configUpdated.emit(config_data)
-            return True
+            return config_data
             
         except IOError as e:
             QMessageBox.critical(self, "保存失败", f"文件写入失败:\n{str(e)}")

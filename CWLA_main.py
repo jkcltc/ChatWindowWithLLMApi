@@ -2235,7 +2235,10 @@ class MainWindow(QMainWindow):
             if self.use_concurrent_model.isChecked():
                 self.concurrent_model.start_workflow(params)
                 return
-            
+            self.message_status.start_record(
+                model=self.model_combobox.currentText(),
+                provider=self.api_var.currentText()
+            )
             # 发送请求并处理响应
             try:
                 self.requester.set_provider(
@@ -2417,23 +2420,19 @@ class MainWindow(QMainWindow):
             }
         )
         self.update_chat_history()
-        self.message_status.start_record(
-            model=self.model_combobox.currentText(),
-            provider=self.api_var.currentText()
-        )
         self.send_request(create_thread= not self.use_concurrent_model.isChecked())
 
     #api导入窗口
     def open_api_window(self):
-        if not hasattr(self,'self.api_window'):
+        if not hasattr(self,'api_window'):
             self.api_window = APIConfigWidget(application_path=self.application_path)
-            self.api_window.configUpdated.connect(self._handle_api_init)
+            self.api_window.configUpdated.connect(self._handle_api_update)
+            self.api_window.notificationRequested.connect(self.info_manager.notify)
         self.api_window.show()
         self.api_window.raise_()
 
-    def _handle_api_init(self, config_data: dict={}) -> None:
+    def _handle_api_update(self, config_data: dict={}) -> None:
         """处理配置更新信号"""
-        self.info_manager.log(f'模型列表更新','success')
         global MODEL_MAP
         if not config_data=={}:
             self.api = {
@@ -3000,8 +2999,8 @@ class MainWindow(QMainWindow):
             model = self.model_combobox.currentText()
             print('默认长对话优化模型：',model)
         client = openai.Client(
-            api_key=self.api[api_provider][1],  # 替换为实际的 API 密钥
-            base_url=self.api[api_provider][0]  # 替换为实际的 API 基础 URL
+            api_key=self.api[api_provider][1],
+            base_url=self.api[api_provider][0]
         )
         try:
             print("长文本优化：迭代1发送。\n发送内容长度:",len(last_full_story))

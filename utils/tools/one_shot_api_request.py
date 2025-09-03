@@ -149,11 +149,15 @@ class FullFunctionRequestHandler(QObject):
         self.full_response =''
         self.think_response =''
         self.chatting_tool_call=None
-        self.request_id =''
+        self.request_id ='init'
         self.function_manager = FunctionManager()
         self.pause_flag=False
         self.multimodal_content=False
         self.tool_response=''
+        self.last_chat_info={
+                "id":self.request_id,
+                'time':time.strftime("%Y-%m-%d %H:%M:%S")
+            }
   
     def send_request(self,params):
         """
@@ -194,19 +198,23 @@ class FullFunctionRequestHandler(QObject):
         self.tool_response=''
         self.chathistory=params['messages']
         self.chatting_tool_call=None
+        self.pause_flag=False
 
         # 创建请求
         self.response = self.client.chat.completions.create(**params)
-        
-        if not params['stream']:
-            self._handle_non_stream_request()
+        try:
+            if not params['stream']:
+                self._handle_non_stream_request()
 
-        else:
-            self._handle_stream_request()
-
-        self.request_finished.emit(
+            else:
+                self._handle_stream_request()
+            
+            self.request_finished.emit(
             self._assembly_result_message()
-        )
+            )
+        except Exception as e:
+            self.completion_failed.emit(f'Error in sending request/vast: {e}','error')
+        
         
         if self.chatting_tool_call:
             self.ask_repeat_request.emit()
@@ -692,7 +700,7 @@ class FullFunctionRequestHandler(QObject):
                     print('response.close失败，正在强制停止本地接收。',
                           '\nError Code:',e)
                 print('对话已停止。')
-                return
+                break
             
             # 检测是否接受过ID，没接收过就尝试解析
             if not flag_id_received_from_completion:

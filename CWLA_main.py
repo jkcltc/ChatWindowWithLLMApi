@@ -1137,7 +1137,7 @@ class MainWindow(QMainWindow):
         self.init_requester()
 
         # 提示窗口
-        self.init_pop_up()
+        self.init_info_manager()
 
         #function call
         self.init_function_call()
@@ -1285,6 +1285,7 @@ class MainWindow(QMainWindow):
                                             self.send_button.setEnabled(True))[1]
                                         )
         self.pause_button.clicked.connect(lambda _:self.chat_history_bubbles.streaming_scroll(False))
+        self.pause_button.clicked.connect(self.requester.pause)
 
 
         self.clear_button = QPushButton("清空")
@@ -1659,10 +1660,14 @@ class MainWindow(QMainWindow):
             )
         
         self.requester.completion_failed.connect(
+            lambda _,e:self._receive_message([])
+        )
+        
+        self.requester.completion_failed.connect(
             lambda id,content:
             self.info_manager.notify(
+                f'id:{id}\n{content}',
                 level='error',
-                text=f'id:{id}\n{content}'
                 )
             )
 
@@ -1670,7 +1675,7 @@ class MainWindow(QMainWindow):
 
         self.requester.ask_repeat_request.connect(self.resend_message_by_tool)
 
-    def init_pop_up(self):
+    def init_info_manager(self):
         self.info_manager=InfoManager(
             anchor_widget=self,
             log_manager=LogManager(
@@ -1678,7 +1683,6 @@ class MainWindow(QMainWindow):
                 file_path=os.path.join(self.application_path,'cwla_run_time.log')
                 ),
         )
-        self.info_manager.notify('start up','success')
 
     def init_function_call(self):
         self.function_manager = FunctionManager()
@@ -2163,10 +2167,6 @@ class MainWindow(QMainWindow):
     #接受信息，信息后处理
     def _receive_message(self,message):
         try:
-            if self.pause_flag:
-                if self.chathistory and self.chathistory[-1]['role'] == 'user':
-                    self.edit_user_last_question()
-                return
             message=self._replace_for_receive_message(message)
             self.chathistory.extend(message)
 
@@ -3744,7 +3744,7 @@ print(f'CWLA Class import finished, time cost:{time.time()-start_time_stamp:.2f}
 def start():
     app = QApplication(sys.argv)
     if sys.platform == 'win32':
-        appid = 'chatapi.0.25.1'
+        appid = 'CWLA 0.25.3'
         ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(appid)
     window = MainWindow()
     window.show()

@@ -201,8 +201,8 @@ class FullFunctionRequestHandler(QObject):
         self.pause_flag=False
 
         # 创建请求
-        self.response = self.client.chat.completions.create(**params)
         try:
+            self.response = self.client.chat.completions.create(**params)
             if not params['stream']:
                 self._handle_non_stream_request()
 
@@ -214,7 +214,7 @@ class FullFunctionRequestHandler(QObject):
             )
         except Exception as e:
             self.completion_failed.emit(f'Error in sending request/vast: {e}','error')
-        
+            return
         
         if self.chatting_tool_call:
             self.ask_repeat_request.emit()

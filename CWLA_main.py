@@ -1653,27 +1653,19 @@ class MainWindow(QMainWindow):
 
         # 对话生成失败
         self.requester.completion_failed.connect(
-            lambda id,content:
-            setattr(self,'request_id',id) 
-            or 
-            setattr(self,'full_response',content)
-            )
-        
-        self.requester.completion_failed.connect(
-            lambda _,e:self._receive_message([])
-        )
-        
-        self.requester.completion_failed.connect(
-            lambda id,content:
-            self.info_manager.notify(
-                f'id:{id}\n{content}',
-                level='error',
-                )
+            self._requester_completion_failed
             )
 
         self.requester.request_finished.connect(self._receive_message)
 
         self.requester.ask_repeat_request.connect(self.resend_message_by_tool)
+
+    @pyqtSlot(str, str)
+    def _requester_completion_failed(self, id_, content):
+        self.request_id = id_
+        self.full_response = content
+        self.info_manager.notify(f'{content}\n{id_}', level='error')
+        self._receive_message([])
 
     def init_info_manager(self):
         self.info_manager=InfoManager(
@@ -2225,13 +2217,8 @@ class MainWindow(QMainWindow):
     ###发送请求主函数
     def send_request(self,create_thread=True):
         def target():#临时使用，需要重构
-            try:
-                # 预处理消息和参数
-                preprocessor = MessagePreprocessor(self)  # 创建预处理器实例
-                message, params = preprocessor.prepare_message()
-            except Exception as e:
-                self.info_manager.notify(level='error',text=f"Error in preparing message: {e}")
-                return
+            preprocessor = MessagePreprocessor(self)  # 创建预处理器实例
+            message, params = preprocessor.prepare_message()
             if self.use_concurrent_model.isChecked():
                 self.concurrent_model.start_workflow(params)
                 return
@@ -2239,20 +2226,19 @@ class MainWindow(QMainWindow):
                 model=self.model_combobox.currentText(),
                 provider=self.api_var.currentText()
             )
-            # 发送请求并处理响应
-            try:
-                self.requester.set_provider(
-                provider=self.api_var.currentText(),
-                api_config=self.api
-                )
-                self.requester.send_request(params)
-            except Exception as e:
-                self.info_manager.notify(level='error',text=f"Error in sending request: {e}")
-        if create_thread:
-            thread1 = threading.Thread(target=target)
-            thread1.start()
-        else:
-            target()
+            self.requester.set_provider(
+            provider=self.api_var.currentText(),
+            api_config=self.api
+            )
+            self.requester.send_request(params)
+        try:
+            if create_thread:
+                thread1 = threading.Thread(target=target)
+                thread1.start()
+            else:
+                target()
+        except Exception as e:
+            self.info_manager.notify(f"Error in sending request: {e}",level='error')
 
         
 

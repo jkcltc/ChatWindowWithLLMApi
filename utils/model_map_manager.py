@@ -714,7 +714,10 @@ class APIConfigWidget(QWidget):
         config=self._validate_and_save(show_message=True)
         self.save_btn_overlay.hide()
         self.save_in_progress = False
-        self.notificationRequested.emit(f'模型列表更新完成。数量:{sum(map(len, config.values()))}','success')
+        self.notificationRequested.emit(
+            f'模型列表更新完成。数量:{sum(len(provider['models']) for provider in config.values())}',
+            'success'
+            )
         self.close()
 
     def add_custom_api(self) -> None:

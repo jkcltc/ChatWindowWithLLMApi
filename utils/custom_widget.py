@@ -1201,59 +1201,80 @@ class ChatHistoryWidget(QFrame):
         :param history: 新的聊天历史记录列表
         """
         # 创建新历史记录的ID到内容的映射
-        history=history[-30:]#优化不动，先截了
         try:
-            new_ids = {msg['info']['id']: msg for msg in history}
-        except:
-            print('new_ids_fail',history)
-        
-        old_ids = {bubble.msg_id: bubble for bubble in self.bubble_list}
-        
-        
-        # 识别要更新的消息和要删除的消息
-        to_update = []
-        to_remove = []
-        
-        # 检查新历史中的每条消息
-        for new_msg in history:
-            msg_id = new_msg['info']['id']
-            # 如果消息在旧历史中存在且内容不同
-            if msg_id in old_ids and (new_msg['content'] != old_ids[msg_id].getcontent() or new_msg['info'] != old_ids[msg_id].getinfo()):
-                to_update.append(new_msg)
-        
-        # 检查旧历史中哪些消息不再存在
-        for msg_id in old_ids:
-            if msg_id not in new_ids:
-                to_remove.append(msg_id)
-        
-        # 移除不再需要的消息
-        for msg_id in to_remove:
-            self.pop_bubble(msg_id)
-        
-        # 更新内容不同的消息
-        for updated_msg in to_update:
-            self.update_bubble(
-                msg_id=updated_msg['info']['id'],
-                content=updated_msg['content'],
-                reasoning_content=updated_msg.get('reasoning_content', ''),
-                info=updated_msg['info']
-            )
-        
-        # 找出要添加的新消息
-        existing_msg_ids = [bubble.msg_id for bubble in self.bubble_list]
-        new_messages = [msg for msg in history if msg['info']['id'] not in existing_msg_ids]
-        
-        # 添加新消息
-        for new_msg in new_messages:
-            self.add_message(new_msg)
+            history=history[-30:]#优化不动，先截了
+            try:
+                new_ids = {msg['info']['id']: msg for msg in history}
+            except:
+                print('new_ids_fail',history)
+            h1=history
+            old_ids = {bubble.msg_id: bubble for bubble in self.bubble_list}
             
-        # 确保气泡按历史顺序排列
-        self._reorder_bubbles(history)
+            
+            # 识别要更新的消息和要删除的消息
+            to_update = []
+            to_remove = []
+            h2=history
+            # 检查新历史中的每条消息
+            for new_msg in history:
+                msg_id = new_msg['info']['id']
+                # 如果消息在旧历史中存在且内容不同
+                if msg_id in old_ids and (new_msg['content'] != old_ids[msg_id].getcontent() or new_msg['info'] != old_ids[msg_id].getinfo()):
+                    to_update.append(new_msg)
+            
+            # 检查旧历史中哪些消息不再存在
+            for msg_id in old_ids:
+                if msg_id not in new_ids:
+                    to_remove.append(msg_id)
+            
+            # 移除不再需要的消息
+            for msg_id in to_remove:
+                self.pop_bubble(msg_id)
+            
+            # 更新内容不同的消息
+            for updated_msg in to_update:
+                self.update_bubble(
+                    msg_id=updated_msg['info']['id'],
+                    content=updated_msg['content'],
+                    reasoning_content=updated_msg.get('reasoning_content', ''),
+                    info=updated_msg['info']
+                )
+            
+            # 找出要添加的新消息
+            h3=history
+            existing_msg_ids = [bubble.msg_id for bubble in self.bubble_list]
+            new_messages = [msg for msg in history if msg['info']['id'] not in existing_msg_ids]
+            
+            # 添加新消息
+            for new_msg in new_messages:
+                self.add_message(new_msg)
+                
+            # 确保气泡按历史顺序排列
+            self._reorder_bubbles(history)
 
-        msg_id=history[-1]['info']['id']
-        self.content_layout.update()
-        
-        QTimer.singleShot(300, self.scroll_to_bottom)
+            h4=history
+
+            msg_id=history[-1]['info']['id']
+            self.content_layout.update()
+            
+            QTimer.singleShot(300, self.scroll_to_bottom)
+        except Exception as e:
+            with open('chat_history_error_h1.json', 'w', encoding='utf-8') as f:
+                json.dump(h1, f, ensure_ascii=False, indent=2)
+                print(e,'\nset chat history fail,payload dumped to chat_history_error_h1.json')
+            with open('chat_history_error_h2.json', 'w', encoding='utf-8') as f:
+                json.dump(h2, f, ensure_ascii=False, indent=2)
+                print('set chat history fail,payload dumped to chat_history_error_h2.json')
+            if not hasattr('h3'):
+                return
+            with open('chat_history_error_h3.json', 'w', encoding='utf-8') as f:
+                json.dump(h3, f, ensure_ascii=False, indent=2)
+                print('set chat history fail,payload dumped to chat_history_error_h3.json')
+            if not hasattr('h4'):
+                return
+            with open('chat_history_error_h4.json', 'w', encoding='utf-8') as f:
+                json.dump(h4, f, ensure_ascii=False, indent=2)
+                print('set chat history fail,payload dumped to chat_history_error_h4.json')
 
     def _reorder_bubbles(self, history):
         """

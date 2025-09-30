@@ -792,7 +792,8 @@ class MessagePreprocessor:
         message = self._handle_user_and_char(message)
         message = self._handle_mod_functions(message)
         message = self._purge_message(message)
-        params = self._build_request_params(message,stream=self.stream,tools=tools)
+        params  = self._build_request_params(message,stream=self.stream,tools=tools)
+        params  = self._handle_provider_patch(params)
         print(f'发送长度: {len(str(message))}')
         print(f'处理时间:{(time.perf_counter()-start)*1000:.2f}ms')
         return message, params
@@ -948,16 +949,40 @@ class MessagePreprocessor:
         message_copy=self.god.mod_configer.story_creator.process_income_chat_history(message)
         return message_copy
 
+    # 0.25.4 enable_thinking
+    def _handle_provider_patch(self,params):
+        # url作为判断供应商的标识
+        url=self.god.api[self.god.api_var.currentText()][0]
+        
+        # 动态CoT
+        if 'enable_thinking' in params:
+            enable_thinking=params['enable_thinking']
+        
+            if 'silicon' in url:
+                pass
+            #openrouter
+            if 'openrouter' in url:
+                print('reasoned',enable_thinking)
+                del params['enable_thinking']
+                params["reasoning"]= {
+                    "exclude": False,
+                    "enabled": enable_thinking
+                }
+
+        # 使用者
+        if 'openrouter' in url:
+            params['extra_headers']={
+                "HTTP-Referer": "https://github.com/jkcltc/ChatWindowWithLLMApi/",
+                "X-Title": "ChatWindowWithLLMApi-CWLA",
+            } 
+        return params
+
     def _build_request_params(self, message, stream=True,tools=False):
         """构建请求参数（含Function Call支持）"""
         params = {
             'model': self.god.model_combobox.currentText(),
             'messages': message,
-            'stream': stream,
-            'extra_headers':{
-                "HTTP-Referer": "https://github.com/jkcltc/ChatWindowWithLLMApi/",
-                "X-Title": "ChatWindowWithLLMApi", #
-            }
+            'stream': stream
         }
         
         # 添加现有参数
@@ -968,6 +993,10 @@ class MessagePreprocessor:
         if self.god.presence_penalty_enable:
             params['presence_penalty'] = float(self.god.presence_penalty)
         
+        # 打开思考功能
+        if self.god.thinking_enabled:
+            params['enable_thinking']=True
+
         if hasattr(self.god, 'function_chooser') and self.god.function_chooser:
             selected_names = self.god.function_chooser.get_selected_functions()
         
@@ -1300,15 +1329,19 @@ class MainWindow(QMainWindow):
         self.edit_message_button=QPushButton("原始记录")
         self.edit_message_button.clicked.connect(self.edit_chathistory)
 
-        self.web_search_button=SearchButton("启用联网搜索")
+        self.web_search_button=SearchButton("联网搜索")
         self.web_search_button.setChecked(self.web_search_enabled)
         self.web_search_button.toggled.connect(self.handel_web_search_button_toggled)
+
+        self.enable_thinking_button=SearchButton('深度思考')
+        self.enable_thinking_button.setChecked(self.thinking_enabled)
+        self.enable_thinking_button.toggled.connect(lambda state:setattr(self,'thinking_enabled',state))
 
         separators = [QFrame() for _ in range(3)]
         for sep in separators:
             sep.setFrameShape(QFrame.VLine)
             sep.setFrameShadow(QFrame.Sunken)
-        self.control_frame_layout.addWidget(self.send_button,           0, 0,  1, 14)
+        self.control_frame_layout.addWidget(self.send_button,           0, 0,  1, 15)
         self.control_frame_layout.addWidget(self.pause_button,          1, 0,  2, 2)
         self.control_frame_layout.addWidget(self.clear_button,          1, 2,  2, 2)
         self.control_frame_layout.addWidget(separators[0],              1, 4,  2, 1)
@@ -1317,7 +1350,8 @@ class MainWindow(QMainWindow):
         self.control_frame_layout.addWidget(self.edit_question_button,  1, 8,  2, 2)
         self.control_frame_layout.addWidget(self.edit_message_button,   1, 10, 2, 2)
         self.control_frame_layout.addWidget(separators[2],              1, 12, 2, 1)
-        self.control_frame_layout.addWidget(self.web_search_button,     1, 13, 2, 1)
+        self.control_frame_layout.addWidget(self.enable_thinking_button,1, 13, 2, 1)
+        self.control_frame_layout.addWidget(self.web_search_button,     1, 14, 2, 1)
 
         self.main_layout.addWidget(control_frame, 4, 0, 1, 2)
     
@@ -1549,6 +1583,7 @@ class MainWindow(QMainWindow):
         self.back_ground_update_var = True
         self.lock_background=False
         self.web_search_enabled=False
+        self.thinking_enabled=False
         self.difflib_modified_flag = False
 
         # 聊天会话管理

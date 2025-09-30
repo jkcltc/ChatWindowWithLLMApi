@@ -3,8 +3,7 @@ import threading
 import openai
 import time
 import json
-import copy
-import sys
+import requests
 from utils.function_manager import FunctionManager
 
 
@@ -119,7 +118,7 @@ class APIRequestHandler(QObject):
             print("OSA API请求错误:", str(e))
             self.error_occurred.emit(f"API请求错误: {str(e)}")
 
-class FullFunctionRequestHandler(QObject):
+class FullFunctionRequestHandlerOld(QObject):
     #CoT
     think_event_signal=pyqtSignal(str,str)
     think_response_signal=pyqtSignal(str,str)
@@ -742,5 +741,584 @@ class FullFunctionRequestHandler(QObject):
                 'content':self.full_response,
                 'reasoning_content':self.think_response,
                 'info':self.last_chat_info
+            }]
+        return message
+
+class FullFunctionRequestHandler(QObject):
+    # CoT
+    think_event_signal = pyqtSignal(str, str)
+    think_response_signal = pyqtSignal(str, str)
+
+    # 常规推理内容
+    ai_event_response = pyqtSignal(str, str)
+    ai_response_signal = pyqtSignal(str, str)
+
+    # 工具调用（参数）
+    tool_response_signal = pyqtSignal(str, str)
+
+    # 报错
+    completion_failed = pyqtSignal(str, str)
+
+    # 结束原因
+    report_finish_reason = pyqtSignal(str, str, str)  # request id, finish_reason_raw, finish_reason_readable
+
+    # 要求重新发送对话，可用于工具调用
+    ask_repeat_request = pyqtSignal()  # 只是要求重新发起对话
+
+    # 请求结果
+    request_finished = pyqtSignal(list)  # a list of chat history
+
+    def __init__(self):
+        super().__init__()
+        self.chathistory = []
+        self.full_response = ''
+        self.think_response = ''
+        self.chatting_tool_call = None
+        self.request_id = 'init'
+        self.function_manager = FunctionManager()
+        self.pause_flag = False
+        self.multimodal_content = False
+        self.tool_response = ''
+        self.last_chat_info = {
+            "id": self.request_id,
+            'time': time.strftime("%Y-%m-%d %H:%M:%S")
+        }
+        self.session = requests.Session()
+        self.base_url = ''
+        self.api_key = ''
+
+    def send_request(self, params):
+        """
+        向已配置的 LLM 提供商发送单次对话补全请求（使用 requests 库）。
+        """
+        # 生成报错和供应商崩溃时用的临时ID
+        self.request_id = 'CWLA_local_' + str(int(time.time()) + 1)
+
+        # 清空旧数据
+        self.full_response = ""
+        self.think_response = ""
+        self.tool_response = ''
+        self.chathistory = params['messages']
+        self.chatting_tool_call = None
+        self.pause_flag = False
+
+        # 构建请求数据
+        request_data = params
+        
+        # 构建请求头
+        headers = self._build_headers()
+
+        try:
+            if params.get('stream', False):
+                self._handle_stream_request(request_data, headers)
+            else:
+                self._handle_non_stream_request(request_data, headers)
+            
+            self.request_finished.emit(self._assembly_result_message())
+        except Exception as e:
+            self.completion_failed.emit(f'Error in sending request: {e}', 'error')
+            return
+        
+        if self.chatting_tool_call:
+            self.ask_repeat_request.emit()
+
+    def _build_headers(self):
+        """构建请求头"""
+        headers = {
+            'Content-Type': 'application/json',
+            'Authorization': f'Bearer {self.api_key}'
+        }
+        return headers
+
+    def set_provider(self, provider, api_config=None):
+        def is_dsls(obj):
+            """判断是否为{'provider':['url','key']}"""
+            if not isinstance(obj, dict):
+                return False
+            
+            for key, value in obj.items():
+                if not isinstance(key, str):
+                    return False
+                if not isinstance(value, list) and not isinstance(value, tuple):
+                    return False
+                for item in value:
+                    if not isinstance(item, str):
+                        return False
+            return True
+        
+        def is_dsds(obj):
+            """判断对象是否为: {'provider': {'url': 'str','key': 'str'}}"""
+            if not isinstance(obj, dict):
+                return False
+            
+            for key, value in obj.items():
+                if not isinstance(key, str):
+                    return False
+                if not isinstance(value, dict):
+                    return False
+                for inner_key, inner_value in value.items():
+                    if not isinstance(inner_key, str) or not isinstance(inner_value, str):
+                        return False
+            return True
+        
+        def is_dsuk(obj):
+            """判断是否为 {'url': 'str','key': 'str'}"""
+            if not isinstance(obj, dict):
+                return False
+            if 'url' not in obj or 'key' not in obj:
+                return False
+            return True
+
+        # 检查是否传入了api_config，如果没有，就去仓库找
+        if not api_config:
+            api_key, url = self._get_api_info(provider)
+        
+        # 如果已经传入了api_config
+        elif isinstance(api_config, list) and len(api_config) == 2:
+            url = api_config[0]
+            api_key = api_config[1]
+        
+        elif is_dsls(api_config):
+            url = api_config[provider][0]
+            api_key = api_config[provider][1]
+        
+        elif is_dsds(api_config):
+            url = api_config[provider]['url']
+            api_key = api_config[provider]['key']
+        
+        elif is_dsuk(api_config):
+            url = api_config['url']
+            api_key = api_config['key']
+        
+        else:
+            self.completion_failed.emit('FFR-set_provider', 'Unrecognized structure')
+            raise ValueError('Unrecognized structure' + str(api_config))
+        
+        self.base_url = url.rstrip('/')
+        self.api_key = api_key
+
+    def _handle_stream_request(self, request_data, headers):
+        """处理流式请求"""
+        url = f"{self.base_url}/chat/completions"
+        temp_response = ""
+        flag_id_received_from_completion = False
+
+        try:
+            response = self.session.post(
+                url, 
+                json=request_data, 
+                headers=headers, 
+                stream=True,
+                timeout=60
+            )
+            response.raise_for_status()
+
+            for line in response.iter_lines(decode_unicode=False):
+                if line is None:
+                    continue
+                # 尝试解码行
+                try:
+                    line_text = line.decode('utf-8')
+                except UnicodeDecodeError:
+                    try:
+                        line_text = line.decode('gbk')
+                    except UnicodeDecodeError:
+                        try:
+                            line_text = line.decode('gb2312')
+                        except UnicodeDecodeError:
+                            # 如果都不行，使用替换错误策略
+                            line_text = line.decode('utf-8', errors='replace')
+                line=line_text
+                if self.pause_flag:
+                    response.close()
+                    print('对话已停止。')
+                    break
+                
+                if not line:
+                    continue
+                
+                # 处理 SSE 格式
+                if line.startswith('data: '):
+                    data = line[6:]  # 去掉 'data: ' 前缀
+                    
+                    if data == '[DONE]':
+                        break
+                    
+                    try:
+                        event = json.loads(data)
+                        self._process_stream_event(event, temp_response, flag_id_received_from_completion)
+                    except json.JSONDecodeError:
+                        continue
+
+            # 获取最后一个有效事件用于检查完成原因
+            if 'event' in locals():
+                self.check_finish_reason(event)
+                self._update_info(event)
+
+        except requests.exceptions.RequestException as e:
+            self.completion_failed.emit(self.request_id, f'Stream request failed: {e},pay load:\n```json\n{
+                json.dumps(request_data,indent=2,ensure_ascii=False)
+                }\n```')
+
+    def _process_stream_event(self, event, temp_response, flag_id_received_from_completion):
+        """处理流式事件"""
+        # 获取请求ID
+        if not flag_id_received_from_completion and 'id' in event:
+            self.request_id = event['id']
+            flag_id_received_from_completion = True
+
+        if 'choices' not in event or not event['choices']:
+            return
+
+        choice = event['choices'][0]
+        
+        # 模拟 OpenAI delta 对象
+        class DeltaObject:
+            def __init__(self, delta_data):
+                self.content = delta_data.get('content', '')
+                self.reasoning_content = delta_data.get('reasoning_content', '')
+                self.reasoning = delta_data.get('reasoning', '')
+                self.tool_calls = self._parse_tool_calls(delta_data.get('tool_calls', []))
+            
+            def _parse_tool_calls(self, tool_calls_data):
+                if not tool_calls_data:
+                    return None
+                
+                tool_calls = []
+                for tc in tool_calls_data:
+                    tool_call = type('ToolCall', (), {})()
+                    tool_call.index = tc.get('index', 0)
+                    tool_call.id = tc.get('id', '')
+                    
+                    # 处理 function 字段
+                    function_data = tc.get('function', {})
+                    function_obj = type('Function', (), {})()
+                    function_obj.name = function_data.get('name', '')
+                    function_obj.arguments = function_data.get('arguments', '')
+                    
+                    tool_call.function = function_obj
+                    tool_calls.append(tool_call)
+                
+                return tool_calls
+
+        delta_data = choice.get('delta', {})
+        content = DeltaObject(delta_data)
+        
+        # 处理内容
+        if hasattr(content, "content") and content.content:
+            temp_response += content.content
+
+        self._handle_response(content, temp_response)
+
+    def _handle_non_stream_request(self, request_data, headers):
+        """处理非流式请求"""
+        url = f"{self.base_url}/chat/completions"
+        
+        try:
+            response = self.session.post(url, json=request_data, headers=headers, timeout=60)
+            response.raise_for_status()
+            
+            data = response.json()
+            self.request_id = data.get('id', self.request_id)
+            
+            # 处理响应内容
+            if 'choices' in data and data['choices']:
+                choice = data['choices'][0]
+                message = choice.get('message', {})
+                
+                # 创建消息对象
+                class MessageObject:
+                    def __init__(self, message_data):
+                        self.content = message_data.get('content', '')
+                        self.reasoning_content = message_data.get('reasoning_content', '')
+                        self.reasoning = message_data.get('reasoning', '')
+                        self.tool_calls = self._parse_tool_calls(message_data.get('tool_calls', []))
+                    
+                    def _parse_tool_calls(self, tool_calls_data):
+                        if not tool_calls_data:
+                            return None
+                        
+                        tool_calls = []
+                        for tc in tool_calls_data:
+                            tool_call = type('ToolCall', (), {})()
+                            tool_call.index = tc.get('index', 0)
+                            tool_call.id = tc.get('id', '')
+                            
+                            function_data = tc.get('function', {})
+                            function_obj = type('Function', (), {})()
+                            function_obj.name = function_data.get('name', '')
+                            function_obj.arguments = function_data.get('arguments', '')
+                            
+                            tool_call.function = function_obj
+                            tool_calls.append(tool_call)
+                        
+                        return tool_calls
+
+                message_obj = MessageObject(message)
+                temp_response = message_obj.content or ""
+                
+                self._handle_response(message_obj, temp_response)
+                self._update_info(data)
+                
+                print(f'\n返回长度：{len(self.full_response)}\n思考链长度: {len(self.think_response)}')
+            
+        except requests.exceptions.RequestException as e:
+            self.completion_failed.emit(self.request_id, f'Non-stream request failed: {e}')
+
+    def check_finish_reason(self, event):
+        """检查并报告 LLM 响应的 finish_reason"""
+        try:
+            # 适配 requests 返回的数据结构
+            if isinstance(event, dict):
+                choices = event.get('choices', [])
+                if choices:
+                    finish_reason = choices[0].get('finish_reason', '')
+                else:
+                    finish_reason = ''
+            else:
+                # 如果是对象（在流式处理中可能是模拟对象）
+                finish_reason = getattr(event.choices[0], 'finish_reason', '') if hasattr(event, 'choices') and event.choices else ''
+
+            normal_finish_reason = {
+                "stop": "正常结束",
+                "length": "长度限制",
+                "content_filter": "内容过滤",
+                "function_call": "函数调用",
+                "null": "未完成或进行中",
+                None: "未返回完成原因",
+                "": "未返回完成原因"
+            }
+            
+            finish_reason_readable = normal_finish_reason.get(
+                finish_reason, 
+                f"未知结束类型: {finish_reason}"
+            )
+
+            self.report_finish_reason.emit(
+                self.request_id, 
+                str(finish_reason), 
+                finish_reason_readable
+            )
+                
+        except Exception as e:
+            error_msg = f"处理结束原因时出错: {str(e)}"
+            self.completion_failed.emit(self.request_id, error_msg)
+
+    def pause(self):
+        self.pause_flag = True
+
+    def _special_block_handler(self, content, signal, request_id, starter='<think>', ender='</think>', extra_params=None):
+        """处理自定义块内容"""
+        if starter in content:
+            content = content.split(starter)[1]
+            if ender in content:
+                return {"starter": True, "ender": True}
+            if extra_params:
+                if hasattr(self, extra_params):
+                    setattr(self, extra_params, content)
+            signal(request_id, content)
+            return {"starter": True, "ender": False}
+        return {"starter": False, "ender": False}
+
+    def _handle_response(self, content, temp_response):
+        """处理响应内容"""
+        if hasattr(content, "content") and content.content:
+            special_block_handler_result = self._special_block_handler(
+                temp_response,
+                self.think_response_signal.emit,
+                self.request_id,
+                starter='<think>', ender='</think>',
+                extra_params='think_response'
+            )
+            if special_block_handler_result["starter"] and special_block_handler_result["ender"]:
+                self.ai_event_response.emit(self.request_id, content.content)
+                self.full_response += content.content
+                self.full_response = self.full_response.replace('</think>\n\n', '')
+                self.ai_response_signal.emit(self.request_id, self.full_response)
+            elif not (special_block_handler_result["starter"]):
+                self.ai_event_response.emit(self.request_id, content.content)
+                self.full_response += content.content
+                self.ai_response_signal.emit(self.request_id, self.full_response)
+
+        if hasattr(content, "reasoning_content") and content.reasoning_content:
+            self.think_response += content.reasoning_content
+            self.think_response_signal.emit(self.request_id, self.think_response)
+            self.think_event_signal.emit(self.request_id, content.reasoning_content)
+        
+        if hasattr(content, "reasoning") and content.reasoning:
+            self.think_response += content.reasoning
+            self.think_response_signal.emit(self.request_id, self.think_response)
+            self.think_event_signal.emit(self.request_id, content.reasoning)
+        
+        if hasattr(content, "tool_calls") and content.tool_calls:
+            temp_fcalls = content.tool_calls
+            if not self.chatting_tool_call:
+                self.chatting_tool_call = {
+                    0: {
+                        "id": temp_fcalls[0].id,
+                        "type": "function",
+                        "function": {"name": "", "arguments": ""}
+                    }
+                }
+            
+            for function_call in temp_fcalls:
+                tool_call_index = function_call.index
+                tool_call_id = function_call.id
+                
+                if tool_call_id:
+                    self.chatting_tool_call[tool_call_index]['id'] = tool_call_id
+                
+                returned_function_call = getattr(function_call, "function", '')
+                returned_name = getattr(returned_function_call, "name", "")
+
+                if returned_name:
+                    self.chatting_tool_call[tool_call_index]["function"]["name"] += returned_name
+                returned_arguments = getattr(returned_function_call, "arguments", "")
+
+                if returned_arguments:
+                    self.chatting_tool_call[tool_call_index]["function"]["arguments"] += returned_arguments
+                    self.think_response += returned_arguments
+                    self.think_response_signal.emit(self.request_id, self.think_response)
+                    self.tool_response += returned_arguments
+                    self.tool_response_signal.emit(self.request_id, self.tool_response)
+
+    def _handle_tool_call(self, chathistory):
+        """处理工具调用"""
+        try:
+            tool_calls_for_msg = []
+            for idx, call in (self.chatting_tool_call or {}).items():
+                args_str = call["function"].get("arguments", "")
+                if not isinstance(args_str, str):
+                    try:
+                        args_str = json.dumps(args_str, ensure_ascii=False)
+                    except Exception:
+                        args_str = str(args_str)
+
+                tool_calls_for_msg.append({
+                    "id": call.get("id"),
+                    "type": "function",
+                    "function": {
+                        "name": call["function"].get("name", ""),
+                        "arguments": args_str
+                    }
+                })
+
+            chathistory.append({
+                "role": "assistant",
+                "content": self.full_response or "",
+                "tool_calls": tool_calls_for_msg,
+                "reasoning_content": self.think_response,
+                "info": self.last_chat_info
+            })
+
+            for _, call in (self.chatting_tool_call or {}).items():
+                parsed_args = self._load_tool_arguments(call)
+                call_for_exec = {
+                    "id": call.get("id"),
+                    "type": "function",
+                    "function": {
+                        "name": call["function"].get("name", ""),
+                        "arguments": parsed_args
+                    }
+                }
+                tool_result = self.function_manager.call_function(call_for_exec)
+                if not isinstance(tool_result, str):
+                    tool_result = json.dumps(tool_result, ensure_ascii=False)
+
+                chathistory.append({
+                    "role": "tool",
+                    "tool_call_id": call.get("id"),
+                    "content": tool_result,
+                    'info': call
+                })
+
+            return chathistory
+
+        except Exception as e:
+            print('Failed function calling:', type(e), e)
+            self.completion_failed.emit('FFR-tool_call', f"Failed function calling: {e}")
+
+    def _load_tool_arguments(self, function_call):
+        """解析工具参数"""
+        raw = function_call.get("function", {}).get("arguments", "")
+        arguments = raw
+        try:
+            arguments = json.loads(raw)
+        except Exception:
+            try:
+                import ast
+                arguments = ast.literal_eval(raw)
+            except Exception:
+                arguments = raw
+        return arguments
+
+    def _to_serializable(self, obj):
+        """转换为可序列化对象"""
+        if isinstance(obj, (str, int, float, bool, type(None))):
+            return obj
+        
+        if isinstance(obj, dict):
+            return {k: self._to_serializable(v) for k, v in obj.items()}
+        
+        if isinstance(obj, list):
+            return [self._to_serializable(item) for item in obj]
+        
+        if hasattr(obj, '__dict__'):
+            return self._to_serializable(vars(obj))
+        
+        if hasattr(obj, 'model_dump'):
+            return self._to_serializable(obj.model_dump())
+        
+        if hasattr(obj, 'dict'):
+            return self._to_serializable(obj.dict())
+        
+        return str(obj)
+
+    def _update_info(self, event):
+        """更新聊天信息（适配 requests 返回结构）"""
+        try:
+            # 处理不同的事件类型（字典或对象）
+            if isinstance(event, dict):
+                usage_data = event.get('usage', {})
+                model = event.get('model', '')
+            else:
+                usage_data = getattr(event, 'usage', {})
+                model = getattr(event, 'model', '')
+
+            usage_dict = self._to_serializable(usage_data)
+            if not isinstance(usage_dict, dict):
+                usage_dict = {'usage_data': usage_dict}
+
+            self.last_chat_info = {
+                **usage_dict,
+                "model": model,
+                "id": self.request_id,
+                'time': time.strftime("%Y-%m-%d %H:%M:%S")
+            }
+            return self.last_chat_info
+        except Exception as e:
+            print('failed info update', str(e))
+            self.completion_failed.emit(self.request_id, 'failed info update:' + str(e))
+            return {
+                "id": self.request_id + ' failed info update ' + str(e),
+                'time': time.strftime("%Y-%m-%d %H:%M:%S")
+            }
+
+    def _get_api_info(self, provider):
+        """获取API信息（需要根据实际情况实现）"""
+        # 这里需要根据你的实现来返回 API 信息
+        # 返回格式: (url, api_key)
+        return "", ""
+
+    def _assembly_result_message(self):
+        """组装结果消息"""
+        if self.chatting_tool_call:
+            message = self._handle_tool_call([])
+        else:
+            message = [{
+                'role': 'assistant',
+                'content': self.full_response,
+                'reasoning_content': self.think_response,
+                'info': self.last_chat_info
             }]
         return message

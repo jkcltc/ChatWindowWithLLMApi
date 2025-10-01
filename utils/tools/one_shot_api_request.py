@@ -808,6 +808,10 @@ class FullFunctionRequestHandler(QObject):
         # 构建请求头
         headers = self._build_headers()
 
+        # 供应商特殊请求头
+        headers = self._apply_headers_providers_patch(headers,params)
+
+
         try:
             if params.get('stream', False):
                 self._handle_stream_request(request_data, headers)
@@ -828,6 +832,13 @@ class FullFunctionRequestHandler(QObject):
             'Content-Type': 'application/json',
             'Authorization': f'Bearer {self.api_key}'
         }
+        return headers
+
+    def _apply_headers_providers_patch(self,headers,params):
+        # openrouter
+        if 'extra_headers' in params:
+            for key,value in params['extra_headers'].items():
+                headers[key]=value
         return headers
 
     def set_provider(self, provider, api_config=None):

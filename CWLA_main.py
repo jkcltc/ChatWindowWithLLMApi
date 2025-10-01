@@ -30,7 +30,6 @@ from PyQt5.QtWidgets import *
 from PyQt5.QtCore import *
 from PyQt5.QtGui import *
 from PyQt5.QtSvg import *
-import requests
 import openai
 
 print(f'CWLA 3rd party lib import finished, time cost:{time.time()-start_time_stamp:.2f}s')

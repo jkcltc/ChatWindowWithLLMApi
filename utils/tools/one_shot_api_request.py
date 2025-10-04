@@ -967,7 +967,7 @@ class FullFunctionRequestHandler(QObject):
                 self._update_info(event)
 
         except requests.exceptions.RequestException as e:
-            self.completion_failed.emit(self.request_id, f'Stream request failed: {e},pay load:\n```json\n{
+            self.completion_failed.emit(self.request_id, f'Stream request failed, error code:\n{e}\nRequest payload:\n```json\n{
                 json.dumps(request_data,indent=2,ensure_ascii=False)
                 }\n```')
 

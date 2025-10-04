@@ -87,6 +87,11 @@ else:
     # 普通 Python 脚本
     application_path = os.path.dirname(os.path.abspath(__file__))
 
+LOGGER= LogManager(
+            name='CWLA',
+            file_path=os.path.join(application_path,'cwla_run_time.log')
+        )
+
 # 常量定义
 API_CONFIG_FILE = "api_config.ini"
 if not os.path.exists("api_config.ini"):
@@ -961,7 +966,6 @@ class MessagePreprocessor:
                 pass
             #openrouter
             if 'openrouter' in url:
-                print('reasoned',enable_thinking)
                 del params['enable_thinking']
                 params["reasoning"]= {
                     "exclude": False,
@@ -1560,7 +1564,7 @@ class MainWindow(QMainWindow):
         self.recover_ui_status()
         #UI创建后
         self.init_post_ui_creation()
-        self.info_manager.log(f'CWLA init finished, time cost:{time.time()-start_time_stamp:.2f}s')
+        self.info_manager.log(f'CWLA init finished, time cost:{time.time()-start_time_stamp:.2f}s',level='debug')
 
     def init_self_params(self):
         self.setting_img = setting_img
@@ -1704,10 +1708,7 @@ class MainWindow(QMainWindow):
     def init_info_manager(self):
         self.info_manager=InfoManager(
             anchor_widget=self,
-            log_manager=LogManager(
-                name='CWLA',
-                file_path=os.path.join(self.application_path,'cwla_run_time.log')
-                ),
+            log_manager=LOGGER,
         )
 
     def init_function_call(self):
@@ -2250,8 +2251,11 @@ class MainWindow(QMainWindow):
 
     ###发送请求主函数
     def send_request(self,create_thread=True):
+        self.full_response=''
+        self.think_response=''
         def target():#临时使用，需要重构
             preprocessor = MessagePreprocessor(self)  # 创建预处理器实例
+            preprocessor.stream=self.stream_receive
             message, params = preprocessor.prepare_message()
             if self.use_concurrent_model.isChecked():
                 self.concurrent_model.start_workflow(params)
@@ -2356,8 +2360,6 @@ class MainWindow(QMainWindow):
                     self.long_chat_improve()
             except Exception as e:
                 self.info_manager.notify(f"long chat improvement failed, Error code:{e}",'error')
-        if not self.back_ground_update_var:
-            self.info_manager.log('背景更新日志:没启动')
         if self.back_ground_update_var:
             try:
                 self.new_background_rounds+=2
@@ -3759,7 +3761,7 @@ class MainWindow(QMainWindow):
     def show(self):
         super().show()
         self.info_manager.notify(level='success',text='初始化完成')
-print(f'CWLA Class import finished, time cost:{time.time()-start_time_stamp:.2f}s')
+LOGGER.log(f'CWLA Class import finished, time cost:{time.time()-start_time_stamp:.2f}s',level='debug')
 
 def start():
     app = QApplication(sys.argv)
@@ -3768,7 +3770,7 @@ def start():
         ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(appid)
     window = MainWindow()
     window.show()
-    print(f'CWLA shown on desktop, time cost:{time.time()-start_time_stamp:.2f}s')
+    LOGGER.log(f'CWLA shown on desktop, time cost:{time.time()-start_time_stamp:.2f}s',level='debug')
     sys.exit(app.exec_())
 
 if __name__=="__main__":

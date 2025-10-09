@@ -967,9 +967,11 @@ class FullFunctionRequestHandler(QObject):
                 self._update_info(event)
 
         except requests.exceptions.RequestException as e:
-            self.completion_failed.emit(self.request_id, f'Stream request failed, error code:\n{e}\nRequest payload:\n```json\n{
-                json.dumps(request_data,indent=2,ensure_ascii=False)
-                }\n```')
+            error_detail = self._extract_error_detail(e, response)
+            self.completion_failed.emit(
+                self.request_id, 
+                f'Stream request failed, error code:\n{e}\nError details:\n{error_detail}\nRequest payload:\n```json\n{json.dumps(request_data, indent=2, ensure_ascii=False)}\n```'
+            )
 
     def _process_stream_event(self, event, temp_response, flag_id_received_from_completion):
         """处理流式事件"""
@@ -1074,7 +1076,80 @@ class FullFunctionRequestHandler(QObject):
                 print(f'\n返回长度：{len(self.full_response)}\n思考链长度: {len(self.think_response)}')
             
         except requests.exceptions.RequestException as e:
-            self.completion_failed.emit(self.request_id, f'Non-stream request failed: {e}')
+            error_detail = self._extract_error_detail(e, response)
+            self.completion_failed.emit(
+                self.request_id, 
+                f'Non-stream request failed: {e}\nError details: {error_detail}'
+            )
+    
+    def _extract_error_detail(self, exception, response):
+        """
+        从异常和响应中提取详细的错误信息
+        
+        Args:
+            exception: 请求异常对象
+            response: 响应对象（可能为None）
+            
+        Returns:
+            str: 格式化的错误详细信息
+        """
+        error_parts = []
+        
+        # 1. 添加异常基本信息
+        error_parts.append(f"Exception type: {type(exception).__name__}")
+        error_parts.append(f"Exception message: {str(exception)}")
+        
+        # 2. 如果有响应对象，提取状态码和响应体
+        if hasattr(exception, 'response') and exception.response is not None:
+            response_obj = exception.response
+            error_parts.append(f"Status code: {response_obj.status_code}")
+            
+            try:
+                # 尝试解析响应体为JSON
+                if response_obj.content:
+                    error_data = response_obj.json()
+                    if isinstance(error_data, dict):
+                        # 常见供应商错误信息字段
+                        error_fields = ['error', 'message', 'detail', 'description', 'reason']
+                        for field in error_fields:
+                            if field in error_data:
+                                error_value = error_data[field]
+                                if isinstance(error_value, dict):
+                                    # 如果错误信息是嵌套字典，进一步提取
+                                    nested_fields = ['message', 'type', 'code', 'param']
+                                    for nested_field in nested_fields:
+                                        if nested_field in error_value:
+                                            error_parts.append(f"Error {nested_field}: {error_value[nested_field]}")
+                                else:
+                                    error_parts.append(f"Error {field}: {error_value}")
+                    else:
+                        # 如果响应体不是JSON，直接显示文本
+                        error_parts.append(f"Response body: {response_obj.text}")
+            except (json.JSONDecodeError, ValueError, AttributeError):
+                # 如果JSON解析失败，显示原始文本
+                if response_obj.text:
+                    error_parts.append(f"Response text: {response_obj.text}")
+                elif response_obj.content:
+                    error_parts.append(f"Response content: {response_obj.content}")
+        
+        # 3. 如果没有响应对象但有请求对象，显示请求信息
+        elif hasattr(exception, 'request') and exception.request is not None:
+            request_obj = exception.request
+            error_parts.append("No response received")
+            if hasattr(request_obj, 'url'):
+                error_parts.append(f"Request URL: {request_obj.url}")
+            if hasattr(request_obj, 'method'):
+                error_parts.append(f"Request method: {request_obj.method}")
+        
+        # 4. 特定异常类型的额外信息
+        if isinstance(exception, requests.exceptions.Timeout):
+            error_parts.append("Request timed out")
+        elif isinstance(exception, requests.exceptions.ConnectionError):
+            error_parts.append("Connection error - check network connectivity and API endpoint")
+        elif isinstance(exception, requests.exceptions.HTTPError):
+            error_parts.append("HTTP error occurred")
+        
+        return "\n".join(error_parts)
 
     def check_finish_reason(self, event):
         """检查并报告 LLM 响应的 finish_reason"""

@@ -130,6 +130,174 @@ class SearchButton(QPushButton):
         # 发射自定义信号，传递当前状态
         self.toggled.emit(self._is_checked)
 
+
+class EPDropdownMenu(QWidget):
+    """下拉菜单组件"""
+    itemSelected = pyqtSignal(str)  # 项目选择信号
+    
+    def __init__(self, parent=None):
+        super().__init__(parent, Qt.Popup)  # 设置为弹出窗口
+        self.layout = QVBoxLayout(self)
+        self.layout.setSpacing(0)
+        self.layout.setContentsMargins(0, 0, 0, 0)
+        
+    def set_items(self, items):
+        """设置菜单项"""
+        # 清除现有项目
+        for i in reversed(range(self.layout.count())):
+            widget = self.layout.itemAt(i).widget()
+            if widget:
+                widget.deleteLater()
+        
+        # 添加新项目
+        for item in items:
+            label = QLabel(item)
+            label.setCursor(Qt.PointingHandCursor)
+            label.mousePressEvent = lambda event, text=item: self._on_item_clicked(event, text)
+            self.layout.addWidget(label)
+
+    def _on_item_clicked(self, event, text):
+        """处理菜单项点击"""
+        self.itemSelected.emit(text)
+        self.hide()
+
+class ExpandableButton(QWidget):
+    """可扩展按钮控件"""
+    toggled = pyqtSignal(bool)  # 状态切换信号
+    itemSelected = pyqtSignal(str)  # 项目选择信号
+    
+    def __init__(self, items=None, parent=None):
+        super().__init__(parent)
+        
+        # 默认菜单项
+        if items is None:
+            items = ["选项1", "选项2", "选项3", "选项4"]
+        
+        self._is_checked = False
+        self._items = items
+        self._current_text = items[0] if items else ""
+        
+        self._setup_ui()
+        self._connect_signals()
+        
+    def _setup_ui(self):
+        """设置UI界面"""
+        self.setStyleSheet("""
+            QWidget {
+                margin: 0px;
+                padding: 0px;
+            }""")
+        # 主布局
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0,0,0)
+        layout.setSpacing(0)
+        
+        # 左侧按钮
+        self.left_button = QPushButton(self._current_text)
+        self.left_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self._update_button_style()
+        
+        # 右侧下拉按钮
+        self.dropdown_button = QPushButton()
+        self.dropdown_button.setFixedWidth(24)
+        self.dropdown_button.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding)
+
+        # 设置下拉图标
+        self.dropdown_button.setText("▼")
+        self.dropdown_button.setFont(QFont("Arial", 10))
+        
+        # 创建下拉菜单
+        self.dropdown_menu = EPDropdownMenu(self)
+        self.dropdown_menu.set_items(self._items)
+        
+        # 添加到布局
+        layout.addWidget(self.left_button)
+        layout.addWidget(self.dropdown_button)
+        
+    def _connect_signals(self):
+        """连接信号槽"""
+        self.left_button.clicked.connect(self._toggle_state)
+        self.dropdown_button.clicked.connect(self._show_dropdown_menu)
+        self.dropdown_menu.itemSelected.connect(self._on_item_selected)
+        
+    def _toggle_state(self):
+        """切换左侧按钮状态"""
+        self._is_checked = not self._is_checked
+        self._update_button_style()
+        self.toggled.emit(self._is_checked)
+        
+    def _update_button_style(self):
+        """更新按钮样式"""
+        if self._is_checked:
+            self.left_button.setStyleSheet("""
+                QPushButton {
+                    background-color: green;
+                    color: white;
+                    border: none;
+                }
+            """)
+        else:
+            self.left_button.setStyleSheet("""
+                QPushButton {
+                    background-color: gray;
+                    color: white;
+                    border: none;
+                }
+            """)
+            
+    def _show_dropdown_menu(self):
+        """显示下拉菜单"""
+        # 计算菜单位置（在整个widget下方）
+        pos = self.mapToGlobal(QPoint(0, self.height()))
+        self.dropdown_menu.move(pos)
+        
+        # 设置菜单宽度与控件相同
+        self.dropdown_menu.setFixedWidth(self.width())
+        
+        # 显示菜单
+        self.dropdown_menu.show()
+        
+    def _on_item_selected(self, text):
+        """处理菜单项选择"""
+        self._current_text = text
+        self.left_button.setText(text)
+        self.itemSelected.emit(text)
+        
+    # 公共方法
+    def setItems(self, items):
+        """设置下拉菜单项"""
+        self._items = items
+        if items and self._current_text not in items:
+            self._current_text = items[0]
+            self.left_button.setText(self._current_text)
+        self.dropdown_menu.set_items(items)
+        
+    def get_items(self):
+        """获取下拉菜单项"""
+        return self._items.copy()
+        
+    def setCurrentText(self, text):
+        """设置当前显示的文本"""
+        if text in self._items:
+            self._current_text = text
+            self.left_button.setText(text)
+            
+    def currentText(self):
+        """获取当前显示的文本"""
+        return self._current_text
+        
+    def isChecked(self):
+        """获取左侧按钮状态"""
+        return self._is_checked
+        
+    def setChecked(self, checked):
+        """设置左侧按钮状态"""
+        if self._is_checked != checked:
+            self._is_checked = checked
+            self._update_button_style()
+            self.toggled.emit(checked)
+
+
 #背景标签
 class AspectLabel(QLabel):
     def __init__(self, master_pixmap='', parent=None,text=''):

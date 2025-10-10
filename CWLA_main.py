@@ -1336,9 +1336,12 @@ class MainWindow(QMainWindow):
         self.web_search_button.setChecked(self.web_search_enabled)
         self.web_search_button.toggled.connect(self.handel_web_search_button_toggled)
 
-        self.enable_thinking_button=SearchButton('深度思考')
+        self.enable_thinking_button=ExpandableButton(['  深度思考   ','  深度思考:短','  深度思考:中','  深度思考:高'])
         self.enable_thinking_button.setChecked(self.thinking_enabled)
         self.enable_thinking_button.toggled.connect(lambda state:setattr(self,'thinking_enabled',state))
+        self.enable_thinking_button.itemSelected.connect(
+            lambda text: self.enable_thinking_button.setChecked(not text==self.enable_thinking_button.get_items()[0])
+        )
 
         separators = [QFrame() for _ in range(3)]
         for sep in separators:

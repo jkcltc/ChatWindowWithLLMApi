@@ -1347,17 +1347,25 @@ class MainWindow(QMainWindow):
         for sep in separators:
             sep.setFrameShape(QFrame.VLine)
             sep.setFrameShadow(QFrame.Sunken)
-        self.control_frame_layout.addWidget(self.send_button,           0, 0,  1, 15)
-        self.control_frame_layout.addWidget(self.pause_button,          1, 0,  2, 2)
-        self.control_frame_layout.addWidget(self.clear_button,          1, 2,  2, 2)
-        self.control_frame_layout.addWidget(separators[0],              1, 4,  2, 1)
-        self.control_frame_layout.addWidget(self.resend_button,         1, 5,  2, 2)
-        self.control_frame_layout.addWidget(separators[1],              1, 7,  2, 1)
-        self.control_frame_layout.addWidget(self.edit_question_button,  1, 8,  2, 2)
-        self.control_frame_layout.addWidget(self.edit_message_button,   1, 10, 2, 2)
-        self.control_frame_layout.addWidget(separators[2],              1, 12, 2, 1)
-        self.control_frame_layout.addWidget(self.enable_thinking_button,1, 13, 2, 1)
-        self.control_frame_layout.addWidget(self.web_search_button,     1, 14, 2, 1)
+        self.control_frame_layout.addWidget(self.send_button,           0, 0, 1, 15)
+        self.control_frame_layout.addWidget(self.pause_button,          1, 0, 1, 2)
+        self.control_frame_layout.addWidget(self.clear_button,          1, 2, 1, 2)
+        self.control_frame_layout.addWidget(separators[0],              1, 4, 1, 1)
+        self.control_frame_layout.addWidget(self.resend_button,         1, 5, 1, 2)
+        self.control_frame_layout.addWidget(separators[1],              1, 7, 1, 1)
+        self.control_frame_layout.addWidget(self.edit_question_button,  1, 8, 1, 2)
+        self.control_frame_layout.addWidget(self.edit_message_button,   1, 10,1, 2)
+        self.control_frame_layout.addWidget(separators[2],              1, 12,1, 1)
+        self.control_frame_layout.addWidget(self.enable_thinking_button,1, 13,1, 1)
+        self.control_frame_layout.addWidget(self.web_search_button,     1, 14,1, 1)
+
+        # 设置列的拉伸因子，使按钮等宽缩放，分隔符固定
+        for i in [4, 7, 12]:  # 分隔符所在的列
+            self.control_frame_layout.setColumnStretch(i, 0)
+        for i in [0, 1, 2, 3, 5, 6, 8, 9, 10, 11]: # 占两列的按钮
+            self.control_frame_layout.setColumnStretch(i, 1)
+        for i in [13, 14]: # 占一列的按钮
+            self.control_frame_layout.setColumnStretch(i, 2)
 
         self.main_layout.addWidget(control_frame, 4, 0, 1, 2)
     

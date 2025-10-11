@@ -6,6 +6,33 @@ import json
 import requests
 from utils.function_manager import FunctionManager
 
+class DeltaObject:
+    def __init__(self, delta_data):
+        self.content = delta_data.get('content', '')
+        self.reasoning_content = delta_data.get('reasoning_content', '') if delta_data.get('reasoning_content', '') else delta_data.get('reasoning', '')
+        self.tool_calls = self._parse_tool_calls(delta_data.get('tool_calls', []))
+    
+    def _parse_tool_calls(self, tool_calls_data):
+        if not tool_calls_data:
+            return None
+        
+        tool_calls = []
+        for tc in tool_calls_data:
+            tool_call = type('ToolCall', (), {})()
+            tool_call.index = tc.get('index', 0)
+            tool_call.id = tc.get('id', '')
+            
+            # 处理 function 字段
+            function_data = tc.get('function', {})
+            function_obj = type('Function', (), {})()
+            function_obj.name = function_data.get('name', '')
+            function_obj.arguments = function_data.get('arguments', '')
+            
+            tool_call.function = function_obj
+            tool_calls.append(tool_call)
+        
+        return tool_calls
+
 
 class APIRequestHandler(QObject):
     # 定义信号用于跨线程通信
@@ -30,6 +57,7 @@ class APIRequestHandler(QObject):
         self.client = None
         self.current_thread = None
         self.full_response = ""  # 用于存储完整响应
+        self.provider_type= "openai_compatible"
 
     def send_request(self, message, model):
         """
@@ -880,6 +908,29 @@ class FullFunctionRequestHandler(QObject):
                 return False
             return True
 
+        def get_provider_type(url):
+            """
+            根据字符串匹配确定供应商类型
+            匹配不到默认openai兼容
+            不兼容的话后续也会报错
+            """
+            pre_defined_provider_map={
+                'localhost':'local',
+                '127.0':'local',
+                '192.168':'local',
+                'api.deepseek.com':'deepseek',
+                'qianfan.baidubce.com':'baidu',
+                'api.siliconflow.cn':'siliconflow',
+                'api.lkeap.cloud.tencent.com':'tencent',
+                'api.moonshot.cn':'kimi',
+                'api.novita.ai':'novita',
+                'openrouter.ai':'openrouter'
+            }
+            for feature in pre_defined_provider_map.keys():
+                if feature in url:
+                    return pre_defined_provider_map[feature]
+            return 'openai_compatible'
+
         # 检查是否传入了api_config，如果没有，就去仓库找
         if not api_config:
             api_key, url = self._get_api_info(provider)
@@ -907,6 +958,7 @@ class FullFunctionRequestHandler(QObject):
         
         self.base_url = url.rstrip('/')
         self.api_key = api_key
+        self.provider_type=get_provider_type(self.base_url)
 
     def _handle_stream_request(self, request_data, headers):
         """处理流式请求"""
@@ -957,7 +1009,22 @@ class FullFunctionRequestHandler(QObject):
                     
                     try:
                         event = json.loads(data)
-                        self._process_stream_event(event, temp_response, flag_id_received_from_completion)
+                        if not flag_id_received_from_completion and 'id' in event:
+                            self.request_id = event['id']
+                            flag_id_received_from_completion = True
+                        if 'choices' not in event or not event['choices']:
+                            return
+
+                        choice = event['choices'][0]
+
+                        delta_data = choice.get('delta', {})
+                        content = DeltaObject(delta_data)
+                        
+                        # 处理内容
+                        if hasattr(content, "content") and content.content:
+                            temp_response += content.content
+                        self._handle_response(content, temp_response)
+
                     except json.JSONDecodeError:
                         continue
 
@@ -972,56 +1039,6 @@ class FullFunctionRequestHandler(QObject):
                 self.request_id, 
                 f'Stream request failed, error code:\n{e}\nError details:\n{error_detail}\nRequest payload:\n```json\n{json.dumps(request_data, indent=2, ensure_ascii=False)}\n```'
             )
-
-    def _process_stream_event(self, event, temp_response, flag_id_received_from_completion):
-        """处理流式事件"""
-        # 获取请求ID
-        if not flag_id_received_from_completion and 'id' in event:
-            self.request_id = event['id']
-            flag_id_received_from_completion = True
-
-        if 'choices' not in event or not event['choices']:
-            return
-
-        choice = event['choices'][0]
-        
-        # 模拟 OpenAI delta 对象
-        class DeltaObject:
-            def __init__(self, delta_data):
-                self.content = delta_data.get('content', '')
-                self.reasoning_content = delta_data.get('reasoning_content', '')
-                self.reasoning = delta_data.get('reasoning', '')
-                self.tool_calls = self._parse_tool_calls(delta_data.get('tool_calls', []))
-            
-            def _parse_tool_calls(self, tool_calls_data):
-                if not tool_calls_data:
-                    return None
-                
-                tool_calls = []
-                for tc in tool_calls_data:
-                    tool_call = type('ToolCall', (), {})()
-                    tool_call.index = tc.get('index', 0)
-                    tool_call.id = tc.get('id', '')
-                    
-                    # 处理 function 字段
-                    function_data = tc.get('function', {})
-                    function_obj = type('Function', (), {})()
-                    function_obj.name = function_data.get('name', '')
-                    function_obj.arguments = function_data.get('arguments', '')
-                    
-                    tool_call.function = function_obj
-                    tool_calls.append(tool_call)
-                
-                return tool_calls
-
-        delta_data = choice.get('delta', {})
-        content = DeltaObject(delta_data)
-        
-        # 处理内容
-        if hasattr(content, "content") and content.content:
-            temp_response += content.content
-
-        self._handle_response(content, temp_response)
 
     def _handle_non_stream_request(self, request_data, headers):
         """处理非流式请求"""
@@ -1038,36 +1055,8 @@ class FullFunctionRequestHandler(QObject):
             if 'choices' in data and data['choices']:
                 choice = data['choices'][0]
                 message = choice.get('message', {})
-                
-                # 创建消息对象
-                class MessageObject:
-                    def __init__(self, message_data):
-                        self.content = message_data.get('content', '')
-                        self.reasoning_content = message_data.get('reasoning_content', '')
-                        self.reasoning = message_data.get('reasoning', '')
-                        self.tool_calls = self._parse_tool_calls(message_data.get('tool_calls', []))
-                    
-                    def _parse_tool_calls(self, tool_calls_data):
-                        if not tool_calls_data:
-                            return None
-                        
-                        tool_calls = []
-                        for tc in tool_calls_data:
-                            tool_call = type('ToolCall', (), {})()
-                            tool_call.index = tc.get('index', 0)
-                            tool_call.id = tc.get('id', '')
-                            
-                            function_data = tc.get('function', {})
-                            function_obj = type('Function', (), {})()
-                            function_obj.name = function_data.get('name', '')
-                            function_obj.arguments = function_data.get('arguments', '')
-                            
-                            tool_call.function = function_obj
-                            tool_calls.append(tool_call)
-                        
-                        return tool_calls
 
-                message_obj = MessageObject(message)
+                message_obj = DeltaObject(message)
                 temp_response = message_obj.content or ""
                 
                 self._handle_response(message_obj, temp_response)
@@ -1193,48 +1182,87 @@ class FullFunctionRequestHandler(QObject):
     def pause(self):
         self.pause_flag = True
 
-    def _special_block_handler(self, content, signal, request_id, starter='<think>', ender='</think>', extra_params=None):
-        """处理自定义块内容"""
-        if starter in content:
-            content = content.split(starter)[1]
-            if ender in content:
-                return {"starter": True, "ender": True}
-            if extra_params:
-                if hasattr(self, extra_params):
-                    setattr(self, extra_params, content)
-            signal(request_id, content)
-            return {"starter": True, "ender": False}
-        return {"starter": False, "ender": False}
+    def _local_model_content_categorizer(
+            self, 
+            uncategorized_full_content:str, 
+            starter='<think>', 
+            ender='</think>', 
+            reason_var_to_update: str =None,
+            content_var_to_update :str = None
+        ) -> dict:
+        """处理ollama等本地模型的思维链"""
+        status={
+            "starter": uncategorized_full_content.startswith(starter), # 限制starter在初始位置，缓和聊天提到think token误判
+            "ender": ender in uncategorized_full_content, # 不限制末尾位置，完整内容在思考结束以后还有正式内容
+            'reasoning_content':'',
+            'content':'',
+            'is_reasoning':False
+        }
+        if not status['starter'] and not status['ender']:
+            # 没有发现标识，认为是正式内容。
+            status['content']=uncategorized_full_content
 
-    def _handle_response(self, content, temp_response):
+        elif status['starter'] and status['ender']:
+            # 确定了此时存在完整的思维链。
+            # 提取出第一段思维链后的字符作为content。
+            # 以防有人玩多段thinking花活。
+            splited_full_content_position = uncategorized_full_content.index(ender)
+            status['reasoning_content'] = uncategorized_full_content[:splited_full_content_position].replace(starter,'')
+            status['content'] = uncategorized_full_content[splited_full_content_position+len(ender):]
+            status['is_reasoning'] = False
+
+        elif status['starter'] and not status['ender']:
+            # 一般正处于思维链过程中，这部分归到思维链没有问题
+            status['reasoning_content'] = uncategorized_full_content.replace(starter,'')
+            status['is_reasoning'] = True
+
+        elif status['ender'] and not status['starter']:
+            # 有些模型不生成初始起始内容，发现think token后把前半段当思维链
+            splited_full_content_position = uncategorized_full_content.index(ender)
+            status['reasoning_content'] = uncategorized_full_content[:splited_full_content_position].replace(starter,'')
+            status['content'] = uncategorized_full_content[splited_full_content_position+len(ender):]
+            status['is_reasoning'] = False
+
+        if reason_var_to_update:
+            if hasattr(self, reason_var_to_update):
+                setattr(self, reason_var_to_update, status['reasoning_content'])
+        if content_var_to_update:
+            if hasattr(self,content_var_to_update):
+                setattr(self,content_var_to_update,status['content'])
+        return status
+
+    def _handle_response(self, content:DeltaObject, temp_response):
         """处理响应内容"""
+        # 从content中提取思维链和主要内容
         if hasattr(content, "content") and content.content:
-            special_block_handler_result = self._special_block_handler(
-                temp_response,
-                self.think_response_signal.emit,
-                self.request_id,
-                starter='<think>', ender='</think>',
-                extra_params='think_response'
-            )
-            if special_block_handler_result["starter"] and special_block_handler_result["ender"]:
-                self.ai_event_response.emit(self.request_id, content.content)
-                self.full_response += content.content
-                self.full_response = self.full_response.replace('</think>\n\n', '')
-                self.ai_response_signal.emit(self.request_id, self.full_response)
-            elif not (special_block_handler_result["starter"]):
+            # 目前只看到本地模型不分reasoning，排除本地就可以直接发内容信号
+            if not self.provider_type=='local':
                 self.ai_event_response.emit(self.request_id, content.content)
                 self.full_response += content.content
                 self.ai_response_signal.emit(self.request_id, self.full_response)
+            
+            else:
+                # 开始处理本地模型输出
+                local_model_result = self._local_model_content_categorizer(
+                    temp_response,
+                    starter='<think>', ender='</think>',
+                )
+                if local_model_result['is_reasoning']:
+                    self.think_event_signal.emit(self.request_id,content.content)
+                else:
+                    self.ai_event_response.emit(self.request_id,content.content)
+                if local_model_result['reasoning_content'] and not local_model_result['reasoning_content']==self.think_response:
+                    self.think_response = local_model_result['reasoning_content']
+                    self.think_response_signal.emit(self.request_id,local_model_result['reasoning_content'])
+                if local_model_result['content']:
+                    self.full_response = local_model_result['content']
+                    self.ai_response_signal.emit(self.request_id,local_model_result['content'])
+
 
         if hasattr(content, "reasoning_content") and content.reasoning_content:
             self.think_response += content.reasoning_content
             self.think_response_signal.emit(self.request_id, self.think_response)
             self.think_event_signal.emit(self.request_id, content.reasoning_content)
-        
-        if hasattr(content, "reasoning") and content.reasoning:
-            self.think_response += content.reasoning
-            self.think_response_signal.emit(self.request_id, self.think_response)
-            self.think_event_signal.emit(self.request_id, content.reasoning)
         
         if hasattr(content, "tool_calls") and content.tool_calls:
             temp_fcalls = content.tool_calls

@@ -33,15 +33,109 @@ class DeltaObject:
         
         return tool_calls
 
+def extract_api_info(provider, api_config=None):
+    """
+    提取API信息，支持多种api_config格式
+    :param provider: 提供商名称
+    :param api_config: API配置信息
+    :return: (api_key, url, provider_type)
+    """
+    def is_dsls(obj):
+        """判断是否为{'provider':['url','key']}"""
+        if not isinstance(obj, dict):
+            return False
+        
+        for key, value in obj.items():
+            if not isinstance(key, str):
+                return False
+            if not isinstance(value, list) and not isinstance(value, tuple):
+                return False
+            for item in value:
+                if not isinstance(item, str):
+                    return False
+        return True
+    
+    def is_dsds(obj):
+        """判断对象是否为: {'provider': {'url': 'str','key': 'str'}}"""
+        if not isinstance(obj, dict):
+            return False
+        
+        for key, value in obj.items():
+            if not isinstance(key, str):
+                return False
+            if not isinstance(value, dict):
+                return False
+            for inner_key, inner_value in value.items():
+                if not isinstance(inner_key, str) or not isinstance(inner_value, str):
+                    return False
+        return True
+    
+    def is_dsuk(obj):
+        """判断是否为 {'url': 'str','key': 'str'}"""
+        if not isinstance(obj, dict):
+            return False
+        if 'url' not in obj or 'key' not in obj:
+            return False
+        return True
+    def get_provider_type(url):
+        """
+        根据字符串匹配确定供应商类型
+        不使用输入的provider参数是因为防止有人把供应商A写成供应商B
+        匹配不到默认openai兼容
+        不兼容的话后续也会报错
+        """
+        pre_defined_provider_map={
+            'localhost':'local',
+            '127.0':'local',
+            '192.168':'local',
+            'api.deepseek.com':'deepseek',
+            'qianfan.baidubce.com':'baidu',
+            'api.siliconflow.cn':'siliconflow',
+            'api.lkeap.cloud.tencent.com':'tencent',
+            'api.moonshot.cn':'kimi',
+            'api.novita.ai':'novita',
+            'openrouter.ai':'openrouter'
+        }
+        for feature in pre_defined_provider_map.keys():
+            if feature in url:
+                return pre_defined_provider_map[feature]
+        return 'openai_compatible'
+    # 检查是否传入了api_config，如果没有，就去仓库找
+    if not api_config:
+        return None,None,None
+        #api_key, url = self._get_api_info(provider)
+    
+    # 如果已经传入了api_config
+    elif isinstance(api_config, list) and len(api_config) == 2:
+        url = api_config[0]
+        api_key = api_config[1]
+    
+    elif is_dsls(api_config):
+        url = api_config[provider][0]
+        api_key = api_config[provider][1]
+    
+    elif is_dsds(api_config):
+        url = api_config[provider]['url']
+        api_key = api_config[provider]['key']
+    
+    elif is_dsuk(api_config):
+        url = api_config['url']
+        api_key = api_config['key']
+    
+    else:
+        #self.completion_failed.emit('FFR-set_provider', 'Unrecognized structure')
+        raise ValueError('Unrecognized structure' + str(api_config))
+    return api_key, url, get_provider_type(url)
 
 class APIRequestHandler(QObject):
+    # 等待 0.25.4 重构
     # 定义信号用于跨线程通信
     response_received = pyqtSignal(str)  # 接收到部分响应
     reasoning_response_received = pyqtSignal(str)
     request_completed = pyqtSignal(str)  # 请求完成
     error_occurred = pyqtSignal(str)  # 发生错误
     
-    def __init__(self, api_config, parent=None):
+    def __init__(self, api_config={}, parent=None):
         """
         初始化API请求处理器
         :param api_config: API配置信息
@@ -57,18 +151,41 @@ class APIRequestHandler(QObject):
         self.client = None
         self.current_thread = None
         self.full_response = ""  # 用于存储完整响应
+        self.model=None     #用于override目标模型
         self.provider_type= "openai_compatible"
 
-    def send_request(self, message, model):
+    def send_request(self, message, model=''):
         """
         发送API请求（线程安全方式）
         :param message: 提示词
-        :param model: 使用的模型
+        :param model: 使用的模型,如果为空则使用默认模型
         """
+        model=model if model else self.model
         threading.Thread(
             target=self._send_request_thread,
-            args=(message, model)
+            args=(message, model),
         ).start()
+
+    def set_provider(self, provider, model, api_config=None):
+        """
+        设置API提供商和配置信息
+        :param provider: 提供商名称
+        :param api_config: API配置信息
+        """
+        try:
+            api_key, url, provider_type = extract_api_info(provider, api_config)
+        except ValueError as e:
+            self.error_occurred.emit(f"API配置错误: {str(e)}")
+            return
+        self.api_config = api_config
+        self.base_url = url
+        self.api_key = api_key
+        self.provider_type = provider_type
+        self.client = openai.Client(
+            api_key=api_key,
+            base_url=url
+        )
+        self.model=model
     
     def special_block_handler(self,content,                      #incoming content                     #function to call
                                   starter='<think>', 
@@ -107,12 +224,21 @@ class APIRequestHandler(QObject):
             if hasattr(content, "reasoning_content") and content.reasoning_content:
                 self.think_response += content.reasoning_content
                 self.reasoning_response_received.emit(content.reasoning_content)
+        
+        if not self.client:
+            try:
+                api_key, url, provider_type = extract_api_info('default', self.api_config)
+            except ValueError as e:
+                self.error_occurred.emit(f"API配置错误: {str(e)}")
+                return
+            client = openai.Client(
+                api_key=api_key,
+                base_url=url
+            )
+        else:
+            client = self.client
         #try:
-        client = openai.Client(
-            api_key=self.api_config['key'], 
-            base_url=self.api_config['url'] 
-        )
-        try: 
+        if True:
             print('AI回复(流式):',type(messages))
             self.response = client.chat.completions.create(
                     model=model,
@@ -142,9 +268,9 @@ class APIRequestHandler(QObject):
                     print(content.reasoning_content, end='', flush=True)
             print("OSA 请求完成")
             self.request_completed.emit(self.full_response)
-        except Exception as e:
-            print("OSA API请求错误:", str(e))
-            self.error_occurred.emit(f"API请求错误: {str(e)}")
+        #except Exception as e:
+        #    print("OSA API请求错误:", str(e))
+        #    self.error_occurred.emit(f"API请求错误: {str(e)}")
 
 class FullFunctionRequestHandlerOld(QObject):
     #CoT
@@ -870,95 +996,16 @@ class FullFunctionRequestHandler(QObject):
         return headers
 
     def set_provider(self, provider, api_config=None):
-        def is_dsls(obj):
-            """判断是否为{'provider':['url','key']}"""
-            if not isinstance(obj, dict):
-                return False
-            
-            for key, value in obj.items():
-                if not isinstance(key, str):
-                    return False
-                if not isinstance(value, list) and not isinstance(value, tuple):
-                    return False
-                for item in value:
-                    if not isinstance(item, str):
-                        return False
-            return True
-        
-        def is_dsds(obj):
-            """判断对象是否为: {'provider': {'url': 'str','key': 'str'}}"""
-            if not isinstance(obj, dict):
-                return False
-            
-            for key, value in obj.items():
-                if not isinstance(key, str):
-                    return False
-                if not isinstance(value, dict):
-                    return False
-                for inner_key, inner_value in value.items():
-                    if not isinstance(inner_key, str) or not isinstance(inner_value, str):
-                        return False
-            return True
-        
-        def is_dsuk(obj):
-            """判断是否为 {'url': 'str','key': 'str'}"""
-            if not isinstance(obj, dict):
-                return False
-            if 'url' not in obj or 'key' not in obj:
-                return False
-            return True
-
-        def get_provider_type(url):
-            """
-            根据字符串匹配确定供应商类型
-            匹配不到默认openai兼容
-            不兼容的话后续也会报错
-            """
-            pre_defined_provider_map={
-                'localhost':'local',
-                '127.0':'local',
-                '192.168':'local',
-                'api.deepseek.com':'deepseek',
-                'qianfan.baidubce.com':'baidu',
-                'api.siliconflow.cn':'siliconflow',
-                'api.lkeap.cloud.tencent.com':'tencent',
-                'api.moonshot.cn':'kimi',
-                'api.novita.ai':'novita',
-                'openrouter.ai':'openrouter'
-            }
-            for feature in pre_defined_provider_map.keys():
-                if feature in url:
-                    return pre_defined_provider_map[feature]
-            return 'openai_compatible'
-
-        # 检查是否传入了api_config，如果没有，就去仓库找
-        if not api_config:
-            api_key, url = self._get_api_info(provider)
-        
-        # 如果已经传入了api_config
-        elif isinstance(api_config, list) and len(api_config) == 2:
-            url = api_config[0]
-            api_key = api_config[1]
-        
-        elif is_dsls(api_config):
-            url = api_config[provider][0]
-            api_key = api_config[provider][1]
-        
-        elif is_dsds(api_config):
-            url = api_config[provider]['url']
-            api_key = api_config[provider]['key']
-        
-        elif is_dsuk(api_config):
-            url = api_config['url']
-            api_key = api_config['key']
-        
+        if api_config:
+            try:
+                api_key, url, provider_type = extract_api_info(provider, api_config)
+            except ValueError as e:
+                self.completion_failed.emit('FFR-set_provider', str(e))
         else:
-            self.completion_failed.emit('FFR-set_provider', 'Unrecognized structure')
-            raise ValueError('Unrecognized structure' + str(api_config))
-        
+            api_key, url, provider_type = self._get_api_info(provider)
         self.base_url = url.rstrip('/')
         self.api_key = api_key
-        self.provider_type=get_provider_type(self.base_url)
+        self.provider_type = provider_type
 
     def _handle_stream_request(self, request_data, headers):
         """处理流式请求"""
@@ -1034,7 +1081,10 @@ class FullFunctionRequestHandler(QObject):
                 self._update_info(event)
 
         except requests.exceptions.RequestException as e:
-            error_detail = self._extract_error_detail(e, response)
+            if hasattr(self, 'response'):
+                error_detail = self._extract_error_detail(e, response)
+            else:
+                error_detail = str(e)
             self.completion_failed.emit(
                 self.request_id, 
                 f'Stream request failed, error code:\n{e}\nError details:\n{error_detail}\nRequest payload:\n```json\n{json.dumps(request_data, indent=2, ensure_ascii=False)}\n```'
@@ -1065,7 +1115,10 @@ class FullFunctionRequestHandler(QObject):
                 print(f'\n返回长度：{len(self.full_response)}\n思考链长度: {len(self.think_response)}')
             
         except requests.exceptions.RequestException as e:
-            error_detail = self._extract_error_detail(e, response)
+            if hasattr(self, 'response'):
+                error_detail = self._extract_error_detail(e, response)
+            else:
+                error_detail = str(e)
             self.completion_failed.emit(
                 self.request_id, 
                 f'Non-stream request failed: {e}\nError details: {error_detail}'
@@ -1420,9 +1473,7 @@ class FullFunctionRequestHandler(QObject):
 
     def _get_api_info(self, provider):
         """获取API信息（需要根据实际情况实现）"""
-        # 这里需要根据你的实现来返回 API 信息
-        # 返回格式: (url, api_key)
-        return "", ""
+        return "", "", ''
 
     def _assembly_result_message(self):
         """组装结果消息"""

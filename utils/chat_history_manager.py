@@ -2,6 +2,9 @@ from PyQt5.QtWidgets import *
 from PyQt5.QtCore import *
 from PyQt5.QtGui import *
 import json
+import uuid
+import os
+from utils.tools.one_shot_api_request import APIRequestHandler
 
 class ChatHistoryTools:
     @staticmethod
@@ -17,7 +20,7 @@ class ChatHistoryTools:
         request_id=100001
         for item in chathistory:
             if not "info" in item:
-                item['info']={'id':str(request_id)}
+                item['info']={'id':'patch_'+str(request_id)}
                 request_id+=1
         if (not 'name' in chathistory[0]['info']) and names:
             chathistory[0]['info']['name']=names
@@ -25,6 +28,8 @@ class ChatHistoryTools:
             chathistory[0]['info']['avatar']=avatar
         if chathistory[0]['role']=='system' or chathistory[0]['role']==['developer']:
             chathistory[0]['info']['id']='system_prompt'
+        if not 'file_path' in chathistory[0]['info']:
+            chathistory[0]['info']['file_path']=str(uuid.uuid4())
         return chathistory
     
     @staticmethod
@@ -394,3 +399,176 @@ class ChatHistoryEditor(QDialog):
                 QMessageBox.critical(self, "格式错误", "聊天记录必须包含字典列表，且每个字典有role和content字段")
         except json.JSONDecodeError as e:
             QMessageBox.critical(self, "格式错误", f"JSON解析失败: {e}")
+
+class chathistoryManager(QObject):
+    log_signal=pyqtSignal(str)
+    warning_signal=pyqtSignal(str)
+    error_signal=pyqtSignal(str)
+
+    title_generated=pyqtSignal(str)
+
+    def __init__(self,api_handler:APIRequestHandler=None,history_path='history'):
+        super().__init__()
+        self.api_handler=api_handler
+        self.history_path=history_path
+        if self.api_handler:
+            self.api_handler.request_completed.connect(self._handle_title_response)
+            self.api_handler.error_occurred.connect(lambda msg:self.log_signal.emit(f"Title generation error: {msg}"))
+        self.history_map={} #记录历史文件的id和路径对应关系
+
+    def bind_api_handler(self,api_handler:APIRequestHandler):
+        self.api_handler=api_handler
+        if self.api_handler:
+            self.api_handler.request_completed.connect(self._handle_title_response)
+            self.api_handler.error_occurred.connect(lambda msg:self.log_signal.emit(f"Title generation error: {msg}"))
+
+    def generate_title_from_history_local(self,chathistory):
+        import time
+        title=False
+        for chat in chathistory:
+            if chat["role"]=="user":  
+                if len(chat["content"])>10:
+                    title=chat["content"][:10]      
+                else:
+                    title=chat["content"]
+                unsupported_chars = ["\n",'<', '>', ':', '"', '/', '\\', '|', '?', '*','{','}',',','.','，','。',' ','!','！']
+                for char in unsupported_chars:
+                    title = title.replace(char, '')
+                title = title.rstrip(' .')
+                break
+        if title:
+            title=time.strftime("[%Y-%m-%d]", time.localtime())+title
+        return title
+
+    def create_chat_title(
+            self,
+            chathistory,
+            use_local=False,
+            max_length=20,
+            include_system_prompt=False
+        ):
+        system_msg = next((msg for msg in chathistory if msg.get('role') == 'system'), None)
+        first_user_msg = next((msg for msg in chathistory if msg.get('role') == 'user'), None)
+        if not first_user_msg:
+            self.warning_signal.emit("No user message found to generate title.")
+            self.title_generated.emit("New Chat")
+            return
+        user_content = first_user_msg.get('content', '')
+        if not user_content.strip():
+            self.warning_signal.emit("User message is empty, cannot generate title.")
+            self.title_generated.emit("New Chat")
+            return
+        if not self.api_handler or use_local:
+            self.log_signal.emit("API handler not available, generating title locally.")
+            title = self.generate_title_from_history_local(chathistory)
+            self.title_generated.emit(title)
+            return
+        # 使用API生成标题
+        self.log_signal.emit("Requesting title generation from API.")
+        prompt_parts = [
+            f"为以下消息生成一个不超过{max_length}字的简短标题。请直接输出标题，不要包含任何解释或标点符号。标题语言应与用户消息一致。",
+            f"Generate a short title for the following user message within {max_length} characters. Output the title directly without any explanation or punctuation. The title's language should be the same as the user's message.",
+            f"用户消息/User Message:\n{user_content}",
+            "标题/Title:"
+        ]
+        
+        if include_system_prompt and system_msg:
+            system_content = system_msg.get('content', '')
+            if system_content:
+                prompt_parts.insert(2, f"消息中的场景提示/System Prompt in chat:\n{system_content}")
+
+        message = [{"role": "user", "content": '\n\n'.join(prompt_parts)}]
+        self.api_handler.send_request(message)
+
+    def _handle_title_response(self, response):
+        if len(response)>100: # 控件也显示不了这么多
+            response=response[:100]
+        if response and isinstance(response, str):
+            title = response.strip().strip('"').strip("'")
+            self.title_generated.emit(title)
+            return title
+        else:
+            self.title_generated.emit("生成失败")
+            return "生成失败"
+
+    #载入记录
+    def load_chathistory(self,filename=None):
+        # 弹出文件选择窗口
+        if filename:
+            file_path=filename
+        else:
+            file_path, _ = QFileDialog.getOpenFileName(
+                self, "导入聊天记录", "", "JSON files (*.json);;All files (*)"
+            )
+        if file_path:
+            with open(file_path, "r", encoding="utf-8") as file:
+                chathistory = json.load(file)
+        return chathistory
+
+
+    #保存聊天记录
+    def save_chathistory(self,chathistory, filename=None):
+        if not filename:
+            # 弹出文件保存窗口
+            file_path, _ = QFileDialog.getSaveFileName(
+                self, "保存聊天记录", "", "JSON files (*.json);;All files (*)"
+            )
+            # 更新历史的UUID，防止重复，用户自定义的名字保留
+            chathistory[0]['info']['file_path']=str(uuid.uuid4())
+        self._write_chathistory_to_file(chathistory, filename)
+
+    # 写入聊天记录到本地
+    def _write_chathistory_to_file(self,chathistory, filename):
+        # 清洗文件名
+        unsupported_chars = ["\n",'<', '>', ':', '"', '/', '\\', '|', '?', '*','{','}',',','.','，','。',' ','!','！',' ']
+        for char in unsupported_chars:
+            filename = filename.replace(char, '')
+        if not filename.endswith('.json'):
+            filename += '.json'
+        file_path = os.path.join(self.history_path, filename)
+
+        if file_path:  # 检查 file_path 是否有效
+            try:
+                with open(file_path, "w", encoding="utf-8") as file:
+                    json.dump(chathistory, file, ensure_ascii=False, indent=4)
+            except Exception as e:
+                self.error_signal.emit(f'failed saving chathistory {chathistory}')
+                QMessageBox.critical(self, "保存失败", f"保存聊天记录时发生错误：{e}")
+        else:
+            QMessageBox.warning(self, "取消保存", "未选择保存路径，聊天记录未保存。")
+
+    #自动保存
+    def autosave_save_chathistory(self):
+        filename=False
+        for chat in self.chathistory:
+            if chat["role"]=="user":  
+                if len(chat["content"])>10:
+                    filename=chat["content"][:10]      
+                else:
+                    filename=chat["content"]
+                unsupported_chars = ["\n",'<', '>', ':', '"', '/', '\\', '|', '?', '*','{','}',',','.','，','。',' ','!','！']
+                for char in unsupported_chars:
+                    filename = filename.replace(char, '')
+                filename = filename.rstrip(' .')
+                break
+        if filename:
+            filename=time.strftime("[%Y-%m-%d]", time.localtime())+filename
+            self.save_chathistory(filename=filename)
+
+    #读取过去system prompt
+    def load_sys_pmt_from_past_record(self,chathistory=[],filename=None,file_id=''):
+        if chathistory:
+            return chathistory[0]["content"]
+        elif filename:
+            past_chathistory=self.load_chathistory(filename)
+            if past_chathistory and isinstance(past_chathistory, list) and len(past_chathistory)>0 and past_chathistory[0]["role"]=="system":
+                return past_chathistory[0]["content"]
+            else:
+                return ''
+        elif file_id:
+            filename=self.history_map.get(file_id,'')
+            past_chathistory=self.load_chathistory(filename)
+            if past_chathistory and isinstance(past_chathistory, list) and len(past_chathistory)>0 and past_chathistory[0]["role"]=="system":
+                return past_chathistory[0]["content"]
+            else:
+                return ''

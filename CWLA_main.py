@@ -15,6 +15,7 @@ import difflib
 import random
 from typing import Any, Dict, List, Tuple,Optional
 import warnings
+import uuid
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 warnings.filterwarnings("ignore", message="libpng warning: iCCP: known incorrect sRGB profile")
 
@@ -309,9 +310,9 @@ class RepeatProcessor:
         for i in range(len(last_four)):
             for j in range(i+1, len(last_four)):
                 ratio = difflib.SequenceMatcher(None, last_four[i], last_four[j]).ratio()
-                print(f'当前相似度 {ratio}')
+                LOGGER.info(f'当前相似度 {ratio}')
                 if ratio >= similarity_threshold:
-                    print('过高相似度，激进降重触发')
+                    LOGGER.warning('过高相似度，激进降重触发')
                     return True
         return False
 
@@ -565,7 +566,7 @@ class RandomModelSelecter(QWidget):
 
         else:
             return_model=random.choice(self.current_models)
-        print("Selected models:", return_model)
+        LOGGER.info(f"Selected models:{return_model}")
         return return_model
 
     def get_selected_models(self):
@@ -628,7 +629,7 @@ class ConfigManager:
                 elif isinstance(value, (int, float, str)):
                     config[section][key] = str(value)
             except Exception as e:
-                print(f"Error saving {key}: {e}")
+                LOGGER.error(f"Error saving {key}: {e}")
 
         with open(filename, "w", encoding="utf-8") as f:
             config.write(f)
@@ -725,32 +726,32 @@ class StrTools:
 
         for i, message in enumerate(dic_chathistory):
             if action!='easy':
-                print(f"对话 {i}:")
-                print(f"Role: {message['role']}")
-                print("-" * 20)
-                print(f"Content: {message['content']}")
-                print("-" * 20)
+                LOGGER.info(f"对话 {i}:")
+                LOGGER.info(f"Role: {message['role']}")
+                LOGGER.info("-" * 20)
+                LOGGER.info(f"Content: {message['content']}")
+                LOGGER.info("-" * 20)
             
                 # 新增工具调用打印逻辑
                 if message['role'] == 'assistant' and 'tool_calls' in message:
-                    print("工具调用列表：")
+                    LOGGER.info("工具调用列表：")
                     for j, tool_call in enumerate(message['tool_calls']):
                         func_info = tool_call.get('function', {})
                         name = func_info.get('name', '未知工具')
                         args = func_info.get('arguments', {})
-                        print(f"  工具 {j+1}: {name}")
-                        print(f"  参数: {args}",type(args))
-                        print("-" * 20)
+                        LOGGER.info(f"  工具 {j+1}: {name}")
+                        LOGGER.info(f"  参数: {args}, 类型: {type(args)}")
+                        LOGGER.info("-" * 20)
                     actual_length += len(args)
                 
                 if message['content']:
                     actual_length += len(message['content'])
-        
-        print(f"实际长度: {actual_length}")
-        print(f"实际对话轮数: {len(dic_chathistory)}")
-        print(f"系统提示长度: {len(dic_chathistory[0]['content'])}")
-        print("-" * 20)
-        
+
+        LOGGER.info(f"实际长度: {actual_length}")
+        LOGGER.info(f"实际对话轮数: {len(dic_chathistory)}")
+        LOGGER.info(f"系统提示长度: {len(dic_chathistory[0]['content'])}")
+        LOGGER.info("-" * 20)
+
         return {
             "actual_length": actual_length,
             "actual_rounds": len(dic_chathistory),
@@ -798,8 +799,8 @@ class MessagePreprocessor:
         message = self._purge_message(message)
         params  = self._build_request_params(message,stream=self.stream,tools=tools)
         params  = self._handle_provider_patch(params)
-        print(f'发送长度: {len(str(message))}')
-        print(f'处理时间:{(time.perf_counter()-start)*1000:.2f}ms')
+        LOGGER.info(f'发送长度: {len(str(message))}')
+        LOGGER.info(f'处理时间:{(time.perf_counter()-start)*1000:.2f}ms')
         return message, params
 
     def _calculate_better_round(self):
@@ -946,7 +947,7 @@ class MessagePreprocessor:
     
     def _handle_story_creator(self,message):
         if not "mods.story_creator" in sys.modules:
-            print('no mods.story_creator')
+            LOGGER.info('no mods.story_creator')
             return message
         if not self.god.mod_configer.enable_story_insert.isChecked():
             return message
@@ -961,7 +962,6 @@ class MessagePreprocessor:
         # 动态CoT
         if 'enable_thinking' in params:
             enable_thinking=params['enable_thinking']
-        
             if 'silicon' in url:
                 pass
             #openrouter
@@ -971,6 +971,9 @@ class MessagePreprocessor:
                     "exclude": False,
                     "enabled": enable_thinking
                 }
+        if self.god.reasoning_effort and 'openrouter' in url:
+            effort_map={1: "low", 2: "medium", 3: "high"}
+            params["reasoning"]["effort"]=effort_map[self.god.reasoning_effort] #will raise error if not 1,2,3
 
         # 使用者
         if 'openrouter' in url:
@@ -1336,11 +1339,15 @@ class MainWindow(QMainWindow):
         self.web_search_button.setChecked(self.web_search_enabled)
         self.web_search_button.toggled.connect(self.handel_web_search_button_toggled)
 
-        self.enable_thinking_button=ExpandableButton(['  深度思考   ','  深度思考:短','  深度思考:中','  深度思考:高'])
+        self.enable_thinking_button=ExpandableButton(['深度思考','思考：短','思考：中','思考：高'])
         self.enable_thinking_button.setChecked(self.thinking_enabled)
+        self.enable_thinking_button.setCurrentIndex(self.reasoning_effort)
         self.enable_thinking_button.toggled.connect(lambda state:setattr(self,'thinking_enabled',state))
         self.enable_thinking_button.itemSelected.connect(
             lambda text: self.enable_thinking_button.setChecked(not text==self.enable_thinking_button.get_items()[0])
+        )
+        self.enable_thinking_button.itemSelected.connect(
+            lambda _: setattr(self,'reasoning_effort',self.enable_thinking_button.currentIndex())
         )
 
         separators = [QFrame() for _ in range(3)]
@@ -1598,6 +1605,7 @@ class MainWindow(QMainWindow):
         self.lock_background=False
         self.web_search_enabled=False
         self.thinking_enabled=False
+        self.reasoning_effort=0 #0-3
         self.difflib_modified_flag = False
 
         # 聊天会话管理
@@ -2260,11 +2268,11 @@ class MainWindow(QMainWindow):
             self.send_button.setEnabled(True)
             self.update_chat_history()
 
-    ###发送请求主函数
+    ###发送请求主函数 0.25.3 api基础重构
     def send_request(self,create_thread=True):
         self.full_response=''
         self.think_response=''
-        def target():#临时使用，需要重构
+        def target():
             preprocessor = MessagePreprocessor(self)  # 创建预处理器实例
             preprocessor.stream=self.stream_receive
             message, params = preprocessor.prepare_message()
@@ -2398,9 +2406,9 @@ class MainWindow(QMainWindow):
                     self.call_background_update()
                 
             except Exception as e:
-                print("long chat improvement failed, Error code:",e)
+                LOGGER.error(f"long chat improvement failed, Error code:{e}")
             except Exception as e:
-                print("long chat improvement failed, Error code:",e)
+                LOGGER.error(f"long chat improvement failed, Error code:{e}")
         if self.enforce_lower_repeat_var:
             self.enforce_lower_repeat_text=''
             repeat_list=self.repeat_processor.find_last_repeats()
@@ -2408,7 +2416,7 @@ class MainWindow(QMainWindow):
                 for i in repeat_list:
                     self.enforce_lower_repeat_text+=i+'"或"'
                 self.enforce_lower_repeat_text='避免回复词汇"'+self.enforce_lower_repeat_text[:-2]
-                print("降重触发:",self.enforce_lower_repeat_text)
+                LOGGER.info(f"降重触发: {self.enforce_lower_repeat_text}")
         else:
             self.enforce_lower_repeat_text=''
         if self.web_search_enabled:
@@ -2678,7 +2686,7 @@ class MainWindow(QMainWindow):
                 with open(file_path, "w", encoding="utf-8") as file:
                     json.dump(self.chathistory, file, ensure_ascii=False, indent=4)
             except Exception as e:
-                print('saving chathistory',self.chathistory)
+                LOGGER.info(f'saving chathistory {self.chathistory}')
                 QMessageBox.critical(self, "保存失败", f"保存聊天记录时发生错误：{e}")
         else:
             QMessageBox.warning(self, "取消保存", "未选择保存路径，聊天记录未保存。")
@@ -2802,11 +2810,11 @@ class MainWindow(QMainWindow):
         try:
             self.autosave_save_chathistory()  # 调用自动保存聊天历史的方法
         except Exception as e:
-            print("autosave_save_chathistory fail",e)
+            LOGGER.error(f"autosave_save_chathistory fail: {e}")
         try:
             self.save_hotkey_config()
         except Exception as e:
-            print("save_hotkey_config",e)
+            LOGGER.error(f"save_hotkey_config fail: {e}")
         ConfigManager.config_save(self)
         ModelMapManager().save_model_map(MODEL_MAP)
         self.mod_configer.run_close_event()
@@ -2841,7 +2849,7 @@ class MainWindow(QMainWindow):
                 self.autoslide_var = config.getboolean('HotkeyConfig', 'autoslide_var')
                 self.hotkey_sysrule_var=config.getboolean('HotkeyConfig', 'hotkey_sysrule_var')
             else:
-                print("配置文件中没有找到 HotkeyConfig 部分。")
+                self.info_manager.warning("配置文件中没有找到 HotkeyConfig 部分。")
         except Exception as e:
             print(e)
 
@@ -2880,7 +2888,7 @@ class MainWindow(QMainWindow):
                     past_chats[file_name] = os.path.join(application_path, file_name)
                 else:
                     error_msg = f"Skipped {file_name}: {message}" if message else f"Skipped invalid file: {file_name}"
-                    print(error_msg)
+                    self.info_manager.log(error_msg, level="warning")
 
         def validate_chat_file(file_name: str) -> Tuple[bool, str]:
             """验证单个聊天文件"""
@@ -2955,7 +2963,7 @@ class MainWindow(QMainWindow):
                     process_result(file_name, valid, message)
                 except Exception as e:
                     with lock:
-                        print(f"Error processing {file_name}: {str(e)}")
+                        self.info_manager.log(f"Error processing {file_name}: {str(e)}", level="error")
 
         return past_chats
     
@@ -2965,7 +2973,7 @@ class MainWindow(QMainWindow):
         
         # 基础安全校验
         if not self.past_chat_list.currentItem():
-            print("No item selected")
+            self.info_manager.warning("No item selected")
             return
 
         # 获取当前选中的列表项
@@ -2978,14 +2986,14 @@ class MainWindow(QMainWindow):
             
             self.load_chathistory(filename=file_path)
         except AttributeError as e:
-            print(f"数据读取失败: {str(e)}")
+            self.info_manager.error(f"数据读取失败: {str(e)}")
 
     #长文本优化：启动线程
     def long_chat_improve(self):
         self.new_chat_rounds=0
         self.update_opti_bar()
         try:
-            print("长文本优化：线程启动")
+            self.info_manager.info("长文本优化：线程启动")
             threading.Thread(target=self.long_chat_improve_thread).start()
         except Exception as e:
             print(e)
@@ -3021,34 +3029,34 @@ class MainWindow(QMainWindow):
         ]
         if self.long_chat_improve_api_provider:
             api_provider=self.long_chat_improve_api_provider
-            print('自定义长对话优化API提供商：',api_provider)
+            self.info_manager.log(f'自定义长对话优化API提供商：{api_provider}')
         else:
             api_provider = self.api_var.currentText()
-            print('默认对话优化API提供商：',api_provider)
+            self.info_manager.log(f'默认对话优化API提供商：{api_provider}')
         if self.long_chat_improve_model:
             model=self.long_chat_improve_model
-            print('自定义长对话优化模型：',model)
+            self.info_manager.log(f'自定义长对话优化模型：{model}')
         else:
             model = self.model_combobox.currentText()
-            print('默认长对话优化模型：',model)
+            self.info_manager.log(f'默认长对话优化模型：{model}')
         client = openai.Client(
             api_key=self.api[api_provider][1],
             base_url=self.api[api_provider][0]
         )
         try:
-            print("长文本优化：迭代1发送。\n发送内容长度:",len(last_full_story))
+            self.info_manager.log(f"长文本优化：迭代1发送。\n发送内容长度:{len(last_full_story)}")
             completion = client.chat.completions.create(
                 model=model,
                 messages=messages,
                 #temperature=0
             )
             return_story = completion.choices[0].message.content
-            print("长文本优化：迭代1完成。\n返回长度:",len(return_story),'\n返回内容：',return_story)
+            self.info_manager.log(f"长文本优化：迭代1完成。\n返回长度:{len(return_story)}\n返回内容：{return_story}")
             if self.last_summary=='':
-                print("self.last_summary==''")
+                self.info_manager.log("self.last_summary==''")
             if self.last_summary!='':
                 last_full_story=LongChatImprovePersetVars.summary_merge_prompt+self.last_summary+LongChatImprovePersetVars.summary_merge_prompt_and+return_story
-                print("长文本优化：迭代2开始。\n发送长度:",len(last_full_story),"=",len(self.last_summary),'+',len(return_story))
+                self.info_manager.log(f"长文本优化：迭代2开始。\n发送长度:{len(last_full_story)}={len(self.last_summary)}+{len(return_story)}")
                 messages=[
                 {"role":"system","content":summary_prompt},
                 {"role":"user","content":last_full_story}
@@ -3058,8 +3066,8 @@ class MainWindow(QMainWindow):
                     messages=messages,
                     #temperature=0
                 )
-                return_story = completion.choices[0].message.content    
-                print("长文本优化：迭代2完成。\n返回长度:",len(return_story),'\n返回内容：',return_story)
+                return_story = completion.choices[0].message.content
+                self.info_manager.log(f"长文本优化：迭代2完成。\n返回长度:{len(return_story)}\n返回内容：{return_story}")
             try:
                 if self.chathistory[0]["role"]=="system":
                     pervious_sysrule = self.chathistory[0]["content"].split(LongChatImprovePersetVars.before_last_summary)[0]
@@ -3070,18 +3078,18 @@ class MainWindow(QMainWindow):
                     pervious_sysrule = self.chathistory[0]["content"]
                 else:
                     pervious_sysrule=self.sysrule
-                print("pervious_sysrule failure, Error code:",e,'\nCurrent "pervious_sysrule":',pervious_sysrule)
+                self.info_manager.warning(f"pervious_sysrule failure, Error code:{e}\nCurrent 'pervious_sysrule':{pervious_sysrule}")
             # 替换系统背景
             
             self.sysrule=pervious_sysrule+'\n'+LongChatImprovePersetVars.before_last_summary+return_story
             self.chathistory[0]["content"]=self.sysrule
             self.last_summary=return_story
-            print('长对话处理一次,历史记录第一位更新为：',self.chathistory[0]["content"])
+            self.info_manager.log(f'长对话处理一次,历史记录第一位更新为：{self.chathistory[0]["content"]}')
             self.autosave_save_chathistory()
         except Exception as e:
             # 如果线程中发生异常，也通过信号通知主线程
             self.update_response_signal.emit(f'error:{int(time.time())}',f"Error: {str(e)}")
-            print('长对话优化报错，Error code:',e)
+            self.info_manager.warning(f'长对话优化报错，Error code:{e}')
 
     #对话设置，主设置，全局设置
     def open_max_send_lenth_window(self):
@@ -3251,7 +3259,7 @@ class MainWindow(QMainWindow):
         
         # 确保有选中的项
         if not item:
-            print("No item selected.")
+            self.info_manager.warning("No item selected.")
             return
         
         # 获取文件名并过滤非法路径字符
@@ -3262,12 +3270,12 @@ class MainWindow(QMainWindow):
         
         # 确保文件存在
         if not os.path.exists(file_path):
-            print(f"File not found: {file_path}")
+            self.info_manager.error(f"File not found: {file_path}")
             return
         
         # 确保文件扩展名是 .json
         if not filename.endswith('.json'):
-            print(f"Invalid file type: {filename}")
+            self.info_manager.log(f"Invalid file type: {filename}")
             return
         
         try:
@@ -3276,24 +3284,24 @@ class MainWindow(QMainWindow):
                 past_chathistory = json.load(file)
                 # 确保 chathistory 是一个列表嵌套字典的结构
                 if not isinstance(self.chathistory, list) or not all(isinstance(item, dict) for item in self.chathistory):
-                    print("Invalid JSON structure: Expected a list of dictionaries.")
+                    self.info_manager.error("Invalid JSON structure: Expected a list of dictionaries.")
                     return
                 else:
                     self.chathistory[0]=past_chathistory[0]
                     self.sysrule=past_chathistory[0]["content"]
-                    print('导入system prompt完成。\n导入长度：',len(self.chathistory[0]["content"]))
+                    self.info_manager.log(f'导入system prompt完成。\n导入长度：{len(self.chathistory[0]["content"])}')
 
         except json.JSONDecodeError:
-            print(f"Failed to decode JSON from file: {file_path}")
+            self.info_manager.error(f"Failed to decode JSON from file: {file_path}")
             self.chathistory = []
         except Exception as e:
-            print(f"An error occurred: {e}")
+            self.info_manager.error(f"An error occurred: {e}")
             self.chathistory = []
 
     def analysis_past_chat(self):
         item = self.past_chat_list.currentItem()
         if not item:
-            print("No item selected.")
+            self.info_manager.warning("No item selected.")
             return
         filename = os.path.basename(item.text())
         
@@ -3317,7 +3325,7 @@ class MainWindow(QMainWindow):
     #背景更新：触发UI更新
     def update_background(self,file_path):
         self.background_image_path=os.path.join(self.application_path,file_path)
-        print('update_background',file_path)
+        self.info_manager.log(f'update_background: {file_path}')
         if not file_path\
         or not os.path.isfile(self.background_image_path):
             QMessageBox.critical(
@@ -3426,7 +3434,10 @@ class MainWindow(QMainWindow):
         )
         add_connection(
             self.background_agent.poll_success,
-            lambda path: [self.update_background(path) or print(f'背景生成返回了路径，返回了{path}')] if path else [self.update_background('background.jpg'), print(f'背景生成没返回路径，返回了{path}')]
+            lambda path: [
+                self.update_background(path) or self.info_manager.log(f'背景生成返回了路径，返回了{path}')] if path else [
+                    self.update_background('background.jpg'), self.info_manager.log(f'背景生成没返回路径，返回了{path}')
+                    ]
         )
    
     #背景生成器
@@ -3501,7 +3512,7 @@ class MainWindow(QMainWindow):
                 self.Background_trigger_bar.setFormat(f'背景更新: {self.new_background_rounds}/{self.max_background_rounds}')
             self.opti_frame.setVisible(self.long_chat_improve_var or self.back_ground_update_var)
         except Exception as e:
-            print("Setting up process bar,ignore if first set up:",e)
+            self.info_manager.log(f"Setting up process bar,ignore if first set up: {e}")
 
     #联网搜索结果窗口
     def handle_search_result_button_toggle(self):
@@ -3710,6 +3721,7 @@ class MainWindow(QMainWindow):
                 'id':'system_prompt',
                 'name':{'user':self.name_user,'assistant':self.name_ai},
                 'avatar':{'user':user_avatar_path,'assistant':ai_avatar_path},
+                'file_path':str(uuid.uuid4())
                 }
             }
         )
@@ -3765,7 +3777,7 @@ class MainWindow(QMainWindow):
 {table_body}
 """
     
-    #0.25.3
+    #0.25.3 info_manager + api request基础重构
     def resend_message_by_tool(self):
         self._receive_message([])
         self.send_request()

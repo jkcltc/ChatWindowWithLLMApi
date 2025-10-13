@@ -182,11 +182,11 @@ class ExpandableButton(QWidget):
         
     def _setup_ui(self):
         """设置UI界面"""
-        self.setStyleSheet("""
-            QWidget {
-                margin: 0px;
-                padding: 0px;
-            }""")
+        #self.setStyleSheet("""
+        #    QWidget {
+        #        margin: 0px;
+        #        padding: 0px;
+        #    }""")
         # 主布局
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0,0,0)
@@ -281,10 +281,23 @@ class ExpandableButton(QWidget):
         if text in self._items:
             self._current_text = text
             self.left_button.setText(text)
-            
+    
+    def setCurrentIndex(self, index):
+        """设置当前显示的索引"""
+        if 0 <= index < len(self._items):
+            text = self._items[index]
+            self._current_text = text
+            self.left_button.setText(text)
+            self.itemSelected.emit(text)
+        else:
+            raise IndexError("Index out of range")
+
     def currentText(self):
         """获取当前显示的文本"""
         return self._current_text
+
+    def currentIndex(self):
+        return self._items.index(self._current_text)
         
     def isChecked(self):
         """获取左侧按钮状态"""

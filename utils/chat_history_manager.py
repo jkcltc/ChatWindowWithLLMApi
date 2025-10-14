@@ -1,9 +1,15 @@
-from PyQt5.QtWidgets import *
+import concurrent.futures
+import json
+import os
+import threading
+import time
+import uuid
+from typing import Any, Dict, List, Optional, Tuple
+
 from PyQt5.QtCore import *
 from PyQt5.QtGui import *
-import json
-import uuid
-import os
+from PyQt5.QtWidgets import *
+
 from utils.tools.one_shot_api_request import APIRequestHandler
 
 class ChatHistoryTools:
@@ -28,8 +34,8 @@ class ChatHistoryTools:
             chathistory[0]['info']['avatar']=avatar
         if chathistory[0]['role']=='system' or chathistory[0]['role']==['developer']:
             chathistory[0]['info']['id']='system_prompt'
-        if not 'file_path' in chathistory[0]['info']:
-            chathistory[0]['info']['file_path']=str(uuid.uuid4())
+        if not 'chat_id' in chathistory[0]['info']:
+            chathistory[0]['info']['chat_id']=str(uuid.uuid4())
         return chathistory
     
     @staticmethod
@@ -400,53 +406,51 @@ class ChatHistoryEditor(QDialog):
         except json.JSONDecodeError as e:
             QMessageBox.critical(self, "格式错误", f"JSON解析失败: {e}")
 
-class chathistoryManager(QObject):
-    log_signal=pyqtSignal(str)
-    warning_signal=pyqtSignal(str)
-    error_signal=pyqtSignal(str)
+class TitleGenerator(QObject):
+    log_signal = pyqtSignal(str)
+    warning_signal = pyqtSignal(str)
+    error_signal = pyqtSignal(str)
+    title_generated = pyqtSignal(str)
 
-    title_generated=pyqtSignal(str)
-
-    def __init__(self,api_handler:APIRequestHandler=None,history_path='history'):
+    def __init__(self, api_handler: APIRequestHandler = None):
         super().__init__()
-        self.api_handler=api_handler
-        self.history_path=history_path
+        self.api_handler = api_handler
         if self.api_handler:
             self.api_handler.request_completed.connect(self._handle_title_response)
-            self.api_handler.error_occurred.connect(lambda msg:self.log_signal.emit(f"Title generation error: {msg}"))
-        self.history_map={} #记录历史文件的id和路径对应关系
+            self.api_handler.error_occurred.connect(lambda msg: self.log_signal.emit(f"Title generation error: {msg}"))
 
-    def bind_api_handler(self,api_handler:APIRequestHandler):
-        self.api_handler=api_handler
+    def bind_api_handler(self, api_handler: APIRequestHandler):
+        self.api_handler = api_handler
         if self.api_handler:
             self.api_handler.request_completed.connect(self._handle_title_response)
-            self.api_handler.error_occurred.connect(lambda msg:self.log_signal.emit(f"Title generation error: {msg}"))
+            self.api_handler.error_occurred.connect(lambda msg: self.log_signal.emit(f"Title generation error: {msg}"))
 
-    def generate_title_from_history_local(self,chathistory):
-        import time
-        title=False
+    def generate_title_from_history_local(self, chathistory):
+        title = False
         for chat in chathistory:
-            if chat["role"]=="user":  
-                if len(chat["content"])>10:
-                    title=chat["content"][:10]      
+            if chat["role"] == "user":  
+                if len(chat["content"]) > 10:
+                    title = chat["content"][:10]      
                 else:
-                    title=chat["content"]
-                unsupported_chars = ["\n",'<', '>', ':', '"', '/', '\\', '|', '?', '*','{','}',',','.','，','。',' ','!','！']
+                    title = chat["content"]
+                unsupported_chars = ["\n", '<', '>', ':', '"', '/', '\\', '|', '?', '*', '{', '}', ',', '.', '，', '。', ' ', '!', '！']
                 for char in unsupported_chars:
                     title = title.replace(char, '')
                 title = title.rstrip(' .')
                 break
         if title:
-            title=time.strftime("[%Y-%m-%d]", time.localtime())+title
+            title = time.strftime("[%Y-%m-%d]", time.localtime()) + title
         return title
 
     def create_chat_title(
             self,
             chathistory,
+            task_id=None,
             use_local=False,
             max_length=20,
             include_system_prompt=False
         ):
+        self.task_id = task_id
         system_msg = next((msg for msg in chathistory if msg.get('role') == 'system'), None)
         first_user_msg = next((msg for msg in chathistory if msg.get('role') == 'user'), None)
         if not first_user_msg:
@@ -481,22 +485,34 @@ class chathistoryManager(QObject):
         self.api_handler.send_request(message)
 
     def _handle_title_response(self, response):
-        if len(response)>100: # 控件也显示不了这么多
-            response=response[:100]
+        if len(response) > 100:  # 控件也显示不了这么多
+            response = response[:100]
         if response and isinstance(response, str):
-            title = response.strip().strip('"').strip("'")
+            title = time.strftime("[%Y-%m-%d]", time.localtime()) + response.strip().strip('"').strip("'")
             self.title_generated.emit(title)
             return title
         else:
             self.title_generated.emit("生成失败")
             return "生成失败"
 
-    #载入记录
-    def load_chathistory(self,filename=None):
+class ChathistoryFileManager(QObject):
+    log_signal = pyqtSignal(str)
+    warning_signal = pyqtSignal(str)
+    error_signal = pyqtSignal(str)
+
+    def __init__(self, history_path='history', title_generator=TitleGenerator()):
+        super().__init__()
+        self.history_path = history_path
+        self.title_generator = title_generator
+        self.history_map = {}  # 记录历史文件的id和路径对应关系
+
+    def bind_title_generator(self, title_generator: TitleGenerator):
+        self.title_generator = title_generator
+
+    # 载入记录
+    def load_chathistory(self, file_path=None):
         # 弹出文件选择窗口
-        if filename:
-            file_path=filename
-        else:
+        if not file_path:
             file_path, _ = QFileDialog.getOpenFileName(
                 self, "导入聊天记录", "", "JSON files (*.json);;All files (*)"
             )
@@ -505,27 +521,25 @@ class chathistoryManager(QObject):
                 chathistory = json.load(file)
         return chathistory
 
-
-    #保存聊天记录
-    def save_chathistory(self,chathistory, filename=None):
-        if not filename:
+    # 保存聊天记录
+    def save_chathistory(self, chathistory, file_path=None):
+        if not file_path:
             # 弹出文件保存窗口
             file_path, _ = QFileDialog.getSaveFileName(
                 self, "保存聊天记录", "", "JSON files (*.json);;All files (*)"
             )
             # 更新历史的UUID，防止重复，用户自定义的名字保留
-            chathistory[0]['info']['file_path']=str(uuid.uuid4())
-        self._write_chathistory_to_file(chathistory, filename)
+            chathistory[0]['info']['chat_id'] = str(uuid.uuid4())
+        self._write_chathistory_to_file(chathistory, file_path)
 
     # 写入聊天记录到本地
-    def _write_chathistory_to_file(self,chathistory, filename):
+    def _write_chathistory_to_file(self, chathistory: list, file_path: str):
         # 清洗文件名
-        unsupported_chars = ["\n",'<', '>', ':', '"', '/', '\\', '|', '?', '*','{','}',',','.','，','。',' ','!','！',' ']
+        unsupported_chars = ["\n", '<', '>', ':', '"', '/', '\\', '|', '?', '*', '{', '}', ',', '.', '，', '。', ' ', '!', '！', ' ']
         for char in unsupported_chars:
-            filename = filename.replace(char, '')
-        if not filename.endswith('.json'):
-            filename += '.json'
-        file_path = os.path.join(self.history_path, filename)
+            file_path = file_path.replace(char, '')
+        if not file_path.endswith('.json'):
+            file_path += '.json'
 
         if file_path:  # 检查 file_path 是否有效
             try:
@@ -537,38 +551,210 @@ class chathistoryManager(QObject):
         else:
             QMessageBox.warning(self, "取消保存", "未选择保存路径，聊天记录未保存。")
 
-    #自动保存
-    def autosave_save_chathistory(self):
-        filename=False
-        for chat in self.chathistory:
-            if chat["role"]=="user":  
-                if len(chat["content"])>10:
-                    filename=chat["content"][:10]      
-                else:
-                    filename=chat["content"]
-                unsupported_chars = ["\n",'<', '>', ':', '"', '/', '\\', '|', '?', '*','{','}',',','.','，','。',' ','!','！']
-                for char in unsupported_chars:
-                    filename = filename.replace(char, '')
-                filename = filename.rstrip(' .')
-                break
-        if filename:
-            filename=time.strftime("[%Y-%m-%d]", time.localtime())+filename
-            self.save_chathistory(filename=filename)
+    # 自动保存
+    def autosave_save_chathistory(self, chathistory):
+        '''
+        自动保存聊天记录到默认路径
+        文件名称如果没有保存在info里，就用本地生成的标题
+        仅在自动保存时，chat_id同时作为文件名和对话ID
+        '''
+        file_path = chathistory[0]['info']['chat_id']
+        file_path = os.path.join(self.history_path, file_path)
+        if file_path:
+            self.save_chathistory(chathistory, file_path=file_path)
 
-    #读取过去system prompt
-    def load_sys_pmt_from_past_record(self,chathistory=[],filename=None,file_id=''):
+    # 读取过去system prompt
+    def load_sys_pmt_from_past_record(self, chathistory=[], file_path=None):
+        """
+        从当前或过去的聊天记录中加载系统提示
+        Args:
+            chathistory (list): 当前聊天记录
+            file_path (str): 过去聊天记录的完整路径
+
+        """
         if chathistory:
             return chathistory[0]["content"]
-        elif filename:
-            past_chathistory=self.load_chathistory(filename)
-            if past_chathistory and isinstance(past_chathistory, list) and len(past_chathistory)>0 and past_chathistory[0]["role"]=="system":
+        elif file_path:
+            past_chathistory = self.load_chathistory(file_path)
+            if past_chathistory and isinstance(past_chathistory, list) and len(past_chathistory) > 0 and past_chathistory[0]["role"] == "system":
                 return past_chathistory[0]["content"]
             else:
+                self.error_signal.emit(f'failed loading chathistory from {file_path}')
                 return ''
-        elif file_id:
-            filename=self.history_map.get(file_id,'')
-            past_chathistory=self.load_chathistory(filename)
-            if past_chathistory and isinstance(past_chathistory, list) and len(past_chathistory)>0 and past_chathistory[0]["role"]=="system":
-                return past_chathistory[0]["content"]
-            else:
-                return ''
+        else:
+            self.error_signal.emit(f"didn't get any valid input to load sys pmt")
+            return ''
+
+
+    def load_past_chats(self, application_path: str = '', file_count: int = 50) -> List[Dict[str, Any]]:
+        """
+        并行获取并验证历史聊天记录
+        Args:
+            application_path (str): 聊天记录存储路径
+            file_count (int): 要处理的文件数量，默认为50
+        Returns:
+            List[Dict[str, Any]]: 包含路径、标题和时间的字典列表
+        """
+        # 共享数据结构与线程锁
+        past_chats = []
+        lock = threading.Lock()
+        if not application_path:
+            application_path = self.history_path
+        
+        if not os.path.exists(application_path):
+            os.mkdir(application_path)
+
+        def get_json_files(file_count: int) -> List[str]:
+            """获取最新的JSON文件"""
+            files = [f for f in os.listdir(application_path) if f.endswith('.json')]
+            return sorted(
+                files,
+                key=lambda x: os.path.getmtime(os.path.join(application_path, x)),
+                reverse=True
+            )[:file_count]
+
+        def process_result(file_name: str, valid: bool, message: str = "", title: str = "Unknown", file_path: str = "", mtime: float = 0):
+            """线程安全的结果处理"""
+            with lock:
+                if valid:
+                    chat_info = {
+                        'file_path': file_path,
+                        'title': title,
+                        'modification_time': mtime,
+                    }
+                    past_chats.append(chat_info)
+                else:
+                    error_msg = f"Skipped {file_name}: {message}" if message else f"Skipped invalid file: {file_name}"
+                    self.warning_signal.emit(error_msg)
+
+        def validate_chat_file(file_name: str) -> Tuple[bool, str, str, float]:
+            """验证单个聊天文件并提取标题"""
+            file_path = os.path.join(application_path, file_name)
+            mtime = os.path.getmtime(file_path)  # 先获取时间，即使后续失败
+            
+            try:
+                with open(file_path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    
+                    if not validate_json_structure(data):
+                        return False, "Invalid data structure", "", mtime
+                    
+                    # 提取标题
+                    title = extract_chat_title(data)
+                    return True, "", title, mtime
+                    
+            except json.JSONDecodeError:
+                return False, "Invalid JSON format", "", mtime
+            except Exception as e:
+                return False, str(e), "", mtime
+
+        def extract_chat_title(chat_data: List[Dict]) -> str:
+            """从聊天数据中提取标题"""
+            for message in chat_data:
+                if message.get("role") == "system":
+                    info = message.get("info", {})
+                    return info.get("title", "New Chat")
+
+            return "Untitled Chat"
+
+        def validate_json_structure(data) -> bool:
+            """验证JSON数据结构，支持工具调用格式"""
+            if not isinstance(data, list):
+                return False
+
+            for item in data:
+                # 检查是否为字典类型
+                if not isinstance(item, dict):
+                    return False
+
+                role = item.get("role")
+                # 检查角色有效性
+                if role not in {"user", "system", "assistant", "tool"}:
+                    return False
+
+                # 根据不同角色验证字段
+                if role in ("user", "system"):
+                    # 必须包含content字段且为字符串
+                    if "content" not in item or not isinstance(item["content"], str):
+                        return False
+
+                elif role == "assistant":
+                    # 至少包含content或tool_calls中的一个
+                    has_content = "content" in item
+                    has_tool_calls = "tool_calls" in item
+                    if not (has_content or has_tool_calls):
+                        return False
+
+                    # 检查content类型（允许字符串或null）
+                    if has_content and not isinstance(item["content"], (str, type(None))):
+                        return False
+
+                    # 检查tool_calls是否为列表
+                    if has_tool_calls and not isinstance(item["tool_calls"], list):
+                        return False
+
+                elif role == "tool":
+                    # 必须包含tool_call_id和content字段
+                    if "tool_call_id" not in item or "content" not in item:
+                        return False
+                    # content必须为字符串
+                    if not isinstance(item["content"], str):
+                        return False
+
+            return True
+
+        # 主处理流程
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            futures = {
+                executor.submit(validate_chat_file, fn): fn
+                for fn in get_json_files(file_count)
+            }
+
+            for future in concurrent.futures.as_completed(futures):
+                file_name = futures[future]
+                try:
+                    valid, message, title, mtime = future.result()
+                    file_path = os.path.join(application_path, file_name)
+                    process_result(file_name, valid, message, title, file_path, mtime)
+                except Exception as e:
+                    with lock:
+                        self.error_signal.emit(f"Error processing {file_name}: {str(e)}")
+
+        # 按时间排序
+        past_chats.sort(key=lambda x: x['modification_time'], reverse=True)
+        return past_chats
+
+class HistoryListWidget(QListWidget):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        
+    def populate_history(self, history_data):
+        """填充历史记录数据"""
+        self.clear()
+        
+        for item_data in history_data:
+            # 从文件路径中提取显示名称
+            display_text = item_data.get('title', 'Untitled Chat')
+            
+            # 创建列表项
+            list_item = QListWidgetItem(display_text)
+            
+            # 将完整的数据字典存储为项的数据
+            list_item.setData(Qt.UserRole, item_data)
+            
+            self.addItem(list_item)
+    
+    def get_selected_file_path(self):
+        """获取当前选中项的文件路径"""
+        current_item = self.currentItem()
+        if current_item:
+            item_data = current_item.data(Qt.UserRole)
+            return item_data.get('file_path')
+        return None
+    
+    def get_selected_item_data(self):
+        """获取当前选中项的完整数据"""
+        current_item = self.currentItem()
+        if current_item:
+            return current_item.data(Qt.UserRole)
+        return None

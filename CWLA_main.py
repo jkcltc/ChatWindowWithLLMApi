@@ -45,7 +45,7 @@ from utils.function_manager import *
 from utils.concurrentor import ConvergenceDialogueOptiProcessor
 from utils.preset_data import *
 from utils.usage_analysis import TokenAnalysisWidget
-from utils.chat_history_manager import *
+from utils.chat_history_manager import ChatHistoryEditor,ChathistoryFileManager,TitleGenerator,ChatHistoryTools,ChatHistoryTextView,HistoryListWidget
 from utils.online_rag import *
 from utils.avatar import AvatarCreatorWindow
 from utils.background_generate import BackgroundAgent
@@ -57,11 +57,6 @@ from utils.info_module import ToastManager,InfoManager,LogManager
 print(f'CWLA custom lib import finished, time cost:{time.time()-start_time_stamp:.2f}s')
 
 #自定义插件初始化
-try:
-    pass
-except ImportError:
-    print("GptToCad模块导入失败，CAD功能不可用。")
-
 try:
     from mods.chatapi_tts import TTSAgent
 except ImportError as e:
@@ -1804,6 +1799,19 @@ class MainWindow(QMainWindow):
         # 返回当前系统规则
         return self.sysrule
 
+    def init_chathistory_components(self):
+        self.chathistory_file_manager=ChathistoryFileManager(self.history_path)
+        self.chathistory_file_manager.log_signal.connect(self.info_manager.log)
+        self.chathistory_file_manager.warning_signal.connect(self.info_manager.warning)
+        self.chathistory_file_manager.error_signal.connect(self.info_manager.error)
+    
+    def init_title_creator(self):
+        self.title_generator=TitleGenerator(application_path=self.application_path)
+        self.title_generator.log_signal.connect(self.info_manager.log)
+        self.title_generator.error_signal.connect(self.info_manager.error)
+        self.title_generator.warning_signal.connect(self.info_manager.warning)
+        self.title_generator.title_generated.connect(self.update_chat_title)
+        
     def add_tts_page(self):
         if not "mods.chatapi_tts" in sys.modules:
             return
@@ -3721,7 +3729,8 @@ class MainWindow(QMainWindow):
                 'id':'system_prompt',
                 'name':{'user':self.name_user,'assistant':self.name_ai},
                 'avatar':{'user':user_avatar_path,'assistant':ai_avatar_path},
-                'file_path':str(uuid.uuid4())
+                'chat_id':str(uuid.uuid4()),
+                'title':'New Chat'
                 }
             }
         )

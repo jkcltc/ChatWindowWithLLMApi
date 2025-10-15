@@ -5,6 +5,7 @@ import threading
 import time
 import uuid
 from typing import Any, Dict, List, Optional, Tuple
+from pathlib import Path
 
 from PyQt5.QtCore import *
 from PyQt5.QtGui import *
@@ -410,7 +411,7 @@ class TitleGenerator(QObject):
     log_signal = pyqtSignal(str)
     warning_signal = pyqtSignal(str)
     error_signal = pyqtSignal(str)
-    title_generated = pyqtSignal(str)
+    title_generated = pyqtSignal(str,str)
 
     def __init__(self, api_handler: APIRequestHandler = None):
         super().__init__()
@@ -424,7 +425,19 @@ class TitleGenerator(QObject):
         if self.api_handler:
             self.api_handler.request_completed.connect(self._handle_title_response)
             self.api_handler.error_occurred.connect(lambda msg: self.log_signal.emit(f"Title generation error: {msg}"))
-
+    
+    def set_provider(self, provider, model, api_config=None):
+        """
+        设置API提供商和配置信息
+        :param provider: 提供商名称
+        :param model: 模型名称
+        :param api_config: API配置信息
+        """
+        if self.api_handler:
+            self.api_handler.set_provider(provider, model, api_config)
+        else:
+            self.error_signal.emit("API handler not bound, cannot set provider")
+            
     def generate_title_from_history_local(self, chathistory):
         title = False
         for chat in chathistory:
@@ -455,17 +468,17 @@ class TitleGenerator(QObject):
         first_user_msg = next((msg for msg in chathistory if msg.get('role') == 'user'), None)
         if not first_user_msg:
             self.warning_signal.emit("No user message found to generate title.")
-            self.title_generated.emit("New Chat")
+            self.title_generated.emit(self.task_id, "New Chat")
             return
         user_content = first_user_msg.get('content', '')
         if not user_content.strip():
             self.warning_signal.emit("User message is empty, cannot generate title.")
-            self.title_generated.emit("New Chat")
+            self.title_generated.emit(self.task_id, "New Chat")
             return
         if not self.api_handler or use_local:
             self.log_signal.emit("API handler not available, generating title locally.")
             title = self.generate_title_from_history_local(chathistory)
-            self.title_generated.emit(title)
+            self.title_generated.emit(self.task_id, title)
             return
         # 使用API生成标题
         self.log_signal.emit("Requesting title generation from API.")
@@ -489,10 +502,10 @@ class TitleGenerator(QObject):
             response = response[:100]
         if response and isinstance(response, str):
             title = time.strftime("[%Y-%m-%d]", time.localtime()) + response.strip().strip('"').strip("'")
-            self.title_generated.emit(title)
+            self.title_generated.emit(self.task_id, title)
             return title
         else:
-            self.title_generated.emit("生成失败")
+            self.title_generated.emit(self.task_id, "生成失败")
             return "生成失败"
 
 class ChathistoryFileManager(QObject):
@@ -512,13 +525,17 @@ class ChathistoryFileManager(QObject):
     # 载入记录
     def load_chathistory(self, file_path=None):
         # 弹出文件选择窗口
+        chathistory = []
         if not file_path:
             file_path, _ = QFileDialog.getOpenFileName(
                 self, "导入聊天记录", "", "JSON files (*.json);;All files (*)"
             )
-        if file_path:
+        if file_path and os.path.exists(file_path):
             with open(file_path, "r", encoding="utf-8") as file:
                 chathistory = json.load(file)
+        else:
+            self.warning_signal.emit(f'failed loading chathistory from {file_path}')
+            return []
         return chathistory
 
     # 保存聊天记录
@@ -531,6 +548,43 @@ class ChathistoryFileManager(QObject):
             # 更新历史的UUID，防止重复，用户自定义的名字保留
             chathistory[0]['info']['chat_id'] = str(uuid.uuid4())
         self._write_chathistory_to_file(chathistory, file_path)
+
+    def delete_chathistory(self, file_path: str):
+        # 输入验证
+        if not file_path or not isinstance(file_path, str):
+            self.warning_signal.emit(f"Invalid file path provided: {file_path}")
+            return
+        
+        # 路径规范化检查
+        try:
+            # 转换为绝对路径并解析符号链接
+            normalized_path = os.path.realpath(os.path.abspath(file_path))
+        except Exception as e:
+            self.error_signal.emit(f"Invalid path format: {e}")
+            return
+        
+        
+        # 文件扩展名检查
+        allowed_extensions = {'.json'}  # 根据实际需求调整
+        file_extension = Path(normalized_path).suffix.lower()
+        if allowed_extensions and file_extension not in allowed_extensions:
+            self.error_signal.emit(f"File type not allowed: {file_extension}")
+            return
+        
+        # 执行删除操作
+        if os.path.exists(normalized_path):
+            try:
+                # 额外检查：确保是文件而不是目录
+                if not os.path.isfile(normalized_path):
+                    self.error_signal.emit("Cannot delete directories")
+                    return
+                    
+                os.remove(normalized_path)
+                self.log_signal.emit(f"Deleted chat history file: {normalized_path}")
+            except Exception as e:
+                self.error_signal.emit(f"Failed to delete file {normalized_path}: {e}")
+        else:
+            self.warning_signal.emit(f"File not found for deletion: {normalized_path}")
 
     # 写入聊天记录到本地
     def _write_chathistory_to_file(self, chathistory: list, file_path: str):

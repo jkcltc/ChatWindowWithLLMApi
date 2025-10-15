@@ -49,7 +49,7 @@ from utils.chat_history_manager import ChatHistoryEditor,ChathistoryFileManager,
 from utils.online_rag import *
 from utils.avatar import AvatarCreatorWindow
 from utils.background_generate import BackgroundAgent
-from utils.tools.one_shot_api_request import FullFunctionRequestHandler
+from utils.tools.one_shot_api_request import FullFunctionRequestHandler,APIRequestHandler
 
 #UI组件初始化
 from utils.info_module import ToastManager,InfoManager,LogManager
@@ -1174,6 +1174,10 @@ class MainWindow(QMainWindow):
 
         self.init_concurrenter()
 
+        self.init_chathistory_components()
+
+        self.init_title_creator()
+
         #从存档载入设置并覆盖
         ConfigManager.init_settings(self, exclude=['application_path','temp_style','full_response','think_response'])
 
@@ -1426,7 +1430,7 @@ class MainWindow(QMainWindow):
         self.past_chat_frame_layout = QGridLayout()
         self.past_chat_frame.setLayout(self.past_chat_frame_layout)
 
-        self.past_chat_list = QListWidget()
+        self.past_chat_list = HistoryListWidget()
         self.past_chat_list.setSelectionMode(QAbstractItemView.SingleSelection)  # 强制单选模式
         self.past_chat_list.itemClicked.connect(self.load_from_past)
         self.past_chat_list.setContextMenuPolicy(Qt.CustomContextMenu)
@@ -1666,6 +1670,13 @@ class MainWindow(QMainWindow):
         self.tts_enabled=False
         self.tts_provider='不使用TTS'
 
+        #标题创建
+        self.enable_title_creator_system_prompt=True
+        self.title_creator_use_local=False
+        self.title_creator_max_length=20
+        self.title_creator_provider='siliconflow'
+        self.title_creator_model= 'Qwen/Qwen3-8B'
+
     def init_response_manager(self):
         # AI响应更新控制
         self.ai_last_update_time = 0
@@ -1806,7 +1817,13 @@ class MainWindow(QMainWindow):
         self.chathistory_file_manager.error_signal.connect(self.info_manager.error)
     
     def init_title_creator(self):
-        self.title_generator=TitleGenerator(application_path=self.application_path)
+        api_requester=APIRequestHandler(api_config=self.api)
+        self.title_generator=TitleGenerator(api_handler=api_requester)
+        self.title_generator.set_provider(
+            self.title_creator_provider,
+            model=self.title_creator_model,
+            api_config=self.api
+        )
         self.title_generator.log_signal.connect(self.info_manager.log)
         self.title_generator.error_signal.connect(self.info_manager.error)
         self.title_generator.warning_signal.connect(self.info_manager.warning)
@@ -2447,12 +2464,22 @@ class MainWindow(QMainWindow):
                 if provider and modelname:
                     self.api_var.setCurrentText(provider)
                     self.model_combobox.setCurrentText(modelname)
-            self.send_button.setEnabled(False)
-            self.ai_response_text.setText("已发送，等待回复...")
+            # 此时确认消息可以发送
             self.send_message_toapi()
 
     #预处理用户输入，并创建发送信息的线程
     def send_message_toapi(self):
+        '''
+        提取用户输入，
+        创建用户消息，
+        更新聊天记录，
+        发送请求，
+        清空输入框，
+
+
+        '''
+        self.send_button.setEnabled(False)
+        self.ai_response_text.setText("已发送，等待回复...")
         user_input = self.user_input_text.toPlainText()
         self.user_input_text.clear()
         if user_input == "/bye":
@@ -2468,6 +2495,7 @@ class MainWindow(QMainWindow):
                     }
             }
         )
+        self.create_chat_title_when_empty()
         self.update_chat_history()
         self.send_request(create_thread= not self.use_concurrent_model.isChecked())
 
@@ -2718,18 +2746,10 @@ class MainWindow(QMainWindow):
             self.save_chathistory(filename=filename)
 
     #载入记录
-    def load_chathistory(self,filename=None):
-        # 弹出文件选择窗口
-        if filename:
-            file_path=filename
-        else:
-            file_path, _ = QFileDialog.getOpenFileName(
-                self, "导入聊天记录", "", "JSON files (*.json);;All files (*)"
-            )
+    def load_chathistory(self,file_path=None):
         load_start_time=time.perf_counter()
-        if file_path:
-            with open(file_path, "r", encoding="utf-8") as file:
-                self.chathistory = json.load(file)
+        chathistory=self.chathistory_file_manager.load_chathistory(file_path)
+        if chathistory:
             self.chathistory=ChatHistoryTools.patch_history_0_25_1(
                     self.chathistory,
                     names={
@@ -2985,15 +3005,12 @@ class MainWindow(QMainWindow):
             return
 
         # 获取当前选中的列表项
-        selected_item = self.past_chat_list.currentItem()
+        selected_item_path = self.past_chat_list.get_selected_file_path()
         
         # 直接读取存储的完整路径
-        try:
-            file_path = os.path.join(self.history_path,selected_item.text())
-
-            
-            self.load_chathistory(filename=file_path)
-        except AttributeError as e:
+        if os.path.exists(selected_item_path):
+            self.load_chathistory(filename=selected_item_path)
+        else:
             self.info_manager.error(f"数据读取失败: {str(e)}")
 
     #长文本优化：启动线程
@@ -3205,7 +3222,9 @@ class MainWindow(QMainWindow):
 
         load_history = context_menu.addAction("载入")
         load_history.triggered.connect(
-            lambda: self.load_chathistory(filename=os.path.basename(self.past_chat_list.currentItem().text()))
+            lambda: self.load_chathistory(
+                file_path=self.past_chat_list.get_selected_file_path()
+            )
         )
 
         delete_action = context_menu.addAction("删除")
@@ -3232,89 +3251,28 @@ class MainWindow(QMainWindow):
     def delete_selected_history(self):
         """删除选中的历史记录及其对应文件"""
         # 获取当前选中的列表项
-        item = self.past_chat_list.currentItem()
-        if not item:
-            QMessageBox.information(self, "提示", "请先选择要删除的记录")
-            return
+        file_path = self.past_chat_list.get_selected_file_path()
 
-        # 安全获取文件名（防止路径注入）
-        filename = os.path.basename(item.text())  # 过滤非法路径字符
-        file_path = os.path.join(self.history_path, filename)
-
-        try:
-            # 尝试删除文件
-            if os.path.exists(file_path):
-                os.remove(file_path)
-            else:
-                QMessageBox.warning("错误",
-                                    "文件不存在")
-        except PermissionError:
-            QMessageBox.critical(self, "错误", "没有文件删除权限")
-            return
-        except Exception as e:
-            QMessageBox.critical(self, "错误", f"删除失败：{str(e)}")
-            return
+        # 删除文件
+        self.chathistory_file_manager.delete_chathistory(file_path)
 
         # 从界面移除项
+        item = self.past_chat_list.currentItem()
         row = self.past_chat_list.row(item)
         self.past_chat_list.takeItem(row)
 
 
     #读取过去system prompt
     def load_sys_pmt_from_past_record(self):
-        # 获取当前选中的聊天记录项
-        item = self.past_chat_list.currentItem()
+        file_path = self.past_chat_list.get_selected_file_path()
+        sys_pmt=self.chathistory_file_manager.load_sys_pmt_from_past_record(file_path=file_path)
+        if sys_pmt:
+            self.sysrule=sys_pmt
+            self.chathistory[0]['content']=sys_pmt
+            self.info_manager.success('系统提示已导入并覆盖当前对话中的系统提示')
         
-        # 确保有选中的项
-        if not item:
-            self.info_manager.warning("No item selected.")
-            return
-        
-        # 获取文件名并过滤非法路径字符
-        filename = os.path.basename(item.text())
-        
-        # 构建完整的文件路径
-        file_path = os.path.join(self.history_path, filename)
-        
-        # 确保文件存在
-        if not os.path.exists(file_path):
-            self.info_manager.error(f"File not found: {file_path}")
-            return
-        
-        # 确保文件扩展名是 .json
-        if not filename.endswith('.json'):
-            self.info_manager.log(f"Invalid file type: {filename}")
-            return
-        
-        try:
-            # 打开并读取 JSON 文件
-            with open(file_path, 'r', encoding='utf-8') as file:
-                past_chathistory = json.load(file)
-                # 确保 chathistory 是一个列表嵌套字典的结构
-                if not isinstance(self.chathistory, list) or not all(isinstance(item, dict) for item in self.chathistory):
-                    self.info_manager.error("Invalid JSON structure: Expected a list of dictionaries.")
-                    return
-                else:
-                    self.chathistory[0]=past_chathistory[0]
-                    self.sysrule=past_chathistory[0]["content"]
-                    self.info_manager.log(f'导入system prompt完成。\n导入长度：{len(self.chathistory[0]["content"])}')
-
-        except json.JSONDecodeError:
-            self.info_manager.error(f"Failed to decode JSON from file: {file_path}")
-            self.chathistory = []
-        except Exception as e:
-            self.info_manager.error(f"An error occurred: {e}")
-            self.chathistory = []
-
     def analysis_past_chat(self):
-        item = self.past_chat_list.currentItem()
-        if not item:
-            self.info_manager.warning("No item selected.")
-            return
-        filename = os.path.basename(item.text())
-        
-        # 构建完整的文件路径
-        file_path = os.path.join(self.history_path, filename)
+        file_path = self.past_chat_list.get_selected_file_path()
         self.show_analysis_window(file_path)
 
     #背景更新：触发线程
@@ -3790,9 +3748,25 @@ class MainWindow(QMainWindow):
     def resend_message_by_tool(self):
         self._receive_message([])
         self.send_request()
-    def show(self):
-        super().show()
-        self.info_manager.notify(level='success',text='初始化完成')
+    
+    def create_chat_title_when_empty(self,chathistory):
+        if chathistory[0]['info']['title'] in [None,'','New Chat'] and len(chathistory)==2:
+            self.create_chat_title(chathistory)
+        
+    def create_chat_title(self,chathistory):
+        self.title_generator.create_chat_title(
+            chathistory=chathistory,
+            include_system_prompt=self.enable_title_creator_system_prompt,
+            use_local=self.title_creator_use_local,
+            max_length=self.title_creator_max_length,
+            task_id=chathistory[0]['info']['chat_id']
+        )
+    def update_chat_title(self,chat_id,title):
+        if self.chathistory and 'info' in self.chathistory[0] and self.chathistory[0]['info']['chat_id']==chat_id:
+            self.chathistory[0]['info']['title']=title
+            self.info_manager.log(f'对话标题更新为：{title}')
+            self.autosave_save_chathistory()
+
 LOGGER.log(f'CWLA Class import finished, time cost:{time.time()-start_time_stamp:.2f}s',level='debug')
 
 def start():

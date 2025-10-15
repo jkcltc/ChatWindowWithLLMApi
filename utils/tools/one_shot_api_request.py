@@ -1139,7 +1139,7 @@ class FullFunctionRequestHandler(QObject):
         
         # 1. 添加异常基本信息
         error_parts.append(f"Exception type: {type(exception).__name__}")
-        error_parts.append(f"Exception message: {str(exception)}")
+        error_parts.append(f"Exception message: {str(exception)},{str(response)}")
         
         # 2. 如果有响应对象，提取状态码和响应体
         if hasattr(exception, 'response') and exception.response is not None:

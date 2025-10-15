@@ -3744,6 +3744,7 @@ class MainWindow(QMainWindow):
 {table_body}
 """
     
+    
     #0.25.3 info_manager + api request基础重构
     def resend_message_by_tool(self):
         self._receive_message([])

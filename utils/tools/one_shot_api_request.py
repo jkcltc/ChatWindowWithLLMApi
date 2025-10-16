@@ -181,10 +181,6 @@ class APIRequestHandler(QObject):
         self.base_url = url
         self.api_key = api_key
         self.provider_type = provider_type
-        self.client = openai.Client(
-            api_key=api_key,
-            base_url=url
-        )
         self.model=model
     
     def special_block_handler(self,content,                      #incoming content                     #function to call
@@ -225,7 +221,7 @@ class APIRequestHandler(QObject):
                 self.think_response += content.reasoning_content
                 self.reasoning_response_received.emit(content.reasoning_content)
         
-        if not self.client:
+        if not self.base_url or not self.api_key:
             try:
                 api_key, url, provider_type = extract_api_info('default', self.api_config)
             except ValueError as e:
@@ -236,7 +232,10 @@ class APIRequestHandler(QObject):
                 base_url=url
             )
         else:
-            client = self.client
+            client = openai.Client(
+                api_key=self.api_key,
+                base_url=self.base_url
+            )
         #try:
         if True:
             print('AI回复(流式):',type(messages))

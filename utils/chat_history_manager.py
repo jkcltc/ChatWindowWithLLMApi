@@ -23,7 +23,7 @@ class ChatHistoryTools:
         return None
     
     @staticmethod
-    def patch_history_0_25_1(chathistory,names=None,avatar=None):
+    def patch_history_0_25_1(chathistory,names=None,avatar=None,title='New Chat'):
         request_id=100001
         for item in chathistory:
             if not "info" in item:
@@ -37,6 +37,8 @@ class ChatHistoryTools:
             chathistory[0]['info']['id']='system_prompt'
         if not 'chat_id' in chathistory[0]['info']:
             chathistory[0]['info']['chat_id']=str(uuid.uuid4())
+        if not 'title' in chathistory[0]['info']:
+            chathistory[0]['info']['title']=title
         return chathistory
     
     @staticmethod
@@ -438,18 +440,17 @@ class TitleGenerator(QObject):
         else:
             self.error_signal.emit("API handler not bound, cannot set provider")
             
-    def generate_title_from_history_local(self, chathistory):
+    def generate_title_from_history_local(self, chathistory,max_length=20):
         title = False
         for chat in chathistory:
             if chat["role"] == "user":  
-                if len(chat["content"]) > 10:
-                    title = chat["content"][:10]      
-                else:
-                    title = chat["content"]
+                title = chat["content"]     
                 unsupported_chars = ["\n", '<', '>', ':', '"', '/', '\\', '|', '?', '*', '{', '}', ',', '.', '，', '。', ' ', '!', '！']
                 for char in unsupported_chars:
                     title = title.replace(char, '')
                 title = title.rstrip(' .')
+                if len(title) > max_length:
+                    title = title[:max_length]
                 break
         if title:
             title = time.strftime("[%Y-%m-%d]", time.localtime()) + title
@@ -475,26 +476,34 @@ class TitleGenerator(QObject):
             self.warning_signal.emit("User message is empty, cannot generate title.")
             self.title_generated.emit(self.task_id, "New Chat")
             return
-        if not self.api_handler or use_local:
+        if (not self.api_handler) or use_local:
             self.log_signal.emit("API handler not available, generating title locally.")
-            title = self.generate_title_from_history_local(chathistory)
+            title = self.generate_title_from_history_local(chathistory,max_length=max_length)
             self.title_generated.emit(self.task_id, title)
             return
         # 使用API生成标题
         self.log_signal.emit("Requesting title generation from API.")
-        prompt_parts = [
-            f"为以下消息生成一个不超过{max_length}字的简短标题。请直接输出标题，不要包含任何解释或标点符号。标题语言应与用户消息一致。",
-            f"Generate a short title for the following user message within {max_length} characters. Output the title directly without any explanation or punctuation. The title's language should be the same as the user's message.",
-            f"用户消息/User Message:\n{user_content}",
-            "标题/Title:"
-        ]
-        
         if include_system_prompt and system_msg:
             system_content = system_msg.get('content', '')
-            if system_content:
-                prompt_parts.insert(2, f"消息中的场景提示/System Prompt in chat:\n{system_content}")
+            prompt_parts = [
+                f"请结合以下'AI角色'和'用户输入'，生成一个不超过{max_length}字的简短标题。标题应体现AI对用户输入的处理意图。直接输出标题，不要包含任何解释或标点符号。标题语言应与用户输入一致。",
+                f"Combine the following 'AI Role' and 'User Input' to generate a short title within {max_length} characters. The title should reflect the AI's processing intent for the user input. Output the title directly without any explanation or punctuation. The title's language should match the user's input.",
+                f"AI角色/AI Role:\n{system_content}",
+                f"用户输入/User Input:\n{user_content}",
+                "标题/Title:"
+            ]
+        else:
+            # --- 情况二：不存在系统提示 ---
+            # 保持原有逻辑，只基于用户消息生成标题
+            prompt_parts = [
+                f"为以下用户输入生成一个不超过{max_length}字的简短标题。请直接输出标题，不要包含任何解释或标点符号。标题语言应与用户输入一致。",
+                f"Generate a short title for the following user input within {max_length} characters. Output the title directly without any explanation or punctuation. The title's language should match the user's input.",
+                f"用户输入/User Input:\n{user_content}",
+                "标题/Title:"
+            ]
 
         message = [{"role": "user", "content": '\n\n'.join(prompt_parts)}]
+        print(message)
         self.api_handler.send_request(message)
 
     def _handle_title_response(self, response):
@@ -528,7 +537,7 @@ class ChathistoryFileManager(QObject):
         chathistory = []
         if not file_path:
             file_path, _ = QFileDialog.getOpenFileName(
-                self, "导入聊天记录", "", "JSON files (*.json);;All files (*)"
+                None, "导入聊天记录", "", "JSON files (*.json);;All files (*)"
             )
         if file_path and os.path.exists(file_path):
             with open(file_path, "r", encoding="utf-8") as file:
@@ -543,7 +552,7 @@ class ChathistoryFileManager(QObject):
         if not file_path:
             # 弹出文件保存窗口
             file_path, _ = QFileDialog.getSaveFileName(
-                self, "保存聊天记录", "", "JSON files (*.json);;All files (*)"
+                None, "保存聊天记录", "", "JSON files (*.json);;All files (*)"
             )
             # 更新历史的UUID，防止重复，用户自定义的名字保留
             chathistory[0]['info']['chat_id'] = str(uuid.uuid4())
@@ -588,22 +597,38 @@ class ChathistoryFileManager(QObject):
 
     # 写入聊天记录到本地
     def _write_chathistory_to_file(self, chathistory: list, file_path: str):
-        # 清洗文件名
-        unsupported_chars = ["\n", '<', '>', ':', '"', '/', '\\', '|', '?', '*', '{', '}', ',', '.', '，', '。', ' ', '!', '！', ' ']
+        # 分离路径和文件名，只清洗文件名部分
+        dir_path = os.path.dirname(file_path)
+        file_name = os.path.basename(file_path)
+        
+        # 清洗文件名（不包括扩展名）
+        unsupported_chars = ["\n", '<', '>', ':', '"', '/', '\\', '|', '?', '*', '{', '}', ',', '，', '。', ' ', '!', '！']
+        name_without_ext, ext = os.path.splitext(file_name)
+        
         for char in unsupported_chars:
-            file_path = file_path.replace(char, '')
-        if not file_path.endswith('.json'):
-            file_path += '.json'
+            name_without_ext = name_without_ext.replace(char, '')
+        
+        # 重新组合路径
+        cleaned_file_name = name_without_ext + (ext if ext else '.json')
+        if not cleaned_file_name.endswith('.json'):
+            cleaned_file_name += '.json'
+        
+        file_path = os.path.join(dir_path, cleaned_file_name) if dir_path else cleaned_file_name
 
-        if file_path:  # 检查 file_path 是否有效
+        if file_path and file_name:  # 检查 file_path 是否有效, file_name 不为空
+            self.log_signal.emit(f'saving chathistory to {file_path}')
             try:
+                # 确保目录存在
+                if dir_path and not os.path.exists(dir_path):
+                    os.makedirs(dir_path, exist_ok=True)
+                    
                 with open(file_path, "w", encoding="utf-8") as file:
                     json.dump(chathistory, file, ensure_ascii=False, indent=4)
             except Exception as e:
                 self.error_signal.emit(f'failed saving chathistory {chathistory}')
-                QMessageBox.critical(self, "保存失败", f"保存聊天记录时发生错误：{e}")
+                QMessageBox.critical(None, "保存失败", f"保存聊天记录时发生错误：{e}")
         else:
-            QMessageBox.warning(self, "取消保存", "未选择保存路径，聊天记录未保存。")
+            QMessageBox.warning(None, "取消保存", "未选择保存路径，聊天记录未保存。")
 
     # 自动保存
     def autosave_save_chathistory(self, chathistory):
@@ -614,7 +639,7 @@ class ChathistoryFileManager(QObject):
         '''
         file_path = chathistory[0]['info']['chat_id']
         file_path = os.path.join(self.history_path, file_path)
-        if file_path:
+        if file_path and len(chathistory) > 1:
             self.save_chathistory(chathistory, file_path=file_path)
 
     # 读取过去system prompt
@@ -707,7 +732,7 @@ class ChathistoryFileManager(QObject):
             for message in chat_data:
                 if message.get("role") == "system":
                     info = message.get("info", {})
-                    return info.get("title", "New Chat")
+                    return info.get("title", "Untitled Chat")
 
             return "Untitled Chat"
 

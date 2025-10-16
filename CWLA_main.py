@@ -1176,10 +1176,10 @@ class MainWindow(QMainWindow):
 
         self.init_chathistory_components()
 
-        self.init_title_creator()
-
         #从存档载入设置并覆盖
         ConfigManager.init_settings(self, exclude=['application_path','temp_style','full_response','think_response'])
+
+        self.init_title_creator()
 
         # 创建主布局
         self.main_layout = QGridLayout()
@@ -1672,10 +1672,10 @@ class MainWindow(QMainWindow):
 
         #标题创建
         self.enable_title_creator_system_prompt=True
-        self.title_creator_use_local=False
+        self.title_creator_use_local=True
         self.title_creator_max_length=20
         self.title_creator_provider='siliconflow'
-        self.title_creator_model= 'Qwen/Qwen3-8B'
+        self.title_creator_model= 'moonshotai/Kimi-K2-Instruct'
 
     def init_response_manager(self):
         # AI响应更新控制
@@ -2136,7 +2136,8 @@ class MainWindow(QMainWindow):
         # 条件保存（仅在内容变化时）
         if clear or buffer:
             if not new_msg:
-                self.autosave_save_chathistory()
+                self.chathistory_file_manager.autosave_save_chathistory(self.chathistory)
+                
 
     #更新AI回复
     def update_ai_response_text(self,request_id,content):
@@ -2495,7 +2496,7 @@ class MainWindow(QMainWindow):
                     }
             }
         )
-        self.create_chat_title_when_empty()
+        self.create_chat_title_when_empty(self.chathistory)
         self.update_chat_history()
         self.send_request(create_thread= not self.use_concurrent_model.isChecked())
 
@@ -2533,7 +2534,7 @@ class MainWindow(QMainWindow):
 
     #清除聊天记录
     def clear_history(self):
-        self.autosave_save_chathistory()
+        self.chathistory_file_manager.autosave_save_chathistory(self.chathistory)
         self.creat_new_chathistory()
         self.chat_history_bubbles.clear()
         self.ai_response_text.clear()
@@ -2642,7 +2643,7 @@ class MainWindow(QMainWindow):
 
         QShortcut(QKeySequence(Qt.CTRL + Qt.Key_O), self).activated.connect(self.load_chathistory)
 
-        QShortcut(QKeySequence(Qt.CTRL + Qt.Key_S), self).activated.connect(self.save_chathistory)
+        QShortcut(QKeySequence(Qt.CTRL + Qt.Key_S), self).activated.connect(lambda :self.chathistory_file_manager.save_chathistory(self.chathistory))
 
         QShortcut(QKeySequence(Qt.CTRL + Qt.Key_M), self).activated.connect(self.show_mod_configer)
 
@@ -2701,49 +2702,6 @@ class MainWindow(QMainWindow):
     #打开模式设置
     def open_module_window(self):
         pass
-    
-    #保存聊天
-    def save_chathistory(self, filename=None):
-        if not filename:
-            # 弹出文件保存窗口
-            file_path, _ = QFileDialog.getSaveFileName(
-                self, "保存聊天记录", "", "JSON files (*.json);;All files (*)"
-            )
-        else:
-            unsupported_chars = ["\n",'<', '>', ':', '"', '/', '\\', '|', '?', '*','{','}',',','.','，','。',' ','!','！',' ']
-            for char in unsupported_chars:
-                filename = filename.replace(char, '')
-            if not filename.endswith('.json'):
-                filename += '.json'
-            file_path = os.path.join(self.history_path, filename)
-
-        if file_path:  # 检查 file_path 是否有效
-            try:
-                with open(file_path, "w", encoding="utf-8") as file:
-                    json.dump(self.chathistory, file, ensure_ascii=False, indent=4)
-            except Exception as e:
-                LOGGER.info(f'saving chathistory {self.chathistory}')
-                QMessageBox.critical(self, "保存失败", f"保存聊天记录时发生错误：{e}")
-        else:
-            QMessageBox.warning(self, "取消保存", "未选择保存路径，聊天记录未保存。")
-
-    #自动保存
-    def autosave_save_chathistory(self):
-        filename=False
-        for chat in self.chathistory:
-            if chat["role"]=="user":  
-                if len(chat["content"])>10:
-                    filename=chat["content"][:10]      
-                else:
-                    filename=chat["content"]
-                unsupported_chars = ["\n",'<', '>', ':', '"', '/', '\\', '|', '?', '*','{','}',',','.','，','。',' ','!','！']
-                for char in unsupported_chars:
-                    filename = filename.replace(char, '')
-                filename = filename.rstrip(' .')
-                break
-        if filename:
-            filename=time.strftime("[%Y-%m-%d]", time.localtime())+filename
-            self.save_chathistory(filename=filename)
 
     #载入记录
     def load_chathistory(self,file_path=None):
@@ -2751,7 +2709,7 @@ class MainWindow(QMainWindow):
         chathistory=self.chathistory_file_manager.load_chathistory(file_path)
         if chathistory:
             self.chathistory=ChatHistoryTools.patch_history_0_25_1(
-                    self.chathistory,
+                    chathistory,
                     names={
                         'user':self.name_user,
                         'assistant':self.name_ai
@@ -2836,7 +2794,7 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event):
         """窗口关闭事件"""
         try:
-            self.autosave_save_chathistory()  # 调用自动保存聊天历史的方法
+            self.chathistory_file_manager.autosave_save_chathistory(self.chathistory)  # 调用自动保存聊天历史的方法
         except Exception as e:
             LOGGER.error(f"autosave_save_chathistory fail: {e}")
         try:
@@ -2884,120 +2842,14 @@ class MainWindow(QMainWindow):
     #获取历史记录
     def grab_past_chats(self):
         # 获取当前文件夹下所有.json文件
-        self.past_chats=self.load_past_chats(self.history_path)
+        self.past_chats=self.chathistory_file_manager.load_past_chats(self.history_path)
 
         # 将文件名添加到QComboBox中
-        self.past_chat_list.clear()
-        file_names=sorted(list(self.past_chats.keys()),reverse=True)
-        for file_name in file_names:
-            self.past_chat_list.addItem(file_name)
+        self.past_chat_list.populate_history(self.past_chats)
 
-    def load_past_chats(self,application_path: str) -> Dict[str, str]:
-        """并行获取并验证历史聊天记录"""
-        # 共享数据结构与线程锁
-        past_chats = {}
-        lock = threading.Lock()
-        if not os.path.exists(application_path):
-            os.mkdir(application_path)
-        
-        def get_json_files() -> List[str]:
-            """获取最新的50个JSON文件"""
-            files = [f for f in os.listdir(application_path) if f.endswith('.json')]
-            return sorted(
-                files,
-                key=lambda x: os.path.getmtime(os.path.join(application_path, x)),
-                reverse=True
-            )[:50]
-
-        def process_result(file_name: str, valid: bool, message: str = ""):
-            """线程安全的结果处理"""
-            with lock:
-                if valid:
-                    past_chats[file_name] = os.path.join(application_path, file_name)
-                else:
-                    error_msg = f"Skipped {file_name}: {message}" if message else f"Skipped invalid file: {file_name}"
-                    self.info_manager.log(error_msg, level="warning")
-
-        def validate_chat_file(file_name: str) -> Tuple[bool, str]:
-            """验证单个聊天文件"""
-            file_path = os.path.join(application_path, file_name)
-            try:
-                with open(file_path, "r", encoding="utf-8") as f:
-                    if not validate_json_structure(json.load(f)):
-                        return False, "Invalid data structure"
-                    return True, ""
-            except json.JSONDecodeError:
-                return False, "Invalid JSON format"
-            except Exception as e:
-                return False, str(e)
-
-        def validate_json_structure(data) -> bool:
-            """验证JSON数据结构，支持工具调用格式"""
-            if not isinstance(data, list):
-                return False
-
-            for item in data:
-                # 检查是否为字典类型
-                if not isinstance(item, dict):
-                    return False
-
-                role = item.get("role")
-                # 检查角色有效性
-                if role not in {"user", "system", "assistant", "tool"}:
-                    return False
-
-                # 根据不同角色验证字段
-                if role in ("user", "system"):
-                    # 必须包含content字段且为字符串
-                    if "content" not in item or not isinstance(item["content"], str):
-                        return False
-
-                elif role == "assistant":
-                    # 至少包含content或tool_calls中的一个
-                    has_content = "content" in item
-                    has_tool_calls = "tool_calls" in item
-                    if not (has_content or has_tool_calls):
-                        return False
-
-                    # 检查content类型（允许字符串或null）
-                    if has_content and not isinstance(item["content"], (str, type(None))):
-                        return False
-
-                    # 检查tool_calls是否为列表
-                    if has_tool_calls and not isinstance(item["tool_calls"], list):
-                        return False
-
-                elif role == "tool":
-                    # 必须包含tool_call_id和content字段
-                    if "tool_call_id" not in item or "content" not in item:
-                        return False
-                    # content必须为字符串
-                    if not isinstance(item["content"], str):
-                        return False
-
-            return True
-
-        # 主处理流程
-        with concurrent.futures.ThreadPoolExecutor() as executor:
-            futures = {
-                executor.submit(validate_chat_file, fn): fn
-                for fn in get_json_files()
-            }
-
-            for future in concurrent.futures.as_completed(futures):
-                file_name = futures[future]
-                try:
-                    valid, message = future.result()
-                    process_result(file_name, valid, message)
-                except Exception as e:
-                    with lock:
-                        self.info_manager.log(f"Error processing {file_name}: {str(e)}", level="error")
-
-        return past_chats
-    
     #从历史记录载入聊天
     def load_from_past(self, index):
-        self.autosave_save_chathistory()
+        self.chathistory_file_manager.autosave_save_chathistory(self.chathistory)
         
         # 基础安全校验
         if not self.past_chat_list.currentItem():
@@ -3009,7 +2861,7 @@ class MainWindow(QMainWindow):
         
         # 直接读取存储的完整路径
         if os.path.exists(selected_item_path):
-            self.load_chathistory(filename=selected_item_path)
+            self.load_chathistory(file_path=selected_item_path)
         else:
             self.info_manager.error(f"数据读取失败: {str(e)}")
 
@@ -3110,7 +2962,7 @@ class MainWindow(QMainWindow):
             self.chathistory[0]["content"]=self.sysrule
             self.last_summary=return_story
             self.info_manager.log(f'长对话处理一次,历史记录第一位更新为：{self.chathistory[0]["content"]}')
-            self.autosave_save_chathistory()
+            self.chathistory_file_manager.autosave_save_chathistory(self.chathistory)
         except Exception as e:
             # 如果线程中发生异常，也通过信号通知主线程
             self.update_response_signal.emit(f'error:{int(time.time())}',f"Error: {str(e)}")
@@ -3139,6 +2991,11 @@ class MainWindow(QMainWindow):
             'name_ai': self.name_ai,
             'enable_lci_system_prompt':self.enable_lci_system_prompt,
             'stream_receive':self.stream_receive,
+            'enable_title_creator_system_prompt':self.enable_title_creator_system_prompt,
+            'title_creator_use_local':self.title_creator_use_local,
+            'title_creator_max_length':self.title_creator_max_length,
+            'title_creator_provider':self.title_creator_provider,
+            'title_creator_model':self.title_creator_model
         }
         if not hasattr(self,"main_setting_window"):
             self.main_setting_window=MainSettingWindow(config=config)
@@ -3200,6 +3057,27 @@ class MainWindow(QMainWindow):
             self.main_setting_window.assistant_name_changed.connect(
                 lambda text:self.handle_name_changed('assistant',text))
             
+            # 标题生成设置
+            self.main_setting_window.title_creator_system_prompt_changed.connect(
+                lambda state: setattr(self, 'enable_title_creator_system_prompt', state))
+            self.main_setting_window.title_creator_use_local_changed.connect(
+                lambda state: setattr(self, 'title_creator_use_local', state))
+            self.main_setting_window.title_creator_max_length_changed.connect(
+                lambda value: setattr(self, 'title_creator_max_length', value))
+            self.main_setting_window.title_creator_provider_changed.connect(
+                lambda text: (
+                    setattr(self, 'title_creator_provider', text)
+                )
+            )
+            self.main_setting_window.title_creator_model_changed.connect(
+                lambda text: (
+                    setattr(self, 'title_creator_model', text),
+                    self.title_generator.set_provider(
+                        model=text,provider=self.title_creator_provider,api_config=self.api
+                        )
+                )
+            )
+
             self.main_setting_window.long_chat_improve_changed.connect(
                 self.update_opti_bar
             )
@@ -3751,7 +3629,7 @@ class MainWindow(QMainWindow):
         self.send_request()
     
     def create_chat_title_when_empty(self,chathistory):
-        if chathistory[0]['info']['title'] in [None,'','New Chat'] and len(chathistory)==2:
+        if chathistory[0]['info']['title'] in [None,'','New Chat',"Untitled Chat"] and len(chathistory)==2:
             self.create_chat_title(chathistory)
         
     def create_chat_title(self,chathistory):
@@ -3766,7 +3644,7 @@ class MainWindow(QMainWindow):
         if self.chathistory and 'info' in self.chathistory[0] and self.chathistory[0]['info']['chat_id']==chat_id:
             self.chathistory[0]['info']['title']=title
             self.info_manager.log(f'对话标题更新为：{title}')
-            self.autosave_save_chathistory()
+            self.chathistory_file_manager.autosave_save_chathistory(self.chathistory)
 
 LOGGER.log(f'CWLA Class import finished, time cost:{time.time()-start_time_stamp:.2f}s',level='debug')
 

@@ -827,26 +827,116 @@ class ChathistoryFileManager(QObject):
         past_chats.sort(key=lambda x: x["modification_time"], reverse=True)
         return past_chats
 
-
 class HistoryListWidget(QListWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
-        
+        # 性能与体验优化（可选）
+        self.setUniformItemSizes(True)  # 每项统一高度，加速布局计算
+        self.setAlternatingRowColors(True)
+        self._history_signature = None  # 用于跳过重复刷新
+
     def populate_history(self, history_data):
-        """填充历史记录数据"""
-        self.clear()
-        
-        for item_data in history_data:
-            # 从文件路径中提取显示名称
-            display_text = item_data.get('title', 'Untitled Chat')
-            
-            # 创建列表项
-            list_item = QListWidgetItem(display_text)
-            
-            # 将完整的数据字典存储为项的数据
-            list_item.setData(Qt.UserRole, item_data)
-            
-            self.addItem(list_item)
+        """
+        高效填充历史记录：
+        - 增量更新：只改动变化的项
+        - 暂停重绘/信号，减少 UI 开销
+        - 保留当前选中项
+        """
+        # 若数据完全一致，则跳过
+        sig = tuple(
+            (item.get('file_path'), item.get('modification_time'), item.get('title'))
+            for item in history_data or []
+        )
+        if sig == self._history_signature:
+            return
+        self._history_signature = sig
+
+        # 记录当前选中项（按 file_path）
+        selected_fp = None
+        cur = self.currentItem()
+        if cur:
+            data = cur.data(Qt.UserRole)
+            if isinstance(data, dict):
+                selected_fp = data.get('file_path')
+
+        # 暂停信号与重绘
+        self.blockSignals(True)
+        self.setUpdatesEnabled(False)
+        sorting_prev = self.isSortingEnabled()
+        self.setSortingEnabled(False)  # 防止排序影响插入顺序
+
+        try:
+            # 新数据的顺序与精简映射
+            new_order = []
+            new_map = {}
+            for d in (history_data or []):
+                fp = d.get('file_path')
+                if not fp:
+                    continue  # 跳过无效数据
+                lean = {
+                    'file_path': fp,
+                    'title': d.get('title', 'Untitled Chat'),
+                    'modification_time': d.get('modification_time', 0),
+                }
+                new_order.append(fp)
+                new_map[fp] = lean
+
+            # 旧项映射：file_path -> QListWidgetItem
+            old_map = {}
+            for row in range(self.count()):
+                item = self.item(row)
+                data = item.data(Qt.UserRole)
+                fp = data.get('file_path') if isinstance(data, dict) else None
+                if fp:
+                    old_map[fp] = item
+
+            # 删除不再存在的项（从底部开始避免重排成本）
+            to_remove_rows = sorted(
+                (self.row(item) for fp, item in old_map.items() if fp not in new_map),
+                reverse=True
+            )
+            for row in to_remove_rows:
+                it = self.takeItem(row)
+                del it  # 提示 GC 回收
+
+            # 按新顺序逐个处理：更新/移动/新增
+            for target_row, fp in enumerate(new_order):
+                data = new_map[fp]
+                if fp in old_map:
+                    item = old_map[fp]
+                    # 文本变化才更新，减少不必要的刷新
+                    if item.text() != data['title']:
+                        item.setText(data['title'])
+                    # 更新存储数据
+                    item.setData(Qt.UserRole, data)
+                    # 若位置不对，移动到目标位置
+                    cur_row = self.row(item)
+                    if cur_row != target_row:
+                        self.takeItem(cur_row)
+                        self.insertItem(target_row, item)
+                else:
+                    # 新增项
+                    item = QListWidgetItem(data['title'])
+                    item.setData(Qt.UserRole, data)
+                    self.insertItem(target_row, item)
+
+            # 恢复选中项（若仍存在）
+            if selected_fp and selected_fp in new_map:
+                for row in range(self.count()):
+                    item = self.item(row)
+                    data = item.data(Qt.UserRole)
+                    if isinstance(data, dict) and data.get('file_path') == selected_fp:
+                        self.setCurrentRow(row)
+                        break
+            else:
+                # 无选中项则选择第一项（可按需调整）
+                if self.count() and self.currentRow() < 0:
+                    self.setCurrentRow(0)
+
+        finally:
+            self.setSortingEnabled(sorting_prev)
+            self.setUpdatesEnabled(True)
+            self.blockSignals(False)
     
     def get_selected_file_path(self):
         """获取当前选中项的文件路径"""
@@ -855,7 +945,7 @@ class HistoryListWidget(QListWidget):
             item_data = current_item.data(Qt.UserRole)
             return item_data.get('file_path')
         return None
-    
+
     def get_selected_item_data(self):
         """获取当前选中项的完整数据"""
         current_item = self.currentItem()

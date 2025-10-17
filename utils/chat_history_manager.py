@@ -6,6 +6,7 @@ import time
 import uuid
 from typing import Any, Dict, List, Optional, Tuple
 from pathlib import Path
+import heapq
 
 from PyQt5.QtCore import *
 from PyQt5.QtGui import *
@@ -667,73 +668,58 @@ class ChathistoryFileManager(QObject):
 
     def load_past_chats(self, application_path: str = '', file_count: int = 50) -> List[Dict[str, Any]]:
         """
-        并行获取并验证历史聊天记录
-        Args:
-            application_path (str): 聊天记录存储路径
-            file_count (int): 要处理的文件数量，默认为50
-        Returns:
-            List[Dict[str, Any]]: 包含路径、标题和时间的字典列表
+        并行获取并验证历史聊天记录（优化版：减少 IO、避免重复计算）
         """
-        # 共享数据结构与线程锁
-        past_chats = []
-        lock = threading.Lock()
+        # 路径准备
         if not application_path:
             application_path = self.history_path
-        
-        if not os.path.exists(application_path):
-            os.mkdir(application_path)
+        os.makedirs(application_path, exist_ok=True)
 
-        def get_json_files(file_count: int) -> List[str]:
-            """获取最新的JSON文件"""
-            files = [f for f in os.listdir(application_path) if f.endswith('.json')]
-            return sorted(
-                files,
-                key=lambda x: os.path.getmtime(os.path.join(application_path, x)),
-                reverse=True
-            )[:file_count]
+        def load_json_from_file(path: str):
+            with open(path, "r", encoding="utf-8") as f:
+                return json.load(f)
 
-        def process_result(file_name: str, valid: bool, message: str = "", title: str = "Unknown", file_path: str = "", mtime: float = 0):
-            """线程安全的结果处理"""
-            with lock:
-                if valid:
-                    chat_info = {
-                        'file_path': file_path,
-                        'title': title,
-                        'modification_time': mtime,
-                    }
-                    past_chats.append(chat_info)
-                else:
-                    error_msg = f"Skipped {file_name}: {message}" if message else f"Skipped invalid file: {file_name}"
-                    self.warning_signal.emit(error_msg)
+        # 读取/初始化元数据缓存（减少重复解析）
+        cache_path = os.path.join(application_path, ".chat_index.json")
+        try:
+            with open(cache_path, "r", encoding="utf-8") as cf:
+                meta_cache: Dict[str, Dict[str, Any]] = json.load(cf)
+        except Exception:
+            meta_cache = {}
 
-        def validate_chat_file(file_name: str) -> Tuple[bool, str, str, float]:
-            """验证单个聊天文件并提取标题"""
-            file_path = os.path.join(application_path, file_name)
-            mtime = os.path.getmtime(file_path)  # 先获取时间，即使后续失败
-            
-            try:
-                with open(file_path, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                    
-                    if not validate_json_structure(data):
-                        return False, "Invalid data structure", "", mtime
-                    
-                    # 提取标题
-                    title = extract_chat_title(data)
-                    return True, "", title, mtime
-                    
-            except json.JSONDecodeError:
-                return False, "Invalid JSON format", "", mtime
-            except Exception as e:
-                return False, str(e), "", mtime
+        def select_latest_jsons(base: str, n: int) -> List[Tuple[str, str, float]]:
+            """高效获取按修改时间降序的前 n 个 JSON 文件 (path, name, mtime)"""
+            entries = []
+            with os.scandir(base) as it:
+                for e in it:
+                    try:
+                        if not e.is_file():
+                            continue
+                        name = e.name
+                        # 跳过缓存与隐藏文件
+                        if not name.endswith(".json") or name.startswith("."):
+                            continue
+                        st = e.stat()
+                        entries.append((st.st_mtime, e.path, name))
+                    except FileNotFoundError:
+                        continue
 
-        def extract_chat_title(chat_data: List[Dict]) -> str:
+            if len(entries) <= n:
+                entries.sort(key=lambda t: t[0], reverse=True)
+                return [(p, name, mtime) for mtime, p, name in entries]
+
+            top = heapq.nlargest(n, entries, key=lambda t: t[0])
+            top.sort(key=lambda t: t[0], reverse=True)  # 保持降序输出
+            return [(p, name, mtime) for mtime, p, name in top]
+
+        def extract_chat_title(chat_data: List[Dict[str, Any]]) -> str:
             """从聊天数据中提取标题"""
             for message in chat_data:
                 if message.get("role") == "system":
-                    info = message.get("info", {})
-                    return info.get("title", "Untitled Chat")
-
+                    info = message.get("info") or {}
+                    title = info.get("title")
+                    if title:
+                        return title
             return "Untitled Chat"
 
         def validate_json_structure(data) -> bool:
@@ -741,67 +727,106 @@ class ChathistoryFileManager(QObject):
             if not isinstance(data, list):
                 return False
 
+            role_set = {"user", "system", "assistant", "tool"}
+
             for item in data:
-                # 检查是否为字典类型
                 if not isinstance(item, dict):
                     return False
 
                 role = item.get("role")
-                # 检查角色有效性
-                if role not in {"user", "system", "assistant", "tool"}:
+                if role not in role_set:
                     return False
 
-                # 根据不同角色验证字段
                 if role in ("user", "system"):
-                    # 必须包含content字段且为字符串
-                    if "content" not in item or not isinstance(item["content"], str):
+                    content = item.get("content")
+                    if not isinstance(content, str):
                         return False
 
                 elif role == "assistant":
-                    # 至少包含content或tool_calls中的一个
                     has_content = "content" in item
                     has_tool_calls = "tool_calls" in item
                     if not (has_content or has_tool_calls):
                         return False
-
-                    # 检查content类型（允许字符串或null）
                     if has_content and not isinstance(item["content"], (str, type(None))):
                         return False
-
-                    # 检查tool_calls是否为列表
                     if has_tool_calls and not isinstance(item["tool_calls"], list):
                         return False
 
-                elif role == "tool":
-                    # 必须包含tool_call_id和content字段
+                else:  # role == "tool"
                     if "tool_call_id" not in item or "content" not in item:
                         return False
-                    # content必须为字符串
                     if not isinstance(item["content"], str):
                         return False
 
             return True
 
-        # 主处理流程
-        with concurrent.futures.ThreadPoolExecutor() as executor:
-            futures = {
-                executor.submit(validate_chat_file, fn): fn
-                for fn in get_json_files(file_count)
-            }
+        def parse_one(path: str, name: str, mtime: float) -> Tuple[bool, str, str, float, str, str]:
+            """返回: ok, name, path, mtime, err_msg, title"""
+            try:
+                data = load_json_from_file(path)
+                if not validate_json_structure(data):
+                    return False, name, path, mtime, "Invalid data structure", ""
+                title = extract_chat_title(data)
+                return True, name, path, mtime, "", title
+            except json.JSONDecodeError:
+                return False, name, path, mtime, "Invalid JSON format", ""
+            except FileNotFoundError:
+                return False, name, path, mtime, "File not found", ""
+            except Exception as e:
+                return False, name, path, mtime, str(e), ""
 
-            for future in concurrent.futures.as_completed(futures):
-                file_name = futures[future]
-                try:
-                    valid, message, title, mtime = future.result()
-                    file_path = os.path.join(application_path, file_name)
-                    process_result(file_name, valid, message, title, file_path, mtime)
-                except Exception as e:
-                    with lock:
-                        self.error_signal.emit(f"Error processing {file_name}: {str(e)}")
+        # 1) 仅挑选最新 file_count 个
+        selected = select_latest_jsons(application_path, file_count)
 
-        # 按时间排序
-        past_chats.sort(key=lambda x: x['modification_time'], reverse=True)
+        # 2) 命中缓存的直接使用，未命中的再并发解析
+        past_chats: List[Dict[str, Any]] = []
+        to_parse: List[Tuple[str, str, float]] = []
+
+        def cache_valid(rec: Dict[str, Any], m: float) -> bool:
+            # mtime 精度可能不同，给一点容差
+            return isinstance(rec, dict) and abs(rec.get("mtime", -1) - m) < 1e-6 and "title" in rec
+
+        for path, name, mtime in selected:
+            rec = meta_cache.get(name)
+            if rec and cache_valid(rec, mtime):
+                past_chats.append({
+                    "file_path": path,
+                    "title": rec["title"],
+                    "modification_time": mtime,
+                })
+            else:
+                to_parse.append((path, name, mtime))
+
+        # 3) 并发解析未命中的文件（IO 为主，线程池足够；数量小就不用开太多线程）
+        if to_parse:
+            max_workers = min(32, max(1, len(to_parse)))
+            with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+                futures = [executor.submit(parse_one, p, n, m) for p, n, m in to_parse]
+
+                for future in concurrent.futures.as_completed(futures):
+                    ok, name, path, mtime, msg, title = future.result()
+                    if ok:
+                        past_chats.append({
+                            "file_path": path,
+                            "title": title,
+                            "modification_time": mtime,
+                        })
+                        # 更新缓存
+                        meta_cache[name] = {"mtime": mtime, "title": title}
+                    else:
+                        self.warning_signal.emit(f"Skipped {name}: {msg}")
+
+        # 4) 写回缓存（失败不影响主流程）
+        try:
+            with open(cache_path, "w", encoding="utf-8") as cf:
+                json.dump(meta_cache, cf, ensure_ascii=False)
+        except Exception as e:
+            self.warning_signal.emit(f"Failed to update cache: {e}")
+
+        # 5) 最终按时间排序输出
+        past_chats.sort(key=lambda x: x["modification_time"], reverse=True)
         return past_chats
+
 
 class HistoryListWidget(QListWidget):
     def __init__(self, parent=None):

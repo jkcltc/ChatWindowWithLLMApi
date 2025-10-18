@@ -1,9 +1,10 @@
 import concurrent.futures
 import json
 import os
-import threading
+import re
 import time
 import uuid
+import copy
 from typing import Any, Dict, List, Optional, Tuple
 from pathlib import Path
 import heapq
@@ -24,22 +25,31 @@ class ChatHistoryTools:
         return None
     
     @staticmethod
-    def patch_history_0_25_1(chathistory,names=None,avatar=None,title='New Chat'):
-        request_id=100001
-        for item in chathistory:
-            if not "info" in item:
-                item['info']={'id':'patch_'+str(request_id)}
-                request_id+=1
-        if (not 'name' in chathistory[0]['info']) and names:
-            chathistory[0]['info']['name']=names
-        if (not 'avatar' in chathistory[0]['info']) and avatar:
-            chathistory[0]['info']['avatar']=avatar
-        if chathistory[0]['role']=='system' or chathistory[0]['role']==['developer']:
-            chathistory[0]['info']['id']='system_prompt'
-        if not 'chat_id' in chathistory[0]['info']:
-            chathistory[0]['info']['chat_id']=str(uuid.uuid4())
-        if not 'title' in chathistory[0]['info']:
-            chathistory[0]['info']['title']=title
+    def patch_history_0_25_1(chathistory, names=None, avatar=None, title='New Chat'):
+        # chathistory 保证非空
+        import uuid
+
+        request_id = 100001
+
+        for i, item in enumerate(chathistory):
+            info = item.get('info')
+            if info is None:
+                info = {'id': f'patch_{request_id}'}
+                item['info'] = info
+                request_id += 1
+
+            if i == 0:
+                if names and 'name' not in info:
+                    info['name'] = names
+                if avatar and 'avatar' not in info:
+                    info['avatar'] = avatar
+                role = item.get('role')
+                if role in ('system', 'developer'):
+                    info['id'] = 'system_prompt'
+                if 'chat_id' not in info:
+                    info['chat_id'] = str(uuid.uuid4())
+                if 'title' not in info:
+                    info['title'] = title
         return chathistory
     
     @staticmethod
@@ -281,242 +291,639 @@ class ChatHistoryTextView(QWidget):
             return f"{self.ai_name} called tool"
         return role
 
-class ChatHistoryEditor(QDialog):
-    # 定义编辑完成的信号，传递新的聊天历史
-    editCompleted = pyqtSignal(list)
-
-    def __init__(self, chathistory: list, parent=None):
-        super().__init__(parent)
-        self.chathistory = chathistory
-        self.init_ui()
-
-    def init_ui(self):
-        self.setWindowTitle("编辑聊天记录")
-        if self.parent():
-            self.resize(int(self.parent().width() * 0.8), int(self.parent().height() * 0.8))
-
-        # 主布局（带外边距）
-        main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(15, 15, 15, 15)  # 增加容器内边距
-        main_layout.setSpacing(15)  # 增加控件间距
-
-        # 提示标签（居中+自动换行）
-        note_label = QLabel("在文本框中修改内容，AI的回复也可以修改")
-        note_label.setAlignment(Qt.AlignCenter)  # 文字居中
-        note_label.setWordWrap(True)  # 自动换行
-        note_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Maximum)  # 高度自适应
-        main_layout.addWidget(note_label)
-
-        # 文本编辑区（添加弹性空间）
-        text_container = QWidget()
-        text_layout = QVBoxLayout(text_container)
-        text_layout.setContentsMargins(0, 0, 0, 0)
-        
-        self.text_edit = QTextEdit()
-        self.text_edit.setText(json.dumps(self.chathistory, ensure_ascii=False, indent=4))
-        text_layout.addWidget(self.text_edit)
-        
-        main_layout.addWidget(text_container, 1)  # 添加伸缩因子使文本框优先扩展
-
-        # 按钮组（水平排列+间距）
-        button_group = QGroupBox("编辑")
-        button_layout = QHBoxLayout(button_group)  # 改用水平布局
-        button_layout.setSpacing(10)  # 按钮间距
-        button_layout.setContentsMargins(15, 15, 15, 15)  # 组内边距
-
-        # 按钮创建
-        delete_btn = QPushButton("删除上一条")
-        replace_btn = QPushButton("替换文本")
-        complete_btn = QPushButton("完成编辑")
-        
-        # 添加到布局（添加拉伸因子）
-        button_layout.addWidget(delete_btn)
-        button_layout.addWidget(replace_btn)
-        button_layout.addStretch(1)  # 添加弹性空间使按钮靠左
-        button_layout.addWidget(complete_btn)
-
-        main_layout.addWidget(button_group)
-
-        # 连接信号槽
-        delete_btn.clicked.connect(self.delete_last_message)
-        replace_btn.clicked.connect(self.show_replace_dialog)
-        complete_btn.clicked.connect(self.on_complete)
-    def validate_history_format(self, data) -> bool:
-        """验证聊天历史格式是否正确"""
-        return isinstance(data, list) and all(
-            isinstance(item, dict) and "role" in item and "content" in item
-            for item in data
-        )
-
-    def delete_last_message(self):
-        """删除最后一条非系统消息"""
-        current_text = self.text_edit.toPlainText().strip()
-        try:
-            history = json.loads(current_text)
-            if history and history[-1].get("role") != "system":
-                history.pop()
-                self.text_edit.setText(json.dumps(history, ensure_ascii=False, indent=4))
-        except json.JSONDecodeError:
-            QMessageBox.critical(self, "格式错误", "当前内容不是有效的JSON格式")
-
-    def show_replace_dialog(self):
-        """显示替换内容对话框"""
-        dialog = QDialog(self)
-        dialog.setWindowTitle("替换内容")
-        
-        layout = QVBoxLayout(dialog)
-        
-        old_label = QLabel("查找内容:")
-        old_edit = QLineEdit()
-        new_label = QLabel("替换为:")
-        new_edit = QLineEdit()
-        replace_btn = QPushButton('执行替换')
-        
-        layout.addWidget(old_label)
-        layout.addWidget(old_edit)
-        layout.addWidget(new_label)
-        layout.addWidget(new_edit)
-        layout.addWidget(replace_btn)
-        
-        def execute_replace():
-            old_text = old_edit.text()
-            new_text = new_edit.text()
-            
-            if not old_text:
-                QMessageBox.warning(dialog, "警告", "替换内容不能为空")
-                return
-                
-            current_text = self.text_edit.toPlainText().strip()
-            try:
-                updated_text = current_text.replace(old_text, new_text)
-                self.text_edit.setText(updated_text)
-                dialog.close()
-            except Exception as e:
-                QMessageBox.critical(dialog, "错误", f"替换失败: {str(e)}")
-        
-        replace_btn.clicked.connect(execute_replace)
-        dialog.exec_()
-
-    def on_complete(self):
-        """完成编辑的槽函数"""
-        edited_json = self.text_edit.toPlainText().strip()
-        try:
-            new_chathistory = json.loads(edited_json)
-            if self.validate_history_format(new_chathistory):
-                self.editCompleted.emit(new_chathistory)
-                self.accept()
-            else:
-                QMessageBox.critical(self, "格式错误", "聊天记录必须包含字典列表，且每个字典有role和content字段")
-        except json.JSONDecodeError as e:
-            QMessageBox.critical(self, "格式错误", f"JSON解析失败: {e}")
-
 class TitleGenerator(QObject):
+    """标题生成器：支持本地/调用API生成标题，并与编辑器联动"""
+
     log_signal = pyqtSignal(str)
     warning_signal = pyqtSignal(str)
     error_signal = pyqtSignal(str)
-    title_generated = pyqtSignal(str,str)
+    title_generated = pyqtSignal(str, str)
 
-    def __init__(self, api_handler: APIRequestHandler = None):
+    def __init__(self, api_handler: Optional['APIRequestHandler'] = None):
         super().__init__()
-        self.api_handler = api_handler
-        if self.api_handler:
-            self.api_handler.request_completed.connect(self._handle_title_response)
-            self.api_handler.error_occurred.connect(lambda msg: self.log_signal.emit(f"Title generation error: {msg}"))
+        self.api_handler = None
+        self.provider: Optional[str] = None
+        self.model: Optional[str] = None
+        self.api_config: Optional[Dict[str, Any]] = None
 
-    def bind_api_handler(self, api_handler: APIRequestHandler):
+        self.task_id: Optional[str] = None
+        self.add_date_prefix: bool = True
+        self.date_prefix_format: str = "[%Y-%m-%d]"
+        self._last_max_length: int = 20
+
+        # 绑定（带防护）
+        if api_handler is not None:
+            self.bind_api_handler(api_handler)
+
+    # ---------- API 处理器绑定/配置 ----------
+    def bind_api_handler(self, api_handler: 'APIRequestHandler'):
+        """绑定 API 处理器，自动连接完成与错误信号"""
+        # 先断开旧的连接（若存在）
+        if self.api_handler:
+            try:
+                if hasattr(self.api_handler, "request_completed"):
+                    self.api_handler.request_completed.disconnect(self._handle_title_response)
+            except Exception:
+                pass
+            try:
+                if hasattr(self.api_handler, "error_occurred"):
+                    self.api_handler.error_occurred.disconnect(self._on_api_error)
+            except Exception:
+                pass
+
         self.api_handler = api_handler
+
+        # 安全连接
         if self.api_handler:
-            self.api_handler.request_completed.connect(self._handle_title_response)
-            self.api_handler.error_occurred.connect(lambda msg: self.log_signal.emit(f"Title generation error: {msg}"))
-    
-    def set_provider(self, provider, model, api_config=None):
-        """
-        设置API提供商和配置信息
-        :param provider: 提供商名称
-        :param model: 模型名称
-        :param api_config: API配置信息
-        """
-        if self.api_handler:
-            self.api_handler.set_provider(provider, model, api_config)
+            if hasattr(self.api_handler, "request_completed"):
+                try:
+                    self.api_handler.request_completed.connect(self._handle_title_response)
+                except Exception as e:
+                    self.warning_signal.emit(f"无法连接 API 的 request_completed 信号：{e}")
+            else:
+                self.warning_signal.emit("API handler 不包含 request_completed 信号，无法异步获取结果。")
+
+            if hasattr(self.api_handler, "error_occurred"):
+                try:
+                    self.api_handler.error_occurred.connect(self._on_api_error)
+                except Exception as e:
+                    self.warning_signal.emit(f"无法连接 API 的 error_occurred 信号：{e}")
+            else:
+                self.warning_signal.emit("API handler 不包含 error_occurred 信号，无法感知错误。")
+
+            self.log_signal.emit("已绑定 API 处理器。")
+
+    def set_provider(self, provider: str, model: str, api_config: Optional[Dict[str, Any]] = None):
+        """设置 API 提供商与配置信息"""
+        self.provider = provider
+        self.model = model
+        self.api_config = api_config or {}
+        if self.api_handler and hasattr(self.api_handler, "set_provider"):
+            try:
+                self.api_handler.set_provider(provider, model, self.api_config)
+                self.log_signal.emit(f"API 提供商/模型已设置：{provider}/{model}")
+            except Exception as e:
+                self.warning_signal.emit(f"设置 API 提供商失败：{e}")
         else:
-            self.error_signal.emit("API handler not bound, cannot set provider")
-            
-    def generate_title_from_history_local(self, chathistory,max_length=20):
-        title = False
-        for chat in chathistory:
-            if chat["role"] == "user":  
-                title = chat["content"]     
-                unsupported_chars = ["\n", '<', '>', ':', '"', '/', '\\', '|', '?', '*', '{', '}', ',', '.', '，', '。', ' ', '!', '！']
-                for char in unsupported_chars:
-                    title = title.replace(char, '')
-                title = title.rstrip(' .')
-                if len(title) > max_length:
-                    title = title[:max_length]
-                break
-        if title:
-            title = time.strftime("[%Y-%m-%d]", time.localtime()) + title
-        return title
+            # 不阻断，仅日志提示
+            self.warning_signal.emit("API handler 未绑定或不支持 set_provider，已跳过设置。")
 
+    # ---------- 本地生成 ----------
+    def generate_title_from_history_local(self, chathistory: List[Dict[str, Any]], max_length: int = 20) -> str:
+        """从聊天历史本地生成标题（启发式：取首条用户消息）"""
+        title = ""
+        first_user_msg = next((msg for msg in chathistory if isinstance(msg, dict) and msg.get("role") == "user"), None)
+        if first_user_msg:
+            title = (first_user_msg.get("content") or "").strip()
+
+        if not title:
+            # 若无用户消息，尝试取第一条助手消息
+            first_assistant_msg = next((msg for msg in chathistory if isinstance(msg, dict) and msg.get("role") == "assistant"), None)
+            if first_assistant_msg:
+                title = (first_assistant_msg.get("content") or "").strip()
+
+        if not title:
+            title = "New Chat"
+
+        cleaned = self._sanitize_title(title, max_length)
+
+        if self.add_date_prefix and not cleaned.startswith("["):
+            cleaned = time.strftime(self.date_prefix_format, time.localtime()) + cleaned
+
+        return cleaned
+
+    # ---------- 创建标题（本地/调用API） ----------
     def create_chat_title(
-            self,
-            chathistory,
-            task_id=None,
+        self,
+        chathistory: List[Dict[str, Any]],
+        task_id: Optional[str] = None,
+        use_local: bool = False,
+        max_length: int = 20,
+        include_system_prompt: bool = False
+    ):
+        """创建聊天标题；若使用 API，需要 API handler 支持 send_request(messages)"""
+        if not isinstance(chathistory, list):
+            self.error_signal.emit("chathistory 非列表，无法生成标题。")
+            self._emit_fail(task_id, "生成失败")
+            return
+
+        self.task_id = task_id or str(uuid.uuid4())
+        self._last_max_length = max_length
+
+        # 基础校验
+        first_user_msg = next((msg for msg in chathistory if isinstance(msg, dict) and msg.get("role") == "user"), None)
+        if not first_user_msg or not (first_user_msg.get("content") or "").strip():
+            self.warning_signal.emit("未找到有效的用户消息，已使用本地兜底生成。")
+            title = self.generate_title_from_history_local(chathistory, max_length=max_length)
+            self.title_generated.emit(self.task_id, title)
+            return
+
+        if use_local or not self.api_handler or not hasattr(self.api_handler, "send_request"):
+            self.log_signal.emit("使用本地逻辑生成标题。")
+            title = self.generate_title_from_history_local(chathistory, max_length=max_length)
+            self.title_generated.emit(self.task_id, title)
+            return
+
+        # 组装提示词（中英双语，尽量降低模型偏差）
+        user_content = first_user_msg.get("content", "")
+        system_msg = next((msg for msg in chathistory if isinstance(msg, dict) and msg.get("role") == "system"), None)
+        system_content = system_msg.get("content", "") if (include_system_prompt and system_msg) else ""
+
+        prompt_parts = []
+        if include_system_prompt and system_content:
+            prompt_parts = [
+                f"请结合以下'AI角色'和'用户输入'，生成一个不超过{max_length}字的简短标题。",
+                "要求：仅输出标题本身，不要加引号、句号或其他标点；标题语言应与用户输入一致；要能体现AI对用户输入的处理意图。",
+                f"AI角色:\n{system_content}",
+                f"用户输入:\n{user_content}",
+                "标题："
+            ]
+        else:
+            prompt_parts = [
+                f"为下面的用户输入生成一个不超过{max_length}字的简短标题。",
+                "要求：仅输出标题本身，不要加引号、句号或其他标点；标题语言应与用户输入一致。",
+                f"用户输入:\n{user_content}",
+                "标题："
+            ]
+
+        message = [{"role": "user", "content": "\n\n".join(prompt_parts)}]
+
+        try:
+            self.log_signal.emit("调用 API 请求生成标题...")
+            # 仅把核心消息交给 handler；provider/model/api_config 由 set_provider 预设
+            self.api_handler.send_request(message)
+        except Exception as e:
+            self._on_api_error(f"发送 API 请求失败：{e}")
+
+    # ---------- API 响应处理 ----------
+    def _handle_title_response(self, response: str, *args, **kwargs):
+        """处理 API 返回的响应，兼容多种结构"""
+        try:
+            raw = response
+            text = (raw or "").strip()
+            # 只取第一行，去引号
+            text = text.splitlines()[0].strip().strip('"').strip("'")
+            # 去尾部标点和空白
+            text = re.sub(r"[，。！？!?\.\s]+$", "", text)
+
+            # 清洗不支持字符并限长（不含日期前缀）
+            cleaned = self._sanitize_title(text, self._last_max_length)
+
+            if self.add_date_prefix and not cleaned.startswith("["):
+                cleaned = time.strftime(self.date_prefix_format, time.localtime()) + cleaned
+
+            self.log_signal.emit(f"API 返回标题：{cleaned}")
+            self.title_generated.emit(self.task_id or "", cleaned)
+        except Exception as e:
+            self._on_api_error(f"处理 API 响应异常：{e}")
+
+    def _on_api_error(self, msg: Any):
+        """统一 API 错误处理：日志 + 发出失败标题"""
+        s = msg if isinstance(msg, str) else str(msg)
+        self.log_signal.emit(f"Title generation error: {s}")
+        self.error_signal.emit(s)
+        self._emit_fail(self.task_id, "生成失败")
+
+    def _emit_fail(self, task_id: Optional[str], title: str):
+        """失败退路：也要发出 title_generated 以便 UI 解锁"""
+        self.title_generated.emit(task_id or "", title)
+
+    # ---------- 内部工具 ----------
+    def _sanitize_title(self, text: str, max_length: int) -> str:
+        """去除不支持字符/多余空白，限制最大长度"""
+        if not isinstance(text, str):
+            text = str(text or "")
+        # 移除换行与常见不支持字符
+        unsupported = r'[\n<>:"/\\|?*{}```math```,，。.!！:：;；\'" ]'
+        text = re.sub(unsupported, "", text)
+        text = text.strip()
+        if not text:
+            text = "New Chat"
+        if len(text) > max_length:
+            text = text[:max_length]
+        return text
+
+
+class ChatHistoryEditor(QWidget):
+    # 定义编辑完成的信号，传递新的聊天历史
+    editCompleted = pyqtSignal(list)
+
+    def __init__(self, title_generator: TitleGenerator, chathistory: List[Dict[str, Any]], parent: Optional[QWidget] = None):
+        super().__init__(parent)
+        self.setWindowTitle("聊天历史编辑器")
+        self._title_generator: TitleGenerator = title_generator
+        self._original_history: List[Dict[str, Any]] = copy.deepcopy(chathistory or [])
+        self._history: List[Dict[str, Any]] = copy.deepcopy(chathistory or [])
+        self._syncing: bool = False
+        self._current_task_id: Optional[str] = None
+        self._gen_running: bool = False
+
+        self._build_ui()
+        self._connect_signals()
+        self._get_or_create_system_item()  # 确保结构完整
+        self._load_history_to_form()
+        self._update_json_editor_from_history()
+
+    # ---------- UI ----------
+    def _build_ui(self) -> None:
+        screen_geometry = QApplication.primaryScreen().availableGeometry()
+        
+        width = int(screen_geometry.width() * 0.6)
+        height = int(screen_geometry.height() * 0.6)
+        
+        left = (screen_geometry.width() - width) // 2
+        top = (screen_geometry.height() - height) // 2
+        
+        self.setGeometry(left, top, width, height)
+
+        main_layout = QVBoxLayout(self)
+        
+        self.tabs = QTabWidget(self)
+
+        # 表单编辑页
+        form_page = QWidget(self)
+        form_layout = QVBoxLayout(form_page)
+
+        sys_group = QGroupBox("系统提示（system.content）", self)
+        sys_layout = QVBoxLayout(sys_group)
+        self.sys_content_edit = QTextEdit(self)
+        self.sys_content_edit.setPlaceholderText("例如：你是{{char}}。你正在和{{user}}聊天。")
+        sys_layout.addWidget(self.sys_content_edit)
+        form_layout.addWidget(sys_group)
+
+        name_group = QGroupBox("角色名称（info.name）", self)
+        name_form = QFormLayout(name_group)
+        self.user_name_edit = QLineEdit(self)
+        self.assistant_name_edit = QLineEdit(self)
+        name_form.addRow("User 名称：", self.user_name_edit)
+        name_form.addRow("Assistant 名称：", self.assistant_name_edit)
+        form_layout.addWidget(name_group)
+
+        avatar_group = QGroupBox("头像路径（info.avatar）", self)
+        avatar_form = QFormLayout(avatar_group)
+        # user avatar
+        self.user_avatar_edit = QLineEdit(self)
+        self.user_avatar_btn = QPushButton("选择...", self)
+        urow = QHBoxLayout()
+        urow.addWidget(self.user_avatar_edit, 1)
+        urow.addWidget(self.user_avatar_btn)
+        # assistant avatar
+        self.assistant_avatar_edit = QLineEdit(self)
+        self.assistant_avatar_btn = QPushButton("选择...", self)
+        arow = QHBoxLayout()
+        arow.addWidget(self.assistant_avatar_edit, 1)
+        arow.addWidget(self.assistant_avatar_btn)
+        # add rows
+        avatar_form.addRow("User 头像路径：", self._wrap_row(urow))
+        avatar_form.addRow("Assistant 头像路径：", self._wrap_row(arow))
+        form_layout.addWidget(avatar_group)
+
+        # 标题编辑与生成
+        title_group = QGroupBox("会话标题（info.title）", self)
+        title_layout = QVBoxLayout(title_group)
+        title_row = QHBoxLayout()
+        self.title_edit = QLineEdit(self)
+        self.title_edit.setPlaceholderText("会话标题...")
+        self.btn_gen_title_api = QPushButton("AI生成(调用API)", self)
+        self.btn_gen_title_local = QPushButton("本地生成", self)
+        title_row.addWidget(self.title_edit, 1)
+        title_row.addWidget(self.btn_gen_title_api)
+        title_row.addWidget(self.btn_gen_title_local)
+        title_layout.addLayout(title_row)
+
+        opt_row = QHBoxLayout()
+        self.include_system_chk = QCheckBox("包含系统提示参与生成", self)
+        self.maxlen_spin = QSpinBox(self)
+        self.maxlen_spin.setRange(4, 100)
+        self.maxlen_spin.setValue(20)
+        opt_row.addWidget(self.include_system_chk)
+        opt_row.addWidget(QLabel("最大长度：", self))
+        opt_row.addWidget(self.maxlen_spin)
+        opt_row.addStretch(1)
+        title_layout.addLayout(opt_row)
+
+        # 日志
+        self.log_view = QPlainTextEdit(self)
+        self.log_view.setReadOnly(True)
+        self.log_view.setPlaceholderText("生成日志输出...")
+        self.log_view.setMaximumHeight(120)
+        title_layout.addWidget(self.log_view)
+
+        form_layout.addWidget(title_group)
+
+        # 操作
+        action_row = QHBoxLayout()
+        self.btn_save = QPushButton("保存并关闭", self)
+        self.btn_reset = QPushButton("放弃修改并恢复", self)
+        action_row.addStretch(1)
+        action_row.addWidget(self.btn_reset)
+        action_row.addWidget(self.btn_save)
+        form_layout.addLayout(action_row)
+
+        self.tabs.addTab(form_page, "表单编辑")
+
+        # JSON 编辑页
+        json_page = QWidget(self)
+        json_layout = QVBoxLayout(json_page)
+        self.json_edit = QPlainTextEdit(self)
+        self.json_edit.setPlaceholderText("在此直接编辑 chathistory 的 JSON ...")
+        json_layout.addWidget(self.json_edit)
+
+        json_btn_row = QHBoxLayout()
+        self.btn_json_apply_to_form = QPushButton("载入JSON到表单", self)
+        self.btn_json_format = QPushButton("整理格式", self)
+        self.btn_json_refresh_from_form = QPushButton("从表单刷新更改", self)
+        json_btn_row.addWidget(self.btn_json_apply_to_form)
+        json_btn_row.addWidget(self.btn_json_format)
+        json_btn_row.addWidget(self.btn_json_refresh_from_form)
+        json_btn_row.addStretch(1)
+        json_layout.addLayout(json_btn_row)
+
+        status_row = QHBoxLayout()
+        self.json_status_label = QLabel("就绪", self)
+        self.json_status_label.setStyleSheet("color: #888;")
+        status_row.addWidget(self.json_status_label)
+        status_row.addStretch(1)
+        json_layout.addLayout(status_row)
+
+        self.tabs.addTab(json_page, "JSON编辑")
+        main_layout.addWidget(self.tabs)
+
+    def _wrap_row(self, layout: QHBoxLayout) -> QWidget:
+        w = QWidget(self)
+        w.setLayout(layout)
+        return w
+
+    # ---------- 信号连接 ----------
+    def _connect_signals(self) -> None:
+        # 表单 -> 数据
+        self.sys_content_edit.textChanged.connect(self._on_sys_content_changed)
+        self.user_name_edit.textChanged.connect(self._on_user_name_changed)
+        self.assistant_name_edit.textChanged.connect(self._on_assistant_name_changed)
+        self.user_avatar_edit.textChanged.connect(self._on_user_avatar_changed)
+        self.assistant_avatar_edit.textChanged.connect(self._on_assistant_avatar_changed)
+        self.title_edit.textChanged.connect(self._on_title_changed)
+        self.user_avatar_btn.clicked.connect(lambda: self._pick_avatar(self.user_avatar_edit))
+        self.assistant_avatar_btn.clicked.connect(lambda: self._pick_avatar(self.assistant_avatar_edit))
+
+        # 标题生成
+        self.btn_gen_title_api.clicked.connect(self._on_generate_title_api)
+        self.btn_gen_title_local.clicked.connect(self._on_generate_title_local)
+
+        # 操作
+        self.btn_save.clicked.connect(self._on_save_clicked)
+        self.btn_reset.clicked.connect(self._on_reset_clicked)
+
+        # JSON 编辑
+        self.btn_json_apply_to_form.clicked.connect(self._on_json_apply_to_form)
+        self.btn_json_format.clicked.connect(self._on_json_format)
+        self.btn_json_refresh_from_form.clicked.connect(self._update_json_editor_from_history)
+        self.json_edit.textChanged.connect(self._on_json_text_changed)
+
+        # TitleGenerator 日志/结果
+        # 注意：title_generated 的参数顺序为 (task_id, title)
+        self._title_generator.title_generated.connect(self._on_title_generated)
+        self._title_generator.log_signal.connect(self._on_log_signal)
+        self._title_generator.warning_signal.connect(lambda s: self._append_log(s, "warn"))
+        self._title_generator.error_signal.connect(self._on_error_signal)
+
+    # ---------- 数据与UI同步 ----------
+    def _get_or_create_system_item(self) -> Tuple[int, Dict[str, Any]]:
+        idx = -1
+        sys_item = None
+        for i, item in enumerate(self._history):
+            if isinstance(item, dict) and item.get("role") == "system":
+                idx = i
+                sys_item = item
+                break
+        if sys_item is None:
+            sys_item = {
+                "role": "system",
+                "content": "你是{{char}}。你正在和{{user}}聊天。",
+                "info": {
+                    "id": "system_prompt",
+                    "name": {"user": "", "assistant": ""},
+                    "avatar": {"user": "", "assistant": ""},
+                    "chat_id": str(uuid.uuid4()),
+                    "title": ""
+                }
+            }
+            idx = 0
+            self._history.insert(0, sys_item)
+
+        info = sys_item.setdefault("info", {})
+        info.setdefault("name", {}).setdefault("user", "")
+        info.setdefault("name", {}).setdefault("assistant", "")
+        info.setdefault("avatar", {}).setdefault("user", "")
+        info.setdefault("avatar", {}).setdefault("assistant", "")
+        info.setdefault("title", info.get("title", ""))
+        return idx, sys_item
+
+    def _load_history_to_form(self) -> None:
+        self._syncing = True
+        _, sys_item = self._get_or_create_system_item()
+        info = sys_item.get("info", {})
+        name = info.get("name", {})
+        avatar = info.get("avatar", {})
+
+        self.sys_content_edit.setPlainText(sys_item.get("content", "") or "")
+        self.user_name_edit.setText(name.get("user", "") or "")
+        self.assistant_name_edit.setText(name.get("assistant", "") or "")
+        self.user_avatar_edit.setText(avatar.get("user", "") or "")
+        self.assistant_avatar_edit.setText(avatar.get("assistant", "") or "")
+        self.title_edit.setText(info.get("title", "") or "")
+        self._syncing = False
+
+    def _update_json_editor_from_history(self) -> None:
+        if self._syncing:
+            return
+        self._syncing = True
+        try:
+            text = json.dumps(self._history, ensure_ascii=False, indent=2)
+            self.json_edit.setPlainText(text)
+            self.json_status_label.setText("JSON 已更新")
+            self.json_status_label.setStyleSheet("color: #888;")
+        finally:
+            self._syncing = False
+
+    def _apply_form_to_history(self) -> None:
+        self._update_json_editor_from_history()
+
+    # ---------- 表单事件 ----------
+    def _on_sys_content_changed(self) -> None:
+        if self._syncing:
+            return
+        _, sys_item = self._get_or_create_system_item()
+        sys_item["content"] = self.sys_content_edit.toPlainText()
+        self._update_json_editor_from_history()
+
+    def _on_user_name_changed(self, text: str) -> None:
+        if self._syncing:
+            return
+        _, sys_item = self._get_or_create_system_item()
+        sys_item["info"]["name"]["user"] = text
+        self._update_json_editor_from_history()
+
+    def _on_assistant_name_changed(self, text: str) -> None:
+        if self._syncing:
+            return
+        _, sys_item = self._get_or_create_system_item()
+        sys_item["info"]["name"]["assistant"] = text
+        self._update_json_editor_from_history()
+
+    def _on_user_avatar_changed(self, text: str) -> None:
+        if self._syncing:
+            return
+        _, sys_item = self._get_or_create_system_item()
+        sys_item["info"]["avatar"]["user"] = text
+        self._update_json_editor_from_history()
+
+    def _on_assistant_avatar_changed(self, text: str) -> None:
+        if self._syncing:
+            return
+        _, sys_item = self._get_or_create_system_item()
+        sys_item["info"]["avatar"]["assistant"] = text
+        self._update_json_editor_from_history()
+
+    def _on_title_changed(self, text: str) -> None:
+        if self._syncing:
+            return
+        _, sys_item = self._get_or_create_system_item()
+        sys_item["info"]["title"] = text
+        self._update_json_editor_from_history()
+
+    def _pick_avatar(self, target_edit: QLineEdit) -> None:
+        path, _ = QFileDialog.getOpenFileName(self, "选择头像图片", "", "图像文件 (*.png *.jpg *.jpeg *.bmp *.gif);;所有文件 (*.*)")
+        if path:
+            target_edit.setText(path)
+
+    # ---------- 标题生成 ----------
+    def _on_generate_title_api(self) -> None:
+        self._set_generating(True)
+        self._current_task_id = str(uuid.uuid4())
+        self._title_generator.create_chat_title(
+            chathistory=copy.deepcopy(self._history),
+            task_id=self._current_task_id,
             use_local=False,
-            max_length=20,
-            include_system_prompt=False
-        ):
-        self.task_id = task_id
-        system_msg = next((msg for msg in chathistory if msg.get('role') == 'system'), None)
-        first_user_msg = next((msg for msg in chathistory if msg.get('role') == 'user'), None)
-        if not first_user_msg:
-            self.warning_signal.emit("No user message found to generate title.")
-            self.title_generated.emit(self.task_id, "New Chat")
-            return
-        user_content = first_user_msg.get('content', '')
-        if not user_content.strip():
-            self.warning_signal.emit("User message is empty, cannot generate title.")
-            self.title_generated.emit(self.task_id, "New Chat")
-            return
-        if (not self.api_handler) or use_local:
-            self.log_signal.emit("API handler not available, generating title locally.")
-            title = self.generate_title_from_history_local(chathistory,max_length=max_length)
-            self.title_generated.emit(self.task_id, title)
-            return
-        # 使用API生成标题
-        self.log_signal.emit("Requesting title generation from API.")
-        if include_system_prompt and system_msg:
-            system_content = system_msg.get('content', '')
-            prompt_parts = [
-                f"请结合以下'AI角色'和'用户输入'，生成一个不超过{max_length}字的简短标题。标题应体现AI对用户输入的处理意图。直接输出标题，不要包含任何解释或标点符号。标题语言应与用户输入一致。",
-                f"Combine the following 'AI Role' and 'User Input' to generate a short title within {max_length} characters. The title should reflect the AI's processing intent for the user input. Output the title directly without any explanation or punctuation. The title's language should match the user's input.",
-                f"AI角色/AI Role:\n{system_content}",
-                f"用户输入/User Input:\n{user_content}",
-                "标题/Title:"
-            ]
-        else:
-            # --- 情况二：不存在系统提示 ---
-            # 保持原有逻辑，只基于用户消息生成标题
-            prompt_parts = [
-                f"为以下用户输入生成一个不超过{max_length}字的简短标题。请直接输出标题，不要包含任何解释或标点符号。标题语言应与用户输入一致。",
-                f"Generate a short title for the following user input within {max_length} characters. Output the title directly without any explanation or punctuation. The title's language should match the user's input.",
-                f"用户输入/User Input:\n{user_content}",
-                "标题/Title:"
-            ]
+            max_length=int(self.maxlen_spin.value()),
+            include_system_prompt=self.include_system_chk.isChecked()
+        )
 
-        message = [{"role": "user", "content": '\n\n'.join(prompt_parts)}]
-        print(message)
-        self.api_handler.send_request(message)
+    def _on_generate_title_local(self) -> None:
+        title = self._title_generator.generate_title_from_history_local(
+            chathistory=copy.deepcopy(self._history),
+            max_length=int(self.maxlen_spin.value())
+        )
+        if not isinstance(title, str) or not title.strip():
+            self._append_log("[本地] 生成标题失败：未找到合适的消息。", "warn")
+            return
+        self._append_log(f"[本地] 生成标题：{title}", "log")
+        self._syncing = True
+        self.title_edit.setText(title)
+        self._syncing = False
+        self._on_title_changed(title)
 
-    def _handle_title_response(self, response):
-        if len(response) > 100:  # 控件也显示不了这么多
-            response = response[:100]
-        if response and isinstance(response, str):
-            title = time.strftime("[%Y-%m-%d]", time.localtime()) + response.strip().strip('"').strip("'")
-            self.title_generated.emit(self.task_id, title)
-            return title
-        else:
-            self.title_generated.emit(self.task_id, "生成失败")
-            return "生成失败"
+    def _on_title_generated(self, task_id: str, title: str) -> None:
+        # 注意参数顺序：(task_id, title)
+        if self._current_task_id and task_id != self._current_task_id:
+            return
+        text = (title or "").strip()
+        self._syncing = True
+        self.title_edit.setText(text)
+        self._syncing = False
+        self._on_title_changed(text)
+        self._set_generating(False)
+        self._current_task_id = None
+
+    def _set_generating(self, generating: bool) -> None:
+        self._gen_running = generating
+        self.btn_gen_title_api.setEnabled(not generating)
+        self.btn_gen_title_local.setEnabled(not generating)
+        self._append_log("正在生成标题..." if generating else "标题生成完成。", "log")
+
+    # ---------- JSON 编辑 ----------
+    def _on_json_apply_to_form(self) -> None:
+        text = self.json_edit.toPlainText().strip()
+        if not text:
+            self.json_status_label.setText("JSON 为空")
+            self.json_status_label.setStyleSheet("color: #d9534f;")
+            return
+        try:
+            data = json.loads(text)
+            if not isinstance(data, list):
+                raise ValueError("JSON 根应为列表(list)。")
+            self._history = data
+            self._get_or_create_system_item()
+            self._load_history_to_form()
+            self.json_status_label.setText("JSON 已应用到表单")
+            self.json_status_label.setStyleSheet("color: #5cb85c;")
+        except Exception as e:
+            self.json_status_label.setText(f"JSON 解析失败：{e}")
+            self.json_status_label.setStyleSheet("color: #d9534f;")
+
+    def _on_json_format(self) -> None:
+        try:
+            text = self.json_edit.toPlainText()
+            data = json.loads(text)
+            self._syncing = True
+            self.json_edit.setPlainText(json.dumps(data, ensure_ascii=False, indent=2))
+            self._syncing = False
+            self.json_status_label.setText("JSON 已格式化")
+            self.json_status_label.setStyleSheet("color: #5cb85c;")
+        except Exception as e:
+            self.json_status_label.setText(f"格式化失败：{e}")
+            self.json_status_label.setStyleSheet("color: #d9534f;")
+
+    def _on_json_text_changed(self) -> None:
+        if self._syncing:
+            return
+        text = self.json_edit.toPlainText().strip()
+        if not text:
+            self.json_status_label.setText("JSON 为空")
+            self.json_status_label.setStyleSheet("color: #d9534f;")
+            return
+        try:
+            json.loads(text)
+            self.json_status_label.setText("JSON 格式良好")
+            self.json_status_label.setStyleSheet("color: #5cb85c;")
+        except Exception as e:
+            self.json_status_label.setText(f"JSON 非法：{e}")
+            self.json_status_label.setStyleSheet("color: #d9534f;")
+
+    # ---------- 保存/重置 ----------
+    def _on_save_clicked(self) -> None:
+        self._apply_form_to_history()
+        self.editCompleted.emit(copy.deepcopy(self._history))
+        self._append_log("已保存并通过 editCompleted 发出。", "log")
+        self.close()
+        self.deleteLater()
+
+    def _on_reset_clicked(self) -> None:
+        self._history = copy.deepcopy(self._original_history)
+        self._load_history_to_form()
+        self._update_json_editor_from_history()
+        self._append_log("已恢复到初始内容。", "warn")
+
+    # ---------- 日志 ----------
+    def _append_log(self, text: str, level: str = "log") -> None:
+        prefix = {"log": "", "warn": "[警告] ", "error": "[错误] "}.get(level, "")
+        self.log_view.appendPlainText(prefix + text)
+
+    def _on_log_signal(self, s: str) -> None:
+        self._append_log(s, "log")
+        if "Title generation error" in s or "error" in s.lower():
+            if self._gen_running:
+                self._append_log("检测到 API 错误，已停止等待。", "warn")
+                self._set_generating(False)
+                self._current_task_id = None
+
+    def _on_error_signal(self, s: str) -> None:
+        self._append_log(s, "error")
+        if self._gen_running:
+            self._set_generating(False)
+            self._current_task_id = None
+
+
 
 class ChathistoryFileManager(QObject):
     log_signal = pyqtSignal(str)

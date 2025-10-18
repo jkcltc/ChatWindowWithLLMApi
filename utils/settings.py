@@ -190,16 +190,14 @@ class MainSettingWindow(QWidget):
         self.api_provider_combo = QComboBox()
         self.api_provider_combo.addItems(list(self.config.get('MODEL_MAP', {}).keys()))
         self.api_provider_combo.setCurrentText(self.config.get('long_chat_improve_api_provider', ''))
-        api_layout.addWidget(self.api_provider_combo)
-        api_layout.addStretch()
+        api_layout.addWidget(self.api_provider_combo, 1) # Add stretch factor
         
         model_layout = QHBoxLayout()
         model_layout.addWidget(QLabel("指定模型:"))
         self.model_combo = QComboBox()
         self.update_model_combo()
         self.model_combo.setCurrentText(self.config.get('long_chat_improve_model', ''))
-        model_layout.addWidget(self.model_combo)
-        model_layout.addStretch()
+        model_layout.addWidget(self.model_combo, 1) # Add stretch factor
         
         # 自定义提示
         hint_group = QGroupBox("优先保留记忆（也可用于私货）")
@@ -407,21 +405,21 @@ class MainSettingWindow(QWidget):
         
         # API提供者
         api_layout = QHBoxLayout()
-        api_layout.addWidget(QLabel("API提供者:"))
+        api_layout.addWidget(QLabel("指定API:"))
         self.title_provider_combo = QComboBox()
         self.title_provider_combo.addItems(list(self.config.get('MODEL_MAP', {}).keys()))
         self.title_provider_combo.setCurrentText(self.config.get('title_creator_provider', ''))
-        api_layout.addWidget(self.title_provider_combo)
+        api_layout.addWidget(self.title_provider_combo,1)
         api_layout.addStretch()
         llm_layout.addLayout(api_layout)
         
         # 模型选择
         model_layout = QHBoxLayout()
-        model_layout.addWidget(QLabel("模型:"))
+        model_layout.addWidget(QLabel("指定模型:"))
         self.title_model_combo = QComboBox()
         self.update_title_model_combo()
         self.title_model_combo.setCurrentText(self.config.get('title_creator_model', ''))
-        model_layout.addWidget(self.title_model_combo)
+        model_layout.addWidget(self.title_model_combo,1)
         model_layout.addStretch()
         llm_layout.addLayout(model_layout)
         

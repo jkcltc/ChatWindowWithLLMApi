@@ -795,7 +795,7 @@ class MessagePreprocessor:
         params  = self._build_request_params(message,stream=self.stream,tools=tools)
         params  = self._handle_provider_patch(params)
         LOGGER.info(f'发送长度: {len(str(message))}')
-        LOGGER.info(f'处理时间:{(time.perf_counter()-start)*1000:.2f}ms')
+        LOGGER.info(f'消息打包耗时:{(time.perf_counter()-start)*1000:.2f}ms')
         return message, params
 
     def _calculate_better_round(self):
@@ -2305,10 +2305,6 @@ class MainWindow(QMainWindow):
             if self.use_concurrent_model.isChecked():
                 self.concurrent_model.start_workflow(params)
                 return
-            self.message_status.start_record(
-                model=self.model_combobox.currentText(),
-                provider=self.api_var.currentText()
-            )
             self.requester.set_provider(
             provider=self.api_var.currentText(),
             api_config=self.api
@@ -2320,8 +2316,16 @@ class MainWindow(QMainWindow):
                 thread1.start()
             else:
                 target()
+            self.main_message_process_timer_end=time.time()*1000
+            LOGGER.info(f'消息前处理耗时:{(self.main_message_process_timer_end-self.main_message_process_timer_start):.2f}ms')
+            self.message_status.start_record(
+                model=self.model_combobox.currentText(),
+                provider=self.api_var.currentText(),
+                request_send_time=self.main_message_process_timer_end/1000
+            )
         except Exception as e:
             self.info_manager.notify(f"Error in sending request: {e}",level='error')
+        
 
         
 
@@ -2457,6 +2461,7 @@ class MainWindow(QMainWindow):
 
     #“发送”按钮触发，开始消息预处理和UI更新
     def send_message(self):
+        self.main_message_process_timer_start=time.time()*1000
         if self.pause_flag:
             self.pause_flag = not self.pause_flag
         if self.send_button.isEnabled() and self.sending_rule():
@@ -2738,11 +2743,18 @@ class MainWindow(QMainWindow):
 
 
     #编辑记录
-    def edit_chathistory(self):
-        editor = ChatHistoryEditor(self.chathistory, self)
-        editor.editCompleted.connect(lambda new_history: setattr(self, 'chathistory', new_history))
-        editor.editCompleted.connect(self.update_chat_history)
-        editor.exec_()
+    def edit_chathistory(self,file_path=''):
+        if file_path:
+            chathistory=self.chathistory_file_manager.load_chathistory(file_path)
+        else:
+            chathistory=self.chathistory
+        self.history_editor = ChatHistoryEditor(title_generator=self.title_generator,chathistory=chathistory)
+        if file_path:
+            self.history_editor.editCompleted.connect(self.chathistory_file_manager.autosave_save_chathistory)
+        else:
+            self.history_editor.editCompleted.connect(lambda new_history: setattr(self, 'chathistory', new_history))
+            self.history_editor.editCompleted.connect(self.update_chat_history)
+        self.history_editor.show()
 
     def edit_chathistory_by_index(self,id,text):
         index=ChatHistoryTools.locate_chat_index(self.chathistory,id)
@@ -3066,7 +3078,10 @@ class MainWindow(QMainWindow):
                 lambda value: setattr(self, 'title_creator_max_length', value))
             self.main_setting_window.title_creator_provider_changed.connect(
                 lambda text: (
-                    setattr(self, 'title_creator_provider', text)
+                    setattr(self, 'title_creator_provider', text),
+                    self.title_generator.set_provider(
+                        provider=text,model=self.title_creator_model,api_config=self.api
+                        )
                 )
             )
             self.main_setting_window.title_creator_model_changed.connect(
@@ -3105,6 +3120,14 @@ class MainWindow(QMainWindow):
             )
         )
 
+        edit_action=context_menu.addAction("修改")
+        edit_action.setToolTip('修改存档对话的内容和标题')
+        edit_action.triggered.connect(
+            lambda: self.edit_chathistory(
+                file_path=self.past_chat_list.get_selected_file_path()
+            )
+        )
+
         delete_action = context_menu.addAction("删除")
         delete_action.triggered.connect(
             lambda: self.delete_selected_history()
@@ -3121,7 +3144,6 @@ class MainWindow(QMainWindow):
         world_view_action.triggered.connect(
             lambda: self.analysis_past_chat()
         )
-
 
         context_menu.exec_(self.past_chat_list.viewport().mapToGlobal(position))
 

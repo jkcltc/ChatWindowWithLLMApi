@@ -1674,8 +1674,8 @@ class MainWindow(QMainWindow):
         self.enable_title_creator_system_prompt=True
         self.title_creator_use_local=True
         self.title_creator_max_length=20
-        self.title_creator_provider='siliconflow'
-        self.title_creator_model= 'moonshotai/Kimi-K2-Instruct'
+        self.title_creator_provider=next(iter(self.api.keys()))
+        self.title_creator_model= next(iter(MODEL_MAP.get(self.title_creator_provider, [None])))
 
     def init_response_manager(self):
         # AI响应更新控制

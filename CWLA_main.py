@@ -2509,6 +2509,7 @@ class MainWindow(QMainWindow):
 
     #清除聊天记录
     def clear_history(self):
+        self.chathistory_file_manager.autosave_save_chathistory(self.chathistory)
         self.creat_new_chathistory()
         self.chat_history_bubbles.clear()
         self.ai_response_text.clear()

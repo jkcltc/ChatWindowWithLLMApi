@@ -1127,7 +1127,6 @@ class ModConfiger(QTabWidget):
 
 #主类
 class MainWindow(QMainWindow):
-    update_response_signal = pyqtSignal(str,str)
     ai_response_signal= pyqtSignal(str,str)
     think_response_signal= pyqtSignal(str,str)
     back_animation_finished = pyqtSignal()
@@ -1316,7 +1315,7 @@ class MainWindow(QMainWindow):
         self.pause_button = QPushButton("暂停")
         self.pause_button.clicked.connect(lambda: 
                                           (setattr(self, 'pause_flag', not self.pause_flag), 
-                                            self.send_button.setEnabled(True))[1]
+                                            self.control_frame_to_state('finished'))[1]
                                         )
         self.pause_button.clicked.connect(lambda _:self.chat_history_bubbles.streaming_scroll(False))
         self.pause_button.clicked.connect(self.requester.pause)
@@ -1568,7 +1567,6 @@ class MainWindow(QMainWindow):
         self.creat_new_chathistory()
         self.chathistory_detail=[]
         self.pause_flag = False
-        self.update_response_signal.connect(self.receive_message)
         self.ai_response_signal.connect(self.update_ai_response_text)
         self.update_background_signal.connect(self.update_background)#可以弃用了
         self.think_response_signal.connect(self.update_think_response_text)
@@ -1665,6 +1663,8 @@ class MainWindow(QMainWindow):
         #对话储存点
         self.think_response=''
         self.full_response=''
+        self.finish_reason_raw     =''
+        self.finish_reason_readable=''
 
         #TTS
         self.tts_enabled=False
@@ -1722,6 +1722,14 @@ class MainWindow(QMainWindow):
         self.requester.request_finished.connect(self._receive_message)
 
         self.requester.ask_repeat_request.connect(self.resend_message_by_tool)
+
+        self.requester.report_finish_reason.connect(
+            lambda request_id, finish_reason_raw, finish_reason_readable:
+            (
+                setattr(self,'finish_reason_raw'        ,finish_reason_raw      ),
+                setattr(self,'finish_reason_readable'   ,finish_reason_readable)
+            )
+        )
 
     @pyqtSlot(str, str)
     def _requester_completion_failed(self, id_, content):
@@ -1952,22 +1960,22 @@ class MainWindow(QMainWindow):
     def populate_tree_view(self):
         # 数据结构
         data = [
-            {"上级名称": "系统", "按钮变量名": "self.api_import_button", "提示语": "API/模型库设置", "执行函数": "self.open_api_window"},
-            {"上级名称": "系统", "按钮变量名": "self.system_prompt_button", "提示语": "System Prompt 设定 Ctrl+E", "执行函数": "self.open_system_prompt"},
-            {"上级名称": "系统", "按钮变量名": "self.start_mod_configer", "提示语": "MOD管理器", "执行函数": "self.show_mod_configer"},
-            {"上级名称": "记录", "按钮变量名": "self.save_button", "提示语": "保存记录", "执行函数": "self.save_chathistory"},
-            {"上级名称": "记录", "按钮变量名": "self.load_button", "提示语": "导入记录", "执行函数": "self.load_chathistory"},
-            {"上级名称": "记录", "按钮变量名": "self.edit_button", "提示语": "修改原始记录", "执行函数": "self.edit_chathistory"},
-            {"上级名称": "记录", "按钮变量名": "self.analysis_window_button", "提示语": "对话分析", "执行函数": "self.show_analysis_window"},
-            {"上级名称": "对话", "按钮变量名": "self.chat_lenth", "提示语": "对话设置", "执行函数": "self.open_max_send_lenth_window"},
-            {"上级名称": "对话", "按钮变量名": "self.enforce_chat_opti", "提示语": "强制触发长对话优化", "执行函数": "self.long_chat_improve"},
-            {"上级名称": "对话", "按钮变量名": "self.trigger_function_call_window", "提示语": "函数调用", "执行函数": "self.show_function_call_window"},
-            {"上级名称": "背景", "按钮变量名": "self.background_setting", "提示语": "背景设置", "执行函数": "self.background_settings_window"},
-            {"上级名称": "背景", "按钮变量名": "self.setting_trigger_background_update", "提示语": "触发背景更新（跟随聊天）", "执行函数": "self.call_background_update"},
-            {"上级名称": "背景", "按钮变量名": "self.customed_background_update", "提示语": "生成自定义背景（正在重构）", "执行函数": "self.show_pic_creater"},
-            {"上级名称": "设置", "按钮变量名": "", "提示语": "主题", "执行函数": "self.show_theme_settings"},
-            {"上级名称": "设置", "按钮变量名": "self.set_button", "提示语": "快捷键", "执行函数": "self.open_settings_window"},
-            {"上级名称": "设置", "按钮变量名": "self.web_search_setting", "提示语": "联网搜索", "执行函数": "self.open_web_search_setting_window"}
+            {"上级名称": "系统", "提示语": "API/模型库设置", "执行函数": "self.open_api_window"},
+            {"上级名称": "系统", "提示语": "System Prompt 设定 Ctrl+E", "执行函数": "self.open_system_prompt"},
+            {"上级名称": "系统", "提示语": "MOD管理器", "执行函数": "self.show_mod_configer"},
+            {"上级名称": "记录", "提示语": "保存记录", "执行函数": "self.save_chathistory"},
+            {"上级名称": "记录", "提示语": "导入记录", "执行函数": "self.load_chathistory"},
+            {"上级名称": "记录", "提示语": "修改原始记录", "执行函数": "self.edit_chathistory"},
+            {"上级名称": "记录", "提示语": "对话分析", "执行函数": "self.show_analysis_window"},
+            {"上级名称": "对话", "提示语": "对话设置", "执行函数": "self.open_max_send_lenth_window"},
+            {"上级名称": "对话", "提示语": "强制触发长对话优化", "执行函数": "self.long_chat_improve"},
+            {"上级名称": "对话", "提示语": "函数调用", "执行函数": "self.show_function_call_window"},
+            {"上级名称": "背景", "提示语": "背景设置", "执行函数": "self.background_settings_window"},
+            {"上级名称": "背景", "提示语": "触发背景更新（跟随聊天）", "执行函数": "self.call_background_update"},
+            {"上级名称": "背景", "提示语": "生成自定义背景（正在重构）", "执行函数": "self.show_pic_creater"},
+            {"上级名称": "设置", "提示语": "主题", "执行函数": "self.show_theme_settings"},
+            {"上级名称": "设置", "提示语": "快捷键", "执行函数": "self.open_settings_window"},
+            {"上级名称": "设置", "提示语": "联网搜索", "执行函数": "self.open_web_search_setting_window"}
         ]
 
         # 创建根节点
@@ -2250,48 +2258,7 @@ class MainWindow(QMainWindow):
         except Exception as e:
             self.info_manager.notify(level='error',text='receive fail '+str(e))
         finally:
-            self.send_button.setEnabled(True)
-            self.update_chat_history()
-
-    def receive_message(self,request_id,content):
-        try:
-            if self.pause_flag:
-                if self.chathistory and self.chathistory[-1]['role'] == 'user':
-                    self.chathistory.pop()
-                return
-            
-            content = re.sub(r'<think>.*?</think>', '', content, flags=re.DOTALL)
-            if content.startswith("\n\n"):
-                content = content[2:]
-            content = content.replace('</think>', '')
-    
-            content = StrTools.combined_remove_var_vast_replace(self,content=content)
-            #处理无源信息
-            if self.last_chat_info=={}:
-                self.last_chat_info={
-                    'id':request_id,
-                    'WARNING':'not a normal message',
-                    'time':time.strftime("%Y-%m-%d %H:%M:%S")
-                }
-            last_message={
-                'role': 'assistant', 
-                'content': content,
-                'info':self.last_chat_info,
-                }
-            if getattr(self,'thinked'):
-                last_message['reasoning_content']=self.think_response
-            self.chathistory.append(last_message)
-
-            # AI响应状态栏更新
-            self.ai_response_text.setMarkdown(self.get_status_str(message_finished=True))
-
-            # mod后处理
-            self.mod_configer.handle_new_message(self.full_response,self.chathistory)
-        except Exception as e:
-            self.info_manager.notify(f'receive fail{e}','error')
-            self.update_response_signal.emit(request_id,f"Error: {str(e)}")
-        finally:
-            self.send_button.setEnabled(True)
+            self.control_frame_to_state('finished')
             self.update_chat_history()
 
     ###发送请求主函数 0.25.3 api基础重构
@@ -2327,14 +2294,19 @@ class MainWindow(QMainWindow):
             self.info_manager.notify(f"Error in sending request: {e}",level='error')
         
 
-        
+    def control_frame_to_state(self,state:bool | str):
+        if not isinstance(state,bool):
+            state_map={
+                'sending':False,
+                'finished':True
+            }
+            state=state_map[state]
+        self.send_button.setEnabled(state)
+        self.clear_button.setEnabled(state)
+        self.resend_button.setEnabled(state)
+        self.edit_question_button.setEnabled(state)
+        self.past_chat_list.setEnabled(state)
 
-    #检查当前消息数是否是否触发最大对话数
-    def fix_max_message_rounds(self,max_round_bool=True,max_round=0):
-        if max_round_bool:
-            return min(self.max_message_rounds,len(self.chathistory))
-        else:
-            return min(max_round,len(self.chathistory))
 
     #发送消息前的预处理，防止报错,触发长文本优化,触发联网搜索
     def sending_rule(self):           
@@ -2481,10 +2453,8 @@ class MainWindow(QMainWindow):
         更新聊天记录，
         发送请求，
         清空输入框，
-
-
         '''
-        self.send_button.setEnabled(False)
+        self.control_frame_to_state('sending')
         self.ai_response_text.setText("已发送，等待回复...")
         user_input = self.user_input_text.toPlainText()
         self.user_input_text.clear()
@@ -2539,7 +2509,6 @@ class MainWindow(QMainWindow):
 
     #清除聊天记录
     def clear_history(self):
-        self.chathistory_file_manager.autosave_save_chathistory(self.chathistory)
         self.creat_new_chathistory()
         self.chat_history_bubbles.clear()
         self.ai_response_text.clear()
@@ -2977,7 +2946,6 @@ class MainWindow(QMainWindow):
             self.chathistory_file_manager.autosave_save_chathistory(self.chathistory)
         except Exception as e:
             # 如果线程中发生异常，也通过信号通知主线程
-            self.update_response_signal.emit(f'error:{int(time.time())}',f"Error: {str(e)}")
             self.info_manager.warning(f'长对话优化报错，Error code:{e}')
 
     #对话设置，主设置，全局设置
@@ -3501,7 +3469,16 @@ class MainWindow(QMainWindow):
     def concurrentor_finish_receive(self,msg_id,content):
         self.last_chat_info = self.concurrent_model.get_concurrentor_info()
         self.full_response=content
-        self.receive_message(msg_id,content)
+        self._receive_message(
+            {
+                "role": "assistant",
+                "content": content,
+                "info": {
+                    "id": msg_id,
+                    "time":time.strftime("%Y-%m-%d %H:%M:%S")
+                }
+            }
+        )
 
     # 0.25.1 avatar
     # 显示头像窗口
@@ -3633,7 +3610,7 @@ class MainWindow(QMainWindow):
             total_length=self.message_status.get_chat_length(self.chathistory)
             rows.append(f"| **对话总轮数**      | {total_rounds}")
             rows.append(f"| **对话总字数**      | {total_length}")
-            rows.append(f"对话成功结束。")
+            rows.append(f"> {self.finish_reason_readable}")
 
         # 将所有行数据补全表格格式并连接
         table_body = "\n".join([f"{row:<20}|" for row in rows])

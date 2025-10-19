@@ -480,8 +480,7 @@ class TitleGenerator(QObject):
     def _on_api_error(self, msg: Any):
         """统一 API 错误处理：日志 + 发出失败标题"""
         s = msg if isinstance(msg, str) else str(msg)
-        self.log_signal.emit(f"Title generation error: {s}")
-        self.error_signal.emit(s)
+        self.warning_signal.emit(f"标题生成错误: \n{s}")
         self._emit_fail(self.task_id, "生成失败")
 
     def _emit_fail(self, task_id: Optional[str], title: str):

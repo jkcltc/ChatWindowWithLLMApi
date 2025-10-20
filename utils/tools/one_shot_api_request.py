@@ -126,150 +126,6 @@ def extract_api_info(provider, api_config=None):
         #self.completion_failed.emit('FFR-set_provider', 'Unrecognized structure')
         raise ValueError('Unrecognized structure' + str(api_config))
     return api_key, url, get_provider_type(url)
-
-class APIRequestHandler(QObject):
-    # 等待 0.25.4 重构
-    # 定义信号用于跨线程通信
-    response_received = pyqtSignal(str)  # 接收到部分响应
-    reasoning_response_received = pyqtSignal(str)
-    request_completed = pyqtSignal(str)  # 请求完成
-    error_occurred = pyqtSignal(str)  # 发生错误
-    
-    def __init__(self, api_config={}, parent=None):
-        """
-        初始化API请求处理器
-        :param api_config: API配置信息
-        :param parent: 父对象
-
-        api_config={
-            "url": default_apis[self.api_provider]["url"],
-            "key": default_apis[self.api_provider]["key"]
-        }
-        """
-        super().__init__(parent)
-        self.api_config = api_config
-        self.client = None
-        self.current_thread = None
-        self.full_response = ""  # 用于存储完整响应
-        self.model=None     #用于override目标模型
-        self.provider_type= "openai_compatible"
-
-    def send_request(self, message, model=''):
-        """
-        发送API请求（线程安全方式）
-        :param message: 提示词
-        :param model: 使用的模型,如果为空则使用默认模型
-        """
-        model=model if model else self.model
-        threading.Thread(
-            target=self._send_request_thread,
-            args=(message, model),
-        ).start()
-
-    def set_provider(self, provider, model, api_config=None):
-        """
-        设置API提供商和配置信息
-        :param provider: 提供商名称
-        :param api_config: API配置信息
-        """
-        try:
-            api_key, url, provider_type = extract_api_info(provider, api_config)
-        except ValueError as e:
-            self.error_occurred.emit(f"API配置错误: {str(e)}")
-            return
-        self.api_config = api_config
-        self.base_url = url
-        self.api_key = api_key
-        self.provider_type = provider_type
-        self.model=model
-    
-    def special_block_handler(self,content,                      #incoming content                     #function to call
-                                  starter='<think>', 
-                                  ender='</think>',
-                                  extra_params=None             #extra params to fullfill
-                                  ):
-        """处理自定义块内容"""
-        if starter in content :
-            content = content.split(starter)[1]
-            if ender in content:
-                return {"starter":True,"ender":True}
-            if extra_params:
-                if hasattr(self, extra_params):
-                    setattr(self, extra_params, content)
-
-            return {"starter":True,"ender":False}
-        return {"starter":False,"ender":False}
-
-    def _send_request_thread(self, messages, model):
-
-        
-        def handle_response(content,temp_response):
-            if hasattr(content, "content") and content.content:
-                special_block_handler_result=self.special_block_handler(temp_response,
-                                      starter='<think>', ender='</think>',
-                                      extra_params='think_response'
-                                      )
-                if special_block_handler_result["starter"] and special_block_handler_result["ender"]:#如果思考链结束
-                    self.full_response+= content.content
-                    self.reasoning_response_received.emit(content.content)
-                    self.full_response.replace('</think>\n\n', '')
-                elif not (special_block_handler_result["starter"]):#如果没有思考链
-                    self.full_response += content.content
-                    self.response_received.emit(content.content)
-                        # 处理思考链内容
-            if hasattr(content, "reasoning_content") and content.reasoning_content:
-                self.think_response += content.reasoning_content
-                self.reasoning_response_received.emit(content.reasoning_content)
-        
-        if not self.base_url or not self.api_key:
-            try:
-                api_key, url, provider_type = extract_api_info('default', self.api_config)
-            except ValueError as e:
-                self.error_occurred.emit(f"API配置错误: {str(e)}")
-                return
-            client = openai.Client(
-                api_key=api_key,
-                base_url=url
-            )
-        else:
-            client = openai.Client(
-                api_key=self.api_key,
-                base_url=self.base_url
-            )
-        try:
-            print('AI回复(流式):',type(messages))
-            self.response = client.chat.completions.create(
-                    model=model,
-                    messages=messages,
-                    stream=True,  # 启用流式响应
-                )
-            self.full_response = ""
-            self.think_response = "### AI 思考链\n---\n"
-            temp_response = ""
-            print('请求已经发到API')
-
-
-            for event in self.response:
-                if not hasattr(event, "choices") or not event.choices:
-                    print("无效的响应事件:", event)
-                    continue
-
-                content = getattr(event.choices[0], "delta", None)
-                if not content:
-                    print("无效的内容:", event.choices[0])
-                    continue
-                if hasattr(content, "content") and content.content:
-                    temp_response += content.content
-                    handle_response(content,temp_response)
-                if hasattr(content, "reasoning_content") and content.reasoning_content:
-                    self.think_response += content.reasoning_content
-                    print(content.reasoning_content, end='', flush=True)
-            print("OSA 请求完成")
-            self.request_completed.emit(self.full_response)
-        except Exception as e:
-            print("OSA API请求错误:", str(e))
-            self.error_occurred.emit(f"API请求错误: {str(e)}")
-
 class FullFunctionRequestHandler(QObject):
     # CoT
     think_event_signal = pyqtSignal(str, str)
@@ -790,3 +646,121 @@ Request payload :
                 'info': self.last_chat_info
             }]
         return message
+
+
+class APIRequestHandler(FullFunctionRequestHandler):
+    # 兼容旧版对外信号
+    response_received = pyqtSignal(str)            # 接收到部分响应（正文）
+    reasoning_response_received = pyqtSignal(str)  # 接收到部分推理内容（思考链）
+    request_completed = pyqtSignal(str)            # 请求完成（完整正文）
+    error_occurred = pyqtSignal(str)               # 请求出错
+
+    def __init__(self, api_config={}, parent=None,enable_debug=False):
+        """
+        初始化API请求处理器（子类化 FullFunctionRequestHandler）
+        :param api_config: API配置信息
+        :param parent: 兼容参数（未使用）
+        """
+        super().__init__()
+        # 兼容旧字段
+        self.api_config = api_config or {}
+        self.client = None
+        self.current_thread = None
+        self.response = None  # 占位，兼容旧属性
+        self.model = None
+        self.provider_type = "openai_compatible"
+
+        # 复用父类状态
+        self.full_response = ""
+        self.think_response = ""
+
+        # 桥接 FullFunctionRequestHandler 的信号到旧信号接口
+        self.ai_event_response.connect(self._bridge_ai_event_response)
+        self.think_event_signal.connect(self._bridge_think_event)
+        self.request_finished.connect(self._bridge_request_finished)
+        self.completion_failed.connect(self._bridge_error)
+
+        if enable_debug:
+            self.think_event_signal.connect(lambda _,t:print(t,end=''))
+            self.ai_event_response.connect(lambda _,t:print(t,end=''))
+            self.request_completed.connect(lambda _,t:print(t,end=''))
+            self.completion_failed.connect(lambda _,t:print(t,end=''))
+            self.error_occurred.connect(lambda _,t:print(t,end=''))
+ 
+
+    def set_provider(self, provider, model, api_config=None):
+        """
+        设置API提供商和配置信息
+        """
+        try:
+            api_key, url, provider_type = extract_api_info(provider, api_config)
+        except ValueError as e:
+            self.error_occurred.emit(f"API配置错误: {str(e)}")
+            return
+
+        self.api_config = api_config or {}
+        self.base_url = (url or '').rstrip('/')
+        self.api_key = api_key
+        self.provider_type = provider_type
+        self.model = model
+
+    def send_request(self, message, model=''):
+        """
+        发送API请求（线程安全方式）
+        :param message: 提示词（OpenAI Chat messages 数组或字符串）
+        :param model: 使用的模型,若为空则使用 set_provider 设置的默认模型
+        """
+        target_model = model if model else self.model
+
+        # 兼容 message 为字符串或 messages 数组
+        if isinstance(message, str):
+            messages_payload = [{"role": "user", "content": message}]
+        else:
+            messages_payload = message
+
+        def _run():
+            # 兜底：若未配置 provider，尝试 default
+            if not getattr(self, 'base_url', None) or not getattr(self, 'api_key', None):
+                try:
+                    api_key, url, provider_type = extract_api_info('default', self.api_config)
+                    self.base_url = (url or '').rstrip('/')
+                    self.api_key = api_key
+                    self.provider_type = provider_type
+                except ValueError as e:
+                    self.error_occurred.emit(f"API配置错误: {str(e)}")
+                    return
+
+            # 重置聚合态（与旧实现一致）
+            self.full_response = ""
+            self.think_response = ""
+
+            params = {
+                "model": target_model,
+                "messages": messages_payload,
+                "stream": True
+            }
+            try:
+                # 直接使用父类的请求发送流程（流式/非流式、工具调用、思考链处理等）
+                super(APIRequestHandler, self).send_request(params)
+            except Exception as e:
+                self.error_occurred.emit(f"API请求错误: {str(e)}")
+
+        self.current_thread = threading.Thread(target=_run, daemon=True)
+        self.current_thread.start()
+
+    # -------------------------
+    # 信号桥接
+    # -------------------------
+    def _bridge_ai_event_response(self, request_id: str, chunk: str):
+        if chunk:
+            self.response_received.emit(chunk)
+
+    def _bridge_think_event(self, request_id: str, chunk: str):
+        if chunk:
+            self.reasoning_response_received.emit(chunk)
+
+    def _bridge_request_finished(self, message_list):
+        self.request_completed.emit(self.full_response or "")
+
+    def _bridge_error(self, request_id: str, err: str):
+        self.error_occurred.emit(err or "未知错误")

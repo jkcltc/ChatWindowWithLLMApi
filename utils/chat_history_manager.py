@@ -502,7 +502,6 @@ class TitleGenerator(QObject):
             text = text[:max_length]
         return text
 
-
 class ChatHistoryEditor(QWidget):
     # 定义编辑完成的信号，传递新的聊天历史
     editCompleted = pyqtSignal(list)
@@ -922,9 +921,131 @@ class ChatHistoryEditor(QWidget):
             self._set_generating(False)
             self._current_task_id = None
 
-
-
 class ChathistoryFileManager(QObject):
+    '''
+    ChathistoryFileManager(history_path: str = 'history', title_generator: TitleGenerator() = None)
+    A Qt-aware helper class responsible for loading, saving, deleting and enumerating chat history
+    files stored in JSON format. Designed for use in PyQt/PySide GUI applications, this manager
+    emits Qt signals for logging, warnings and errors and encapsulates file-system safety checks,
+    simple filename sanitization, JSON schema validation and a small metadata cache to speed up
+    directory listing.
+    Signals
+    -------
+    log_signal(str)
+        Emitted for informational messages (e.g. successful saves or deletions).
+    warning_signal(str)
+        Emitted for recoverable issues (e.g. skipped files, missing files).
+    error_signal(str)
+        Emitted for unrecoverable problems (e.g. invalid path, permission errors).
+    Constructor
+    -----------
+    history_path: str
+        Default directory where chat histories are stored (used by autosave and listing).
+    title_generator: TitleGenerator
+        Optional object used to generate titles for histories when not provided in file metadata.
+        Can be bound later via bind_title_generator().
+    Behavior summary
+    ----------------
+    - Chat histories are JSON files. A valid chat history is represented as a list of dicts where
+      each item has a "role" key in {"user","system","assistant","tool"} and contents consistent
+      with the role (see validate_json_structure in load_past_chats).
+    - The first item in a valid chat history is expected to be the system prompt/info dictionary
+      and may contain metadata under the "info" key, e.g. info['chat_id'] and info['title'].
+    - Files are read/written with UTF-8 encoding. The manager attempts to create directories as needed.
+    - Basic filename sanitation is applied for saving: a set of unsupported characters (newlines,
+      angle brackets, slashes, spaces, punctuation, etc.) are removed from the base filename and the
+      extension is normalized to ".json".
+    - A small metadata cache file ".chat_index.json" inside the history_path is used to avoid
+      reparsing each JSON file every time; entries contain at least {"mtime": float, "title": str}.
+    - load_past_chats enumerates JSON files in a directory, selects the newest N files efficiently,
+      optionally parses files concurrently using a ThreadPoolExecutor (I/O-bound), validates their
+      structure, extracts titles (prefers info['title'] when available) and returns a list of
+      metadata dicts sorted by modification time.
+    - delete_chathistory performs input validation, resolves paths to absolute and real paths,
+      restricts deletions to files with allowed extensions ('.json' by default), and refuses to
+      delete directories.
+    Public methods
+    --------------
+    bind_title_generator(title_generator: TitleGenerator) -> None
+        Bind or replace the title generator used when autosave needs to produce a title.
+    load_chathistory(file_path: Optional[str] = None) -> List[dict]
+        Prompt the user (via QFileDialog) if file_path is not provided; otherwise load and return
+        the parsed JSON content. Emits warning_signal if loading fails. Returns an empty list on failure.
+    save_chathistory(chathistory: List[dict], file_path: Optional[str] = None) -> None
+        If file_path is None, prompts the user for a save location and regenerates a new chat_id
+        (UUID) into chathistory[0]['info']['chat_id'] to avoid ID collisions while preserving
+        a user-provided name. Calls internal writer which applies filename sanitation and writes
+        JSON (indent=4, ensure_ascii=False). Emits log_signal on success and error_signal on failure,
+        and displays a QMessageBox on write errors.
+    delete_chathistory(file_path: str) -> None
+        Validate input, resolve to an absolute real path and ensure the file has an allowed extension.
+        Ensure the target is a file (not a directory) and attempt to delete it. Emits appropriate
+        log/warning/error signals for success/failure.
+    _aut write helper_
+    _write_chathistory_to_file(chathistory: List[dict], file_path: str) -> None
+        Internal method that sanitizes file names, ensures the directory exists, writes the JSON
+        safely and emits signals / message boxes on failure. Ensures stored filenames end with ".json".
+    autosave_save_chathistory(chathistory: List[dict]) -> None
+        Save automatically to the configured history_path. The default filename is taken from
+        chathistory[0]['info']['chat_id'] and autosave will call save_chathistory() with that path.
+        Only performs save if there is more than one message (i.e. not an empty/initial-only history).
+    load_sys_pmt_from_past_record(chathistory: Optional[List[dict]] = None,
+                                  file_path: Optional[str] = None) -> str
+        Retrieve the system prompt/content from either the provided current chathistory or by loading
+        a past record at file_path. Returns the system content string when available, otherwise emits
+        error_signal and returns an empty string.
+    load_past_chats(application_path: str = '', file_count: int = 100) -> List[Dict[str, Any]]
+        Enumerate and return up to `file_count` latest valid chat JSON files in `application_path`
+        (defaults to the instance's history_path). Each returned dict contains:
+          - "file_path": full path to the file
+          - "title": extracted title (or "Untitled Chat")
+          - "modification_time": float mtime used for sorting
+        Uses a lightweight cache file ".chat_index.json" to skip re-parsing unchanged files, and
+        parses uncached files concurrently. Emits warning_signal for skipped/invalid files and
+        warning_signal if cache update fails.
+    is_equal(hist1: List[dict], hist2: List[dict]) -> bool
+        Compare two chat histories for identity based on length and the chat_id in the first
+        element's info dict. Returns True if they appear to be the same conversation, False otherwise.
+    Validation rules (as applied by load_past_chats)
+    -----------------------------------------------
+    - The JSON root must be a list.
+    - Each list item must be a dict with a "role" key equal to one of {"user","system","assistant","tool"}.
+    - "user" and "system" items must have a string "content".
+    - "assistant" items must have at least one of "content" (string or None) or "tool_calls" (list).
+    - "tool" items must include "tool_call_id" and a string "content".
+    Thread-safety and concurrency
+    -----------------------------
+    - The class is intended to be used from the GUI thread for methods that trigger dialogs or
+      emit QMessageBox. load_past_chats offloads JSON parsing to a ThreadPoolExecutor because
+      parsing is I/O-bound; signals are emitted from the calling thread (the executor callbacks are
+      awaited in the same thread before emitting).
+    - Access to the on-disk cache is not synchronized beyond simple atomic file write; if multiple
+      processes may modify the same history directory simultaneously, external synchronization is
+      recommended.
+    Error handling and user feedback
+    --------------------------------
+    - Non-fatal issues (bad files, skipped files, cache write failures) produce warning_signal.
+    - Fatal or unusual errors that prevent an operation (invalid path format, permission errors)
+      produce error_signal and, when applicable, a QMessageBox to alert the user.
+    - Methods generally prefer to fail gracefully (returning empty lists or doing nothing) rather
+      than raising exceptions to the caller; however, unexpected exceptions in worker threads are
+      caught and surfaced via warning/error signals.
+    Example (conceptual)
+    --------------------
+    mgr = ChathistoryFileManager(history_path='~/.my_app/history', title_generator=my_title_gen)
+    mgr.log_signal.connect(lambda s: print('LOG:', s))
+    mgr.warning_signal.connect(lambda s: print('WARN:', s))
+    mgr.error_signal.connect(lambda s: print('ERR:', s))
+    past = mgr.load_past_chats(file_count=20)
+    if past:
+        # open the latest chat, etc.
+        pass
+    Notes
+    -----
+    - This manager expects chat JSON files to follow the application's chosen schema. If your
+      persisted files differ, adjust validate_json_structure and extract_chat_title accordingly.
+    - Filename sanitation is intentionally conservative to maximize cross-platform compatibility.
+    '''
     log_signal = pyqtSignal(str)
     warning_signal = pyqtSignal(str)
     error_signal = pyqtSignal(str)
@@ -939,7 +1060,7 @@ class ChathistoryFileManager(QObject):
         self.title_generator = title_generator
 
     # 载入记录
-    def load_chathistory(self, file_path=None):
+    def load_chathistory(self, file_path=None) -> list:
         # 弹出文件选择窗口
         chathistory = []
         if not file_path:
@@ -947,8 +1068,15 @@ class ChathistoryFileManager(QObject):
                 None, "导入聊天记录", "", "JSON files (*.json);;All files (*)"
             )
         if file_path and os.path.exists(file_path):
-            with open(file_path, "r", encoding="utf-8") as file:
-                chathistory = json.load(file)
+            try:
+                with open(file_path, "r", encoding="utf-8") as file:
+                    chathistory = json.load(file)
+            except json.JSONDecodeError as e:
+                self.error_signal.emit(f'JSON解析错误: {e}')
+                return []
+            except Exception as e:
+                self.error_signal.emit(f'文件读取错误: {e}')
+                return []
         else:
             self.warning_signal.emit(f'failed loading chathistory from {file_path}')
             return []
@@ -1071,8 +1199,8 @@ class ChathistoryFileManager(QObject):
             self.error_signal.emit(f"didn't get any valid input to load sys pmt")
             return ''
 
-
-    def load_past_chats(self, application_path: str = '', file_count: int = 50) -> List[Dict[str, Any]]:
+    # 获取聊天记录清单
+    def load_past_chats(self, application_path: str = '', file_count: int = 100) -> List[Dict[str, Any]]:
         """
         并行获取并验证历史聊天记录（优化版：减少 IO、避免重复计算）
         """
@@ -1232,6 +1360,15 @@ class ChathistoryFileManager(QObject):
         # 5) 最终按时间排序输出
         past_chats.sort(key=lambda x: x["modification_time"], reverse=True)
         return past_chats
+
+    def is_equal(self, hist1: List[Dict[str, Any]], hist2: List[Dict[str, Any]]) -> bool:
+        """比较两个聊天记录的内容是否是同一序列"""
+        if len(hist1) != len(hist2):
+            return False
+        if hist1[0]['info']['chat_id'] == hist2[0]['info']['chat_id']:
+            return True
+        else:
+            return False
 
 class HistoryListWidget(QListWidget):
     def __init__(self, parent=None):

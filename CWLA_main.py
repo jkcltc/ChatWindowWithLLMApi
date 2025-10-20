@@ -1836,6 +1836,19 @@ class MainWindow(QMainWindow):
         self.title_generator.error_signal.connect(self.info_manager.error)
         self.title_generator.warning_signal.connect(self.info_manager.warning)
         self.title_generator.title_generated.connect(self.update_chat_title)
+    
+    def create_one_time_use_title_creator(self):
+        api_requester=APIRequestHandler(api_config=self.api)
+        title_generator=TitleGenerator(api_handler=api_requester)
+        title_generator.set_provider(
+            self.title_creator_provider,
+            model=self.title_creator_model,
+            api_config=self.api
+        )
+        title_generator.log_signal.connect(self.info_manager.log)
+        title_generator.error_signal.connect(self.info_manager.error)
+        title_generator.warning_signal.connect(self.info_manager.warning)
+        return title_generator
         
     def add_tts_page(self):
         if not "mods.chatapi_tts" in sys.modules:
@@ -1967,15 +1980,16 @@ class MainWindow(QMainWindow):
             {"上级名称": "记录", "提示语": "导入记录", "执行函数": "self.load_chathistory"},
             {"上级名称": "记录", "提示语": "修改原始记录", "执行函数": "self.edit_chathistory"},
             {"上级名称": "记录", "提示语": "对话分析", "执行函数": "self.show_analysis_window"},
-            {"上级名称": "对话", "提示语": "对话设置", "执行函数": "self.open_max_send_lenth_window"},
             {"上级名称": "对话", "提示语": "强制触发长对话优化", "执行函数": "self.long_chat_improve"},
             {"上级名称": "对话", "提示语": "函数调用", "执行函数": "self.show_function_call_window"},
             {"上级名称": "背景", "提示语": "背景设置", "执行函数": "self.background_settings_window"},
             {"上级名称": "背景", "提示语": "触发背景更新（跟随聊天）", "执行函数": "self.call_background_update"},
             {"上级名称": "背景", "提示语": "生成自定义背景（正在重构）", "执行函数": "self.show_pic_creater"},
+            {"上级名称": "设置", "提示语": "对话设置", "执行函数": "self.open_max_send_lenth_window"},
             {"上级名称": "设置", "提示语": "主题", "执行函数": "self.show_theme_settings"},
             {"上级名称": "设置", "提示语": "快捷键", "执行函数": "self.open_settings_window"},
-            {"上级名称": "设置", "提示语": "联网搜索", "执行函数": "self.open_web_search_setting_window"}
+            {"上级名称": "设置", "提示语": "联网搜索", "执行函数": "self.open_web_search_setting_window"},
+           
         ]
 
         # 创建根节点
@@ -2713,17 +2727,42 @@ class MainWindow(QMainWindow):
 
 
     #编辑记录
-    def edit_chathistory(self,file_path=''):
+    def edit_chathistory(self, file_path=''):
+        # 确定要使用的聊天记录和标题生成器
         if file_path:
-            chathistory=self.chathistory_file_manager.load_chathistory(file_path)
+            chathistory = self.chathistory_file_manager.load_chathistory(file_path)
+            if self.chathistory == chathistory or self.chathistory_file_manager.is_equal(self.chathistory, chathistory):
+                # 使用当前聊天记录
+                target_history = self.chathistory
+                title_generator = self.title_generator
+                connect_current = True
+            else:
+                # 使用加载的聊天记录
+                target_history = chathistory
+                title_generator = self.create_one_time_use_title_creator()
+                connect_current = False
         else:
-            chathistory=self.chathistory
-        self.history_editor = ChatHistoryEditor(title_generator=self.title_generator,chathistory=chathistory)
-        if file_path:
-            self.history_editor.editCompleted.connect(self.chathistory_file_manager.autosave_save_chathistory)
-        else:
+            # 使用当前聊天记录
+            target_history = self.chathistory
+            title_generator = self.title_generator
+            connect_current = True
+        
+        # 创建编辑器实例
+        self.history_editor = ChatHistoryEditor(
+            title_generator=title_generator, 
+            chathistory=target_history
+        )
+        
+        # 连接信号
+        if connect_current:
+            # 连接到当前聊天记录的更新
             self.history_editor.editCompleted.connect(lambda new_history: setattr(self, 'chathistory', new_history))
             self.history_editor.editCompleted.connect(self.update_chat_history)
+        else:
+            # 连接到文件保存
+            self.history_editor.editCompleted.connect(self.chathistory_file_manager.autosave_save_chathistory)
+            self.history_editor.editCompleted.connect(self.grab_past_chats)
+        
         self.history_editor.show()
 
     def edit_chathistory_by_index(self,id,text):
@@ -3121,6 +3160,11 @@ class MainWindow(QMainWindow):
         """删除选中的历史记录及其对应文件"""
         # 获取当前选中的列表项
         file_path = self.past_chat_list.get_selected_file_path()
+
+        chathistory_to_delete=self.chathistory_file_manager.load_chathistory(file_path)
+        if chathistory_to_delete==self.chathistory or\
+            self.chathistory_file_manager.is_equal(self.chathistory,chathistory_to_delete):
+            self.clear_history()
 
         # 删除文件
         self.chathistory_file_manager.delete_chathistory(file_path)

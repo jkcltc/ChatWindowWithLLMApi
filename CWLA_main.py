@@ -90,9 +90,6 @@ LOGGER= LogManager(
 
 # 常量定义
 API_CONFIG_FILE = "api_config.ini"
-if not os.path.exists("api_config.ini"):
-    with open("api_config.ini", "w") as f:
-        f.write('')
 
 DEFAULT_APIS = {
     "baidu": {
@@ -125,7 +122,7 @@ def _create_default_config():
         config[api_name] = api_config
     
     try:
-        with open(API_CONFIG_FILE, "w") as configfile:
+        with open(API_CONFIG_FILE, "w",encoding='utf-8') as configfile:
             config.write(configfile)
     except IOError as e:
         QMessageBox.critical(None, "配置错误", f"无法创建配置文件：{str(e)}")
@@ -1674,8 +1671,8 @@ class MainWindow(QMainWindow):
         self.enable_title_creator_system_prompt=True
         self.title_creator_use_local=True
         self.title_creator_max_length=20
-        self.title_creator_provider=next(iter(self.api.keys()))
-        self.title_creator_model= next(iter(MODEL_MAP.get(self.title_creator_provider, [None])))
+        self.title_creator_provider='siliconflow'
+        self.title_creator_model= 'Qwen/Qwen3-8B'
 
     def init_response_manager(self):
         # AI响应更新控制
@@ -2725,6 +2722,9 @@ class MainWindow(QMainWindow):
 识别长度 {len(self.chathistory[-1]['content'])}
 处理时间 {(time.perf_counter()-load_start_time)*1000:.2f}ms''')
 
+    #保存记录
+    def save_chathistory(self):
+        self.chathistory_file_manager.save_chathistory(self.chathistory)
 
     #编辑记录
     def edit_chathistory(self, file_path=''):
@@ -3160,7 +3160,9 @@ class MainWindow(QMainWindow):
         """删除选中的历史记录及其对应文件"""
         # 获取当前选中的列表项
         file_path = self.past_chat_list.get_selected_file_path()
-
+        if not file_path:
+            self.info_manager.warning("No item selected")
+            return
         chathistory_to_delete=self.chathistory_file_manager.load_chathistory(file_path)
         if chathistory_to_delete==self.chathistory or\
             self.chathistory_file_manager.is_equal(self.chathistory,chathistory_to_delete):

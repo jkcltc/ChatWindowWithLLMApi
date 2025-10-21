@@ -995,7 +995,7 @@ class MainWindow(QMainWindow):
         self.title_creator_use_local=True
         self.title_creator_max_length=20
         self.title_creator_provider='siliconflow'
-        self.title_creator_model= 'Qwen/Qwen3-8B'
+        self.title_creator_model= 'deepseek-ai/DeepSeek-R1-0528-Qwen3-8B'
 
     def init_response_manager(self):
         # AI响应更新控制
@@ -2347,7 +2347,6 @@ class MainWindow(QMainWindow):
             self._connect_signal_mcsw_window()
         #自动模型库更新完成后需要更新模型盒子
         self.main_setting_window.populate_values(config)
-        self.main_setting_window.update_api_provider_combo()
         self.main_setting_window.show()
         self.main_setting_window.raise_()
 

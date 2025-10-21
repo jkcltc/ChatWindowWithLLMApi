@@ -1555,10 +1555,10 @@ class RequestDispatcher(QObject):
 
 class ConvergenceDialogueOptiProcessor(QWidget):
     PRESETS_PATH = "utils/global_presets/convergence_presets.json"
-    concurrentor_reasoning=pyqtSignal(int,str)
-    concurrentor_content=pyqtSignal(int,str)
-    concurrentor_finish=pyqtSignal(int,str)
-    
+    concurrentor_reasoning=pyqtSignal(str,str)
+    concurrentor_content=pyqtSignal(str,str)
+    concurrentor_finish=pyqtSignal(str,str)
+
     def __init__(self):
         super().__init__()
         self.ui = ConvergenceDialogueOptiUI()
@@ -1732,7 +1732,7 @@ class ConvergenceDialogueOptiProcessor(QWidget):
                 self.dispatcher.layer_completed.emit(
                     {"final_result": result.get("styled_text", "")}, "end"
                 )
-                self.concurrentor_finish.emit(self.msg_id,result.get("styled_text", ""))
+                self.concurrentor_finish.emit(str(self.msg_id,result).get("styled_text", ""))
         
         elif layer_name == "correction":
             # 更新补正层UI
@@ -1742,7 +1742,7 @@ class ConvergenceDialogueOptiProcessor(QWidget):
             self.dispatcher.layer_completed.emit(
                 {"final_result": result.get("corrected_text", "")}, "end"
             )
-            self.concurrentor_finish.emit(self.msg_id,result.get("corrected_text", ""))
+            self.concurrentor_finish.emit(str(self.msg_id),result.get("corrected_text", ""))
 
     def _update_rating_ui(self, result):
         """更新评价层UI"""
@@ -1792,11 +1792,11 @@ class ConvergenceDialogueOptiProcessor(QWidget):
         # 统一处理 content 和 reasoning_content
         if result.get('type','') == 'content' and not (layer_name == "style" and layer_count > 4):
             self.content += result["text"]
-            self.concurrentor_content.emit(self.msg_id, self.content)
+            self.concurrentor_content.emit(str(self.msg_id), self.content)
         else:
             # 默认处理 reasoning_content
             self.reasoning_content += result["text"]
-            self.concurrentor_reasoning.emit(self.msg_id, self.reasoning_content)
+            self.concurrentor_reasoning.emit(str(self.msg_id), self.reasoning_content)
 
 
     def update_preset(self, layer_name, prefix, suffix, process_provider='', process_model=''):

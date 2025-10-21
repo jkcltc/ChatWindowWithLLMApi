@@ -1237,7 +1237,7 @@ class RandomModelSelecter(QWidget):
 
         else:
             return_model=random.choice(self.current_models)
-        self.logger.info(f"Selected models:{return_model}")
+        self.logger.log(f"[模型轮询]当前轮换至:{return_model}")
         return return_model
 
     def get_selected_models(self):

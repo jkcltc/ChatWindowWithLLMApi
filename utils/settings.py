@@ -571,6 +571,11 @@ class MainSettingWindow(QWidget):
     def populate_values(self,config):
         """填充控件值的方法"""
         self.config=config
+        self.blockSignals(True)
+        self.update_api_provider_combo()
+        self.update_model_combo()
+        self.update_title_model_combo()
+        
         # 最大对话轮数设置
         self.max_rounds_edit.setText(str(self.config.get('max_message_rounds', 10)))
         self.max_rounds_slider.setValue(self.config.get('max_message_rounds', 10))
@@ -614,6 +619,7 @@ class MainSettingWindow(QWidget):
         self.title_max_length_slider.setValue(self.config.get('title_creator_max_length', 20))
         self.title_provider_combo.setCurrentText(self.config.get('title_creator_provider', ''))
         self.title_model_combo.setCurrentText(self.config.get('title_creator_model', ''))
+        self.blockSignals(False)
     
     def handle_title_max_length_text(self, text):
         """处理标题最大长度文本变化"""

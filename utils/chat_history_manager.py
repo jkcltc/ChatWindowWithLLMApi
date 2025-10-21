@@ -1173,9 +1173,9 @@ class ChathistoryFileManager(QObject):
         仅在自动保存时，chat_id同时作为文件名和对话ID
         '''
         file_id = chathistory[0]['info']['chat_id']
-        file_title = chathistory[0]['info'].get('title', '')
+        # file_title = chathistory[0]['info'].get('title', '')
 
-        file_path = os.path.join(self.history_path, file_title+'_'+file_id)
+        file_path = os.path.join(self.history_path, file_id)
         if file_path and len(chathistory) > 1:
             self.save_chathistory(chathistory, file_path=file_path)
 

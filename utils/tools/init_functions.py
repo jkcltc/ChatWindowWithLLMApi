@@ -1,6 +1,31 @@
 import os,sys
 import subprocess,importlib.util
+import configparser
 
+API_CONFIG_FILE = "api_config.ini"
+
+DEFAULT_APIS = {
+    "baidu": {
+        "url": "https://qianfan.baidubce.com/v2",
+        "key": "unknown"
+    },
+    "deepseek": {
+        "url": "https://api.deepseek.com/v1",
+        "key": "unknown"
+    },
+    "siliconflow": {
+        "url": "https://api.siliconflow.cn/v1",
+        "key": "unknown"
+    },
+    "tencent": {
+        "url": "https://api.lkeap.cloud.tencent.com/v1",
+        "key": "unknown"
+    },
+    "novita":{
+        "url": "https://api.novita.ai/v3",
+        "key": "unknown"
+    }
+}
 
 def install_packages(package_map={}):
     # 统一包名和模块名的映射关系
@@ -102,6 +127,55 @@ def clean_cache():
             print(f"Removing: {cache_dir}")
             delete_directory(cache_dir)
             dirs.remove('__pycache__')
+
+#同步模型
+def _create_default_config():
+    """创建默认配置文件并返回默认API配置"""
+    config = configparser.ConfigParser()
+    for api_name, api_config in DEFAULT_APIS.items():
+        config[api_name] = api_config
+    
+    try:
+        with open(API_CONFIG_FILE, "w",encoding='utf-8') as configfile:
+            config.write(configfile)
+    except IOError as e:
+        return {}
+    
+    return {k: [v["url"], v["key"]] for k, v in DEFAULT_APIS.items()}
+
+def _read_existing_config():
+    """读取已存在的配置文件"""
+    config = configparser.ConfigParser()
+    api_data = {}
+    
+    try:
+        if not config.read(API_CONFIG_FILE,encoding='utf-8'):
+            raise FileNotFoundError
+        
+        for api_name in config.sections():
+            if config.has_section(api_name):
+                url = config.get(api_name, "url", fallback="")
+                key = config.get(api_name, "key", fallback="")
+                api_data[api_name] = [url, key]
+                DEFAULT_APIS[api_name]={'url':url,
+                                        'key':key
+                                        }       
+            else:
+                api_data[api_name] = [DEFAULT_APIS[api_name]["url"],[DEFAULT_APIS[api_name]["key"]]]
+        return api_data
+    except (configparser.Error, FileNotFoundError) as e:
+        return _create_default_config()
+
+def api_init():
+    """
+    初始化API配置
+    返回格式：{"api_name": [url, key], ...}
+    """
+    if not os.path.exists(API_CONFIG_FILE):
+        return _create_default_config()
+    return _read_existing_config()
+
+
 
 if __name__=='__main__':
     install_packages()

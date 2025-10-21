@@ -1,15 +1,11 @@
-from PyQt5.QtWidgets import *
-from PyQt5.QtCore import *
-from PyQt5.QtGui import *
-
-import json
-import re
-from collections import Counter
-from PyQt5.QtCore import QObject, pyqtSignal
 import json
 import os
 from collections import defaultdict
-
+from PyQt5.QtCore import pyqtSignal,QThread,Qt
+from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
+                             QLabel, QLineEdit, QFileDialog, QProgressBar,
+                             QTabWidget, QTreeWidget, QTreeWidgetItem,QGroupBox,QHeaderView,QMessageBox)
+from PyQt5.QtGui import QFont
 class TokenAnalyzer:
     """Token分析逻辑类"""
     
@@ -541,8 +537,8 @@ class TokenAnalysisWidget(QWidget):
         self.path_input.setEnabled(True)
         self.path_input.setPlaceholderText("选择文件或文件夹路径，或直接粘贴JSON内容")
 
-
 if __name__ == "__main__":
+    from PyQt5.QtWidgets import QApplication
     app = QApplication([])
     window = TokenAnalysisWidget()
     window.show()

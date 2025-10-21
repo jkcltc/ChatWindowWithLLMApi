@@ -1,26 +1,22 @@
 import time
 start_time_stamp=time.time()
 print(f'CWLA init timer start, time cost:{time.time()-start_time_stamp:.2f}s')
-import concurrent.futures
 import configparser
 import copy
 import ctypes
-from collections import deque
 import json
 import os
 import re
 import sys
 import threading
 import difflib
-import random
-from typing import Any, Dict, List, Tuple,Optional
 import warnings
 import uuid
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 warnings.filterwarnings("ignore", message="libpng warning: iCCP: known incorrect sRGB profile")
 
 #基础类初始化
-from utils.tools.init_functions import *
+from utils.tools.init_functions import DEFAULT_APIS,api_init,install_packages
 
 print(f'CWLA iner import finished, time cost:{time.time()-start_time_stamp:.2f}s')
 
@@ -39,7 +35,7 @@ print(f'CWLA 3rd party lib import finished, time cost:{time.time()-start_time_st
 from utils.custom_widget import *
 from utils.system_prompt_updater import SystemPromptUI
 from utils.settings import *
-from utils.model_map_manager import ModelMapManager,ModelListUpdater,APIConfigWidget
+from utils.model_map_manager import ModelMapManager,APIConfigWidget,RandomModelSelecter
 from utils.theme_manager import ThemeSelector
 from utils.function_manager import *
 from utils.concurrentor import ConvergenceDialogueOptiProcessor
@@ -50,27 +46,19 @@ from utils.online_rag import *
 from utils.avatar import AvatarCreatorWindow
 from utils.background_generate import BackgroundAgent
 from utils.tools.one_shot_api_request import FullFunctionRequestHandler,APIRequestHandler
+from utils.status_analysis import StatusAnalyzer
+from utils.tools.str_tools import StrTools
 
 #UI组件初始化
-from utils.info_module import ToastManager,InfoManager,LogManager
+from utils.info_module import InfoManager,LogManager
 
 print(f'CWLA custom lib import finished, time cost:{time.time()-start_time_stamp:.2f}s')
 
-#自定义插件初始化
-try:
-    from mods.chatapi_tts import TTSAgent
-except ImportError as e:
-    print("本地tts模块导入失败，TTS功能不可用。",e)
+#TTS初始化
+from mods.chatapi_tts import TTSAgent
 
-try :
-    from mods.status_monitor import StatusMonitorWindow,StatusMonitorInstruction
-except ImportError as e:
-    print("本地AI状态模块导入失败，状态监控功能不可用。",e)
-
-try:
-    from mods.story_creator import StoryCreatorGlobalVar,MainStoryCreaterInstruction
-except ImportError as e:
-    print('主线生成器未挂载')
+#小功能初始化
+from mods.mod_manager import ModConfiger
 
 print(f'CWLA mod lib import finished, time cost:{time.time()-start_time_stamp:.2f}s')
 
@@ -89,170 +77,15 @@ LOGGER= LogManager(
         )
 
 # 常量定义
-API_CONFIG_FILE = "api_config.ini"
-
-DEFAULT_APIS = {
-    "baidu": {
-        "url": "https://qianfan.baidubce.com/v2",
-        "key": "unknown"
-    },
-    "deepseek": {
-        "url": "https://api.deepseek.com/v1",
-        "key": "unknown"
-    },
-    "siliconflow": {
-        "url": "https://api.siliconflow.cn/v1",
-        "key": "unknown"
-    },
-    "tencent": {
-        "url": "https://api.lkeap.cloud.tencent.com/v1",
-        "key": "unknown"
-    },
-    "novita":{
-        "url": "https://api.novita.ai/v3",
-        "key": "unknown"
-    }
-}
 MODEL_MAP = ModelMapManager().get_model_map()
-#同步模型
-def _create_default_config():
-    """创建默认配置文件并返回默认API配置"""
-    config = configparser.ConfigParser()
-    for api_name, api_config in DEFAULT_APIS.items():
-        config[api_name] = api_config
-    
-    try:
-        with open(API_CONFIG_FILE, "w",encoding='utf-8') as configfile:
-            config.write(configfile)
-    except IOError as e:
-        QMessageBox.critical(None, "配置错误", f"无法创建配置文件：{str(e)}")
-        return {}
-    
-    return {k: [v["url"], v["key"]] for k, v in DEFAULT_APIS.items()}
-
-def _read_existing_config():
-    """读取已存在的配置文件"""
-    config = configparser.ConfigParser()
-    api_data = {}
-    
-    try:
-        if not config.read(API_CONFIG_FILE,encoding='utf-8'):
-            raise FileNotFoundError
-        
-        for api_name in config.sections():
-            if config.has_section(api_name):
-                url = config.get(api_name, "url", fallback="")
-                key = config.get(api_name, "key", fallback="")
-                api_data[api_name] = [url, key]
-                DEFAULT_APIS[api_name]={'url':url,
-                                        'key':key
-                                        }       
-            else:
-                api_data[api_name] = [DEFAULT_APIS[api_name]["url"],[DEFAULT_APIS[api_name]["key"]]]
-        return api_data
-    except (configparser.Error, FileNotFoundError) as e:
-        return _create_default_config()
-
-def api_init():
-    """
-    初始化API配置
-    返回格式：{"api_name": [url, key], ...}
-    """
-    if not os.path.exists(API_CONFIG_FILE):
-        return _create_default_config()
-    return _read_existing_config()
 
 #缩进图片
 if not os.path.exists('background.jpg'):
     with open('background.jpg', 'wb') as f:
         f.write(think_img)
 # 全局变量
-temp_path = None
 api = api_init()
-user_input = ''
-# 初始化聊天历史
-pause_flag = False  # 暂停标志变量，默认为 False（未暂停）
 
-#tps处理
-class StatusAnalyzer:
-    def __init__(self):
-        self.history = deque()  # 存储(time, char_count)的队列
-        self.current_rate = 0.0
-        self.peak_rate = 0.0     # 速率峰值（绝对值最大）
-        self.model=''
-        self.provider=''
-        self.request_send_time=0.0 #time.time()
-        self.first_token_receive_time=0.0 #time.time()
-
-    def start_record(self,model='',provider='',request_send_time=0):
-        self.history = deque()
-        if model:
-            self.model=model
-        if provider:
-            self.provider=provider
-        self.request_send_time=request_send_time if request_send_time else time.time()
-
-
-    def process_input(self, input_str):
-        current_time = time.time()
-        current_char_count = len(input_str)
-
-        # 添加新数据
-        self.history.append((current_time, current_char_count))
-
-        # 当前对话内的平均速率
-        if len(self.history) >= 2:
-            oldest = self.history[0]
-            newest = self.history[-1]
-            total_time = newest[0] - oldest[0]
-            total_chars = newest[1] - oldest[1]
-            self.current_rate = total_chars / total_time if total_time > 0 else 0.0
-        else:
-            self.current_rate = 0.0
-
-        # 当前对话内的速率峰值（取绝对值）
-        self.peak_rate = 0.0
-        if len(self.history) >= 2:
-            max_speed = 0.0
-            for i in range(1, len(self.history)):
-                prev = self.history[i-1]
-                curr = self.history[i]
-                delta_time = curr[0] - prev[0]
-                
-                if delta_time > 0:
-                    speed = max((curr[1] - prev[1]) / delta_time,0)
-                    if speed > max_speed:
-                        max_speed = speed
-            self.peak_rate = max_speed
-
-    def get_current_rate(self):
-        return self.current_rate
-
-    def get_peak_rate(self):
-        return self.peak_rate
-
-    def get_first_token(self):
-        if self.history:
-            self.first_token_receive_time=abs(self.history[0][0]-self.request_send_time)
-            return self.first_token_receive_time
-        else:
-            return 0
-    
-    def get_completion_time(self):
-        if self.history:
-            self.first_token_receive_time=abs(self.history[-1][0]-self.request_send_time)
-            return self.first_token_receive_time
-        else:
-            return 0
-
-    def get_chat_rounds(self,history):
-        return len(history)
-    
-    def get_chat_length(self,history):
-        total_length=0
-        for item in history:
-            total_length+=len(item['content'])
-        return total_length
 #强制降重
 class RepeatProcessor:
     def __init__(self, main_class):
@@ -360,416 +193,6 @@ class RepeatProcessor:
         for symbol in symbols:
             text = text.replace(symbol, '')
         return text
-
-#随机分发模型请求
-class Ui_random_model_selecter(object):
-    def setupUi(self, random_model_selecter):
-        random_model_selecter.setObjectName("random_model_selecter")
-        random_model_selecter.resize(408, 305)
-        self.gridLayout_5 = QGridLayout(random_model_selecter)
-        self.gridLayout_5.setObjectName("gridLayout_5")
-        self.groupBox = QGroupBox(random_model_selecter)
-        sizePolicy = QSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
-        sizePolicy.setHorizontalStretch(1)
-        sizePolicy.setVerticalStretch(0)
-        sizePolicy.setHeightForWidth(self.groupBox.sizePolicy().hasHeightForWidth())
-        self.groupBox.setSizePolicy(sizePolicy)
-        self.groupBox.setObjectName("groupBox")
-        self.gridLayout_4 = QGridLayout(self.groupBox)
-        self.gridLayout_4.setObjectName("gridLayout_4")
-        self.order_radio = QRadioButton(self.groupBox)
-        self.order_radio.setChecked(True)
-        self.order_radio.setObjectName("order_radio")
-        self.gridLayout_4.addWidget(self.order_radio, 0, 0, 1, 1)
-        self.random_radio = QRadioButton(self.groupBox)
-        sizePolicy = QSizePolicy(QSizePolicy.Minimum, QSizePolicy.Fixed)
-        sizePolicy.setHorizontalStretch(0)
-        sizePolicy.setVerticalStretch(1)
-        sizePolicy.setHeightForWidth(self.random_radio.sizePolicy().hasHeightForWidth())
-        self.random_radio.setSizePolicy(sizePolicy)
-        self.random_radio.setObjectName("random_radio")
-        self.gridLayout_4.addWidget(self.random_radio, 1, 0, 1, 1)
-        self.gridLayout_5.addWidget(self.groupBox, 1, 0, 1, 1)
-        self.groupBox_add_model = QGroupBox(random_model_selecter)
-        sizePolicy = QSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
-        sizePolicy.setHorizontalStretch(1)
-        sizePolicy.setVerticalStretch(0)
-        sizePolicy.setHeightForWidth(self.groupBox_add_model.sizePolicy().hasHeightForWidth())
-        self.groupBox_add_model.setSizePolicy(sizePolicy)
-        self.groupBox_add_model.setObjectName("groupBox_add_model")
-        self.gridLayout_2 = QGridLayout(self.groupBox_add_model)
-        self.gridLayout_2.setObjectName("gridLayout_2")
-        self.groupBox_model_config = QGroupBox(self.groupBox_add_model)
-        self.groupBox_model_config.setObjectName("groupBox_model_config")
-        self.gridLayout = QGridLayout(self.groupBox_model_config)
-        self.gridLayout.setObjectName("gridLayout")
-        self.model_name_label = QLabel(self.groupBox_model_config)
-        self.model_name_label.setObjectName("model_name_label")
-        self.gridLayout.addWidget(self.model_name_label, 2, 0, 1, 1)
-        self.model_name = QComboBox(self.groupBox_model_config)
-        self.model_name.setObjectName("model_name")
-        self.gridLayout.addWidget(self.model_name, 3, 0, 1, 1)
-        self.model_provider_label = QLabel(self.groupBox_model_config)
-        self.model_provider_label.setObjectName("model_provider_label")
-        self.gridLayout.addWidget(self.model_provider_label, 0, 0, 1, 1)
-        self.model_provider = QComboBox(self.groupBox_model_config)
-        self.model_provider.setObjectName("model_provider")
-        self.gridLayout.addWidget(self.model_provider, 1, 0, 1, 1)
-        self.gridLayout_2.addWidget(self.groupBox_model_config, 0, 0, 1, 1)
-        self.add_model_to_list = QPushButton(self.groupBox_add_model)
-        self.add_model_to_list.setObjectName("add_model_to_list")
-        self.gridLayout_2.addWidget(self.add_model_to_list, 1, 0, 1, 1)
-        self.gridLayout_5.addWidget(self.groupBox_add_model, 0, 0, 1, 1)
-        self.label = QLabel(random_model_selecter)
-        self.label.setText("")
-        self.label.setObjectName("label")
-        self.gridLayout_5.addWidget(self.label, 3, 1, 1, 1)
-        self.confirm_button = QPushButton(random_model_selecter)
-        sizePolicy = QSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
-        sizePolicy.setHorizontalStretch(0)
-        sizePolicy.setVerticalStretch(0)
-        sizePolicy.setHeightForWidth(self.confirm_button.sizePolicy().hasHeightForWidth())
-        self.confirm_button.setSizePolicy(sizePolicy)
-        self.confirm_button.setObjectName("confirm_button")
-        self.gridLayout_5.addWidget(self.confirm_button, 3, 2, 1, 1)
-        self.groupBox_view_model = QGroupBox(random_model_selecter)
-        sizePolicy = QSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
-        sizePolicy.setHorizontalStretch(2)
-        sizePolicy.setVerticalStretch(1)
-        sizePolicy.setHeightForWidth(self.groupBox_view_model.sizePolicy().hasHeightForWidth())
-        self.groupBox_view_model.setSizePolicy(sizePolicy)
-        self.groupBox_view_model.setObjectName("groupBox_view_model")
-        self.gridLayout_3 = QGridLayout(self.groupBox_view_model)
-        self.gridLayout_3.setObjectName("gridLayout_3")
-        self.random_model_list_viewer = QListView(self.groupBox_view_model)
-        self.random_model_list_viewer.setObjectName("random_model_list_viewer")
-        self.gridLayout_3.addWidget(self.random_model_list_viewer, 0, 0, 1, 1)
-        self.remove_model = QPushButton(self.groupBox_view_model)
-        self.remove_model.setObjectName("remove_model")
-        self.gridLayout_3.addWidget(self.remove_model, 1, 0, 1, 1)
-        self.gridLayout_5.addWidget(self.groupBox_view_model, 0, 1, 2, 2)
-
-        self.retranslateUi(random_model_selecter)
-        QMetaObject.connectSlotsByName(random_model_selecter)
-
-    def retranslateUi(self, random_model_selecter):
-        _translate = QCoreApplication.translate
-        random_model_selecter.setWindowTitle(_translate("random_model_selecter", "设置轮换/随机模型"))
-        self.groupBox.setTitle(_translate("random_model_selecter", "使用模型"))
-        self.order_radio.setText(_translate("random_model_selecter", "顺序输出"))
-        self.random_radio.setText(_translate("random_model_selecter", "随机选择"))
-        self.groupBox_add_model.setTitle(_translate("random_model_selecter", "添加模型"))
-        self.groupBox_model_config.setTitle(_translate("random_model_selecter", ""))
-        self.model_name_label.setText(_translate("random_model_selecter", "名称"))
-        self.model_provider_label.setText(_translate("random_model_selecter", "提供商"))
-        self.add_model_to_list.setText(_translate("random_model_selecter", "添加"))
-        self.confirm_button.setText(_translate("random_model_selecter", "完成"))
-        self.groupBox_view_model.setTitle(_translate("random_model_selecter", "模型库-使用的模型将在其中选择"))
-        self.remove_model.setText(_translate("random_model_selecter", "移除选中项"))
-
-class RandomModelSelecter(QWidget):
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.ui = Ui_random_model_selecter()
-        self.ui.setupUi(self)
-        self.setGeometry(100, 100, 600, 350)
-        # 初始化数据
-        self.model_map = MODEL_MAP
-        self.current_models = []  # 存储已添加的模型信息
-        self.last_check=0
-        
-        # 初始化UI组件
-        self.init_providers()
-        self.init_connections()
-        self.init_list_view()
-        
-        # 初始更新模型列表
-        self.update_model_names()
-
-    def init_providers(self):
-        """初始化模型提供商下拉框"""
-        self.ui.model_provider.addItems(self.model_map.keys())
-
-    def init_connections(self):
-        """建立信号槽连接"""
-        # 提供商变化时更新模型名称
-        self.ui.model_provider.currentTextChanged.connect(self.update_model_names)
-        # 添加模型按钮
-        self.ui.add_model_to_list.clicked.connect(self.add_model_to_list)
-        # 移除模型按钮
-        self.ui.remove_model.clicked.connect(self.remove_selected_model)
-        # 确认按钮
-        self.ui.confirm_button.clicked.connect(self.hide)
-
-    def init_list_view(self):
-        """初始化列表视图模型"""
-        self.list_model = QStandardItemModel()
-        self.ui.random_model_list_viewer.setModel(self.list_model)
-        self.ui.random_model_list_viewer.setSelectionMode(QListView.SingleSelection)
-
-    def update_model_names(self):
-        """更新模型名称下拉框"""
-        current_provider = self.ui.model_provider.currentText()
-        models = self.model_map.get(current_provider, [])
-        
-        self.ui.model_name.clear()
-        if models:
-            self.ui.model_name.addItems(models)
-            self.ui.model_name.setCurrentIndex(0)
-
-    def add_model_to_list(self):
-        """添加当前选择的模型到列表"""
-        self.last_check=0
-        provider = self.ui.model_provider.currentText()
-        model_name = self.ui.model_name.currentText()
-        
-        # 防止重复添加
-        if (provider, model_name) in self.current_models:
-            QMessageBox.warning(self, "警告", "该模型已存在于列表中！")
-            return
-        
-        # 创建列表项
-        item_text = f"{provider} - {model_name}"
-        item = QStandardItem(item_text)
-        item.setData({"provider": provider, "model": model_name})
-        
-        self.list_model.appendRow(item)
-        self.current_models.append((provider, model_name))
-
-    def remove_selected_model(self):
-        """移除选中的模型"""
-        selected = self.ui.random_model_list_viewer.selectedIndexes()
-        if not selected:
-            return
-        
-        for index in selected:
-            row = index.row()
-            # 从数据存储中移除
-            del self.current_models[row]
-            # 从列表模型中移除
-            self.list_model.removeRow(row)
-
-    def collect_selected_models(self):
-        """收集最终选择的模型信息"""
-        # 结果已实时存储在self.current_models中
-        if self.ui.order_radio.isChecked():
-            self.last_check+=1
-            return_model= self.current_models[self.last_check%len(self.current_models)]
-
-        else:
-            return_model=random.choice(self.current_models)
-        LOGGER.info(f"Selected models:{return_model}")
-        return return_model
-
-    def get_selected_models(self):
-        """获取最终选择的模型列表"""
-        return self.current_models
-
-#配置管理器
-class ConfigManager:
-    @staticmethod
-    def init_settings(obj, filename='chatapi.ini', exclude=None):
-        """
-        初始化对象属性 from INI文件
-        :param obj: 需要初始化属性的对象实例
-        :param filename: 配置文件路径
-        :param exclude: 需要排除的属性名列表（不导入这些属性）
-        """
-        config = configparser.ConfigParser()
-        exclude_set = set(exclude) if exclude is not None else set()
-
-        if os.path.exists(filename):
-            try:
-                config.read(filename)
-            except:
-                config.read(filename,encoding='utf=8')
-            for section in config.sections():
-                for option in config[section]:
-                    if option in exclude_set:  # 跳过被排除的属性
-                        continue
-                    try:
-                        value = config.getboolean(section, option)
-                    except ValueError:
-                        try:
-                            value = config.getfloat(section, option)
-                            try:
-                                if int(value) == value:
-                                    value = int(value)
-                            except:
-                                pass
-                        except ValueError:
-                            value = config.get(section, option)
-                    setattr(obj, option, value)
-
-    @staticmethod
-    def config_save(obj, filename='chatapi.ini', section="others"):
-        """
-        保存对象属性到INI文件
-        :param obj: 需要保存属性的对象实例
-        :param filename: 配置文件路径
-        :param section: 配置项分组名称
-        """
-        config = configparser.ConfigParser()
-        config[section] = {}
-
-        for key, value in vars(obj).items():
-            if key.startswith("_"):
-                continue
-            try:
-                if isinstance(value, bool):
-                    config[section][key] = "true" if value else "false"
-                elif isinstance(value, (int, float, str)):
-                    config[section][key] = str(value)
-            except Exception as e:
-                LOGGER.error(f"Error saving {key}: {e}")
-
-        with open(filename, "w", encoding="utf-8") as f:
-            config.write(f)
-
-#字符串处理工具
-class StrTools:
-
-    def _for_replace(text, replace_from, replace_to):
-        """批量替换字符串，处理长度不匹配的情况"""
-        replace_from_list = replace_from.split(';')
-        replace_to_list = replace_to.split(';')
-        
-        # 调整 replace_to_list 的长度以匹配 replace_from_list
-        replace_from_len = len(replace_from_list)
-        # 截取 replace_to_list 的前 replace_from_len 个元素，不足部分补空字符串
-        adjusted_replace_to = replace_to_list[:replace_from_len]  # 截断或保留全部
-        # 补足空字符串直到长度等于 replace_from_len
-        adjusted_replace_to += [''] * (replace_from_len - len(adjusted_replace_to))
-        
-        # 执行替换
-        for i in range(replace_from_len):
-            text = text.replace(replace_from_list[i], adjusted_replace_to[i])
-        return text
-    
-    def _re_replace(text, replace_from, replace_to):
-        """
-        使用正则表达式替换文本中的内容。
-        
-        参数:
-        - text: 原始字符串
-        - replace_from: 由分号(";")分隔的正则表达式字符串
-        - replace_to: 由分号(";")分隔的替换字符串
-        
-        返回:
-        - 替换后的字符串
-        """
-        # 将 replace_from 和 replace_to 按分号分割成列表
-        replace_from_list = replace_from.split(';')
-        replace_to_list = replace_to.split(';')
-        
-        # 遍历 replace_from_list，根据规则替换
-        for i, pattern in enumerate(replace_from_list):
-            # 获取对应的替换字符串，如果 replace_to_list 长度不足，则使用空字符串
-            replacement = replace_to_list[i] if i < len(replace_to_list) else ''
-            # 使用 re.sub 进行替换
-            text = re.sub(pattern, replacement, text)
-        
-        return text
-
-
-    @staticmethod
-    def vast_replace(text, replace_from, replace_to):
-        """
-        批量替换字符串，支持正则表达式和普通字符串替换。
-        - text: 原始字符串,如果以 're:' 开头，则使用正则表达式替换
-        - replace_from: 由分号(";")分隔的替换源字符串
-        - replace_to: 由分号(";")分隔的替换目标字符串
-
-        - 返回: 替换后的字符串
-        """
-        if replace_from.startswith('re:#'):
-            # 如果以 're:#' 开头，则使用正则表达式替换
-            text = StrTools._re_replace(text, replace_from[4:], replace_to)
-        else:
-            # 否则使用普通字符串替换
-            text = StrTools._for_replace(text, replace_from, replace_to)
-        
-        return text
-    
-    @staticmethod
-    def special_block_handler(obj,content,                      #incoming content
-                                  signal,                       #function to call
-                                  request_id,
-                                  starter='<think>', 
-                                  ender='</think>',
-                                  extra_params=None,             #extra params to fullfil
-                                  ):
-        """处理自定义块内容"""
-        if starter in content :
-            content = content.split(starter)[1]
-            if ender in content:
-                return {"starter":True,"ender":True}
-            if extra_params:
-                if hasattr(obj, extra_params):
-                    setattr(obj, extra_params, content)
-            signal(request_id,content)
-            return {"starter":True,"ender":False}
-        return {"starter":False,"ender":False}
-
-    @staticmethod
-    def debug_chathistory(dic_chathistory,action='easy'):
-        """调试聊天记录"""
-        actual_length = 0
-
-        for i, message in enumerate(dic_chathistory):
-            if action!='easy':
-                LOGGER.info(f"对话 {i}:")
-                LOGGER.info(f"Role: {message['role']}")
-                LOGGER.info("-" * 20)
-                LOGGER.info(f"Content: {message['content']}")
-                LOGGER.info("-" * 20)
-            
-                # 新增工具调用打印逻辑
-                if message['role'] == 'assistant' and 'tool_calls' in message:
-                    LOGGER.info("工具调用列表：")
-                    for j, tool_call in enumerate(message['tool_calls']):
-                        func_info = tool_call.get('function', {})
-                        name = func_info.get('name', '未知工具')
-                        args = func_info.get('arguments', {})
-                        LOGGER.info(f"  工具 {j+1}: {name}")
-                        LOGGER.info(f"  参数: {args}, 类型: {type(args)}")
-                        LOGGER.info("-" * 20)
-                    actual_length += len(args)
-                
-                if message['content']:
-                    actual_length += len(message['content'])
-
-        LOGGER.info(f"实际长度: {actual_length}")
-        LOGGER.info(f"实际对话轮数: {len(dic_chathistory)}")
-        LOGGER.info(f"系统提示长度: {len(dic_chathistory[0]['content'])}")
-        LOGGER.info("-" * 20)
-
-        return {
-            "actual_length": actual_length,
-            "actual_rounds": len(dic_chathistory),
-            "total_length": len(dic_chathistory),
-            "system_prompt_length": len(dic_chathistory[0]['content'])
-        }
-
-    @staticmethod
-    def remove_var(text):
-        pattern = r'变量组开始.*?变量组结束'
-        match = re.search(pattern, text, flags=re.DOTALL)
-        if match:
-            return text.replace(match.group(0),'')
-        return text
-
-    @staticmethod
-    def combined_remove_var_vast_replace(obj,content=None):
-        if content:
-            actual_response=content
-        else:
-            actual_response = obj.full_response
-        if obj.autoreplace_var:
-            actual_response = StrTools.vast_replace(actual_response,obj.autoreplace_from,obj.autoreplace_to)
-        if obj.mod_configer.status_monitor_enable_box.isChecked():
-            actual_response = StrTools.remove_var(actual_response)
-        return actual_response
 
 #发送消息前处理器
 class MessagePreprocessor:
@@ -1020,108 +443,6 @@ class MessagePreprocessor:
                 params['tools'] = function_definitions
         return params
 
-#mod管理器
-class ModConfiger(QTabWidget):
-    def __init__(self):
-        self.init_ui()
-    
-    def init_ui(self):
-        super().__init__()
-        self.setWindowTitle("Mod Configer")
-
-        screen_geometry = QApplication.primaryScreen().availableGeometry()
-        
-        width = int(screen_geometry.width() * 0.6)
-        height = int(screen_geometry.height() * 0.6)
-        
-        left = (screen_geometry.width() - width) //4
-        top = (screen_geometry.height() - height) // 4
-        
-        self.setGeometry(left, top, width, height)
-        # Create tabs
-        self.addtabs()
-
-    def addtabs(self):
-        self.add_status_monitor()
-        self.add_tts_server()
-        self.add_story_creator()
-
-    def handle_new_message(self,message,chathistory):
-        self.status_monitor_handle_new_message(message)
-
-    def add_status_monitor(self):
-        self.status_monitor_manager = QWidget()
-        status_monitor_layout = QGridLayout()
-        self.status_monitor_manager.setLayout(status_monitor_layout)
-        self.addTab(self.status_monitor_manager, "角色扮演状态栏")
-
-        self.status_monitor_enable_box=QCheckBox("启用挂载")
-        status_monitor_layout.addWidget(self.status_monitor_enable_box, 2, 0, 1, 1)
-        self.status_monitor_enable_box.setToolTip("模块可以使用")
-        if not "mods.status_monitor" in sys.modules:
-            self.status_monitor_enable_box.setText('未安装')
-            self.status_monitor_enable_box.setEnabled(False)
-            self.status_monitor_enable_box.setToolTip("模块未安装")
-            return
-        
-        self.status_monitor = StatusMonitorWindow()
-
-        self.status_label = QLabel("角色扮演状态栏")
-        status_monitor_layout.addWidget(self.status_label, 0, 0, 1, 1)
-        self.status_label_info = QLabel("AI状态栏是一个mod，用于给AI提供状态信息，可以引导AI的行为。\n需要模型有较强的理解能力。\n预计启用后token使用量增加≈30-50")
-        status_monitor_layout.addWidget(self.status_label_info, 1, 0, 1, 2)
-        self.status_label_info.setWordWrap(True)
-        self.start_status_monitor_button = QPushButton("启动状态栏")
-        self.start_status_monitor_button.clicked.connect(lambda : self.status_monitor.show())
-        status_monitor_layout.addWidget(self.start_status_monitor_button, 2, 1, 1, 1)
-        #挂载MOD设置
-        status_monitor_layout.addWidget(StatusMonitorInstruction.mod_configer())
-
-        status_monitor_layout.setRowStretch(0,0)
-        status_monitor_layout.setRowStretch(1,0)
-        status_monitor_layout.setRowStretch(2,0)
-        status_monitor_layout.setRowStretch(3,1)
-
-    def add_story_creator(self):
-        self.story_creator_manager=QWidget()
-        self.creator_manager_layout=QGridLayout()
-        self.story_creator_manager.setLayout(self.creator_manager_layout)
-        self.addTab(self.story_creator_manager, "主线创建器")
-        if not "mods.story_creator" in sys.modules:
-            self.creator_manager_layout.addWidget(QLabel("主线生成器模块未挂载"),0,0,1,1)
-            return
-        self.enable_story_insert=QCheckBox("启用主线剧情挂载")
-        self.creator_manager_layout.addWidget(self.enable_story_insert,0,0,1,1)
-        self.main_story_creator_placeholder=GradientLabel('正在等待模型库更新...')
-        self.creator_manager_layout.addWidget(self.main_story_creator_placeholder,1,0,1,1)
-        
-    def finish_story_creator_init(self):
-        self.main_story_creator_placeholder.hide()
-        StoryCreatorGlobalVar.DEFAULT_APIS=DEFAULT_APIS
-        StoryCreatorGlobalVar.MODEL_MAP=MODEL_MAP
-        self.story_creator=MainStoryCreaterInstruction.mod_configer()
-        self.creator_manager_layout.addWidget(self.story_creator,1,0,1,1)
-
-    def status_monitor_handle_new_message(self,message):
-        if type(message)==dict:
-            message=message[-1]["content"]
-        if not "mods.status_monitor" in sys.modules:
-            return
-        if self.status_monitor.get_ai_variables()!={}:
-            self.status_monitor.update_ai_variables(message)
-        self.status_monitor.perform_cycle_step()
-            
-    def add_tts_server(self):
-        if not "mods.chatapi_tts" in sys.modules:
-            return
-        self.tts_server = QWidget()
-        self.addTab(self.tts_server,'语音识别')
-        return
-
-    def run_close_event(self):
-        if "mods.story_creator" in sys.modules and hasattr(self,"story_creator"):
-            self.story_creator.save_settings('utils')
-
 #主类
 class MainWindow(QMainWindow):
     ai_response_signal= pyqtSignal(str,str)
@@ -1140,7 +461,6 @@ class MainWindow(QMainWindow):
         self.setWindowIcon(self.render_svg_to_icon(MAIN_ICON))
         self.message_status=StatusAnalyzer()
         self.repeat_processor=RepeatProcessor(self)
-        self.ordered_model=RandomModelSelecter()
 
         screen_geometry = QApplication.primaryScreen().availableGeometry()
         
@@ -1176,6 +496,9 @@ class MainWindow(QMainWindow):
         ConfigManager.init_settings(self, exclude=['application_path','temp_style','full_response','think_response'])
 
         self.init_title_creator()
+        
+        # 模型轮询器
+        self.ordered_model=RandomModelSelecter(model_map=MODEL_MAP,logger=self.info_manager)
 
         # 创建主布局
         self.main_layout = QGridLayout()
@@ -2503,7 +1826,6 @@ class MainWindow(QMainWindow):
                 name: (data["url"], data["key"])
                 for name, data in config_data.items()
             }
-        MODEL_MAP={}
         for key,value in config_data.items():
             if value['models']:
                 MODEL_MAP[key]=value['models']
@@ -2822,7 +2144,10 @@ class MainWindow(QMainWindow):
             self.save_hotkey_config()
         except Exception as e:
             LOGGER.error(f"save_hotkey_config fail: {e}")
-        ConfigManager.config_save(self)
+        try:
+            ConfigManager.config_save(self)
+        except Exception as e:
+            LOGGER.error(f"config_save fail: {e}")
         ModelMapManager().save_model_map(MODEL_MAP)
         self.mod_configer.run_close_event()
         # 确保执行父类关闭操作
@@ -2884,7 +2209,7 @@ class MainWindow(QMainWindow):
         if os.path.exists(selected_item_path):
             self.load_chathistory(file_path=selected_item_path)
         else:
-            self.info_manager.error(f"数据读取失败: {str(e)}")
+            self.info_manager.error(f"数据读取失败: {str(selected_item_path)}")
 
     #长文本优化：启动线程
     def long_chat_improve(self):

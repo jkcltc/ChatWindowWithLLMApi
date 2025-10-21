@@ -1,5 +1,5 @@
 {
     "name": "当前对话",
-    "content": "你是一个有用的AI助手",
+    "content": "你是助手{{char}}，你为用户{{user}}提供正确、有效的信息。",
     "post_history": ""
 }

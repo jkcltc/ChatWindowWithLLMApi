@@ -637,6 +637,64 @@ class MainSettingWindow(QWidget):
         # 发射信号
         self.title_creator_use_local_changed.emit(use_local)
 
+#配置管理器
+class ConfigManager:
+    @staticmethod
+    def init_settings(obj, filename='chatapi.ini', exclude=None):
+        """
+        初始化对象属性 from INI文件
+        :param obj: 需要初始化属性的对象实例
+        :param filename: 配置文件路径
+        :param exclude: 需要排除的属性名列表（不导入这些属性）
+        """
+        config = configparser.ConfigParser()
+        exclude_set = set(exclude) if exclude is not None else set()
+
+        if os.path.exists(filename):
+            try:
+                config.read(filename)
+            except:
+                config.read(filename,encoding='utf=8')
+            for section in config.sections():
+                for option in config[section]:
+                    if option in exclude_set:  # 跳过被排除的属性
+                        continue
+                    try:
+                        value = config.getboolean(section, option)
+                    except ValueError:
+                        try:
+                            value = config.getfloat(section, option)
+                            try:
+                                if int(value) == value:
+                                    value = int(value)
+                            except:
+                                pass
+                        except ValueError:
+                            value = config.get(section, option)
+                    setattr(obj, option, value)
+
+    @staticmethod
+    def config_save(obj, filename='chatapi.ini', section="others"):
+        """
+        保存对象属性到INI文件
+        :param obj: 需要保存属性的对象实例
+        :param filename: 配置文件路径
+        :param section: 配置项分组名称
+        """
+        config = configparser.ConfigParser()
+        config[section] = {}
+
+        for key, value in vars(obj).items():
+            if key.startswith("_"):
+                continue
+            if isinstance(value, bool):
+                config[section][key] = "true" if value else "false"
+            elif isinstance(value, (int, float, str)):
+                config[section][key] = str(value)
+
+        with open(filename, "w", encoding="utf-8") as f:
+            config.write(f)
+
 if __name__=='__main__':
     app = QApplication(sys.argv)
     

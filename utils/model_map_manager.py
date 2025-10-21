@@ -1,6 +1,7 @@
 import json
 import os
 from pathlib import Path
+import random
 
 import requests, urllib
 import configparser
@@ -1036,7 +1037,215 @@ class APIConfigWidget(QWidget):
                 return 50
         # 不匹配（最低优先级）
         return 0
-    
+
+
+#随机分发模型请求
+class Ui_random_model_selecter(object):
+    def setupUi(self, random_model_selecter):
+        random_model_selecter.setObjectName("random_model_selecter")
+        random_model_selecter.resize(408, 305)
+        self.gridLayout_5 = QGridLayout(random_model_selecter)
+        self.gridLayout_5.setObjectName("gridLayout_5")
+        self.groupBox = QGroupBox(random_model_selecter)
+        sizePolicy = QSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
+        sizePolicy.setHorizontalStretch(1)
+        sizePolicy.setVerticalStretch(0)
+        sizePolicy.setHeightForWidth(self.groupBox.sizePolicy().hasHeightForWidth())
+        self.groupBox.setSizePolicy(sizePolicy)
+        self.groupBox.setObjectName("groupBox")
+        self.gridLayout_4 = QGridLayout(self.groupBox)
+        self.gridLayout_4.setObjectName("gridLayout_4")
+        self.order_radio = QRadioButton(self.groupBox)
+        self.order_radio.setChecked(True)
+        self.order_radio.setObjectName("order_radio")
+        self.gridLayout_4.addWidget(self.order_radio, 0, 0, 1, 1)
+        self.random_radio = QRadioButton(self.groupBox)
+        sizePolicy = QSizePolicy(QSizePolicy.Minimum, QSizePolicy.Fixed)
+        sizePolicy.setHorizontalStretch(0)
+        sizePolicy.setVerticalStretch(1)
+        sizePolicy.setHeightForWidth(self.random_radio.sizePolicy().hasHeightForWidth())
+        self.random_radio.setSizePolicy(sizePolicy)
+        self.random_radio.setObjectName("random_radio")
+        self.gridLayout_4.addWidget(self.random_radio, 1, 0, 1, 1)
+        self.gridLayout_5.addWidget(self.groupBox, 1, 0, 1, 1)
+        self.groupBox_add_model = QGroupBox(random_model_selecter)
+        sizePolicy = QSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
+        sizePolicy.setHorizontalStretch(1)
+        sizePolicy.setVerticalStretch(0)
+        sizePolicy.setHeightForWidth(self.groupBox_add_model.sizePolicy().hasHeightForWidth())
+        self.groupBox_add_model.setSizePolicy(sizePolicy)
+        self.groupBox_add_model.setObjectName("groupBox_add_model")
+        self.gridLayout_2 = QGridLayout(self.groupBox_add_model)
+        self.gridLayout_2.setObjectName("gridLayout_2")
+        self.groupBox_model_config = QGroupBox(self.groupBox_add_model)
+        self.groupBox_model_config.setObjectName("groupBox_model_config")
+        self.gridLayout = QGridLayout(self.groupBox_model_config)
+        self.gridLayout.setObjectName("gridLayout")
+        self.model_name_label = QLabel(self.groupBox_model_config)
+        self.model_name_label.setObjectName("model_name_label")
+        self.gridLayout.addWidget(self.model_name_label, 2, 0, 1, 1)
+        self.model_name = QComboBox(self.groupBox_model_config)
+        self.model_name.setObjectName("model_name")
+        self.gridLayout.addWidget(self.model_name, 3, 0, 1, 1)
+        self.model_provider_label = QLabel(self.groupBox_model_config)
+        self.model_provider_label.setObjectName("model_provider_label")
+        self.gridLayout.addWidget(self.model_provider_label, 0, 0, 1, 1)
+        self.model_provider = QComboBox(self.groupBox_model_config)
+        self.model_provider.setObjectName("model_provider")
+        self.gridLayout.addWidget(self.model_provider, 1, 0, 1, 1)
+        self.gridLayout_2.addWidget(self.groupBox_model_config, 0, 0, 1, 1)
+        self.add_model_to_list = QPushButton(self.groupBox_add_model)
+        self.add_model_to_list.setObjectName("add_model_to_list")
+        self.gridLayout_2.addWidget(self.add_model_to_list, 1, 0, 1, 1)
+        self.gridLayout_5.addWidget(self.groupBox_add_model, 0, 0, 1, 1)
+        self.label = QLabel(random_model_selecter)
+        self.label.setText("")
+        self.label.setObjectName("label")
+        self.gridLayout_5.addWidget(self.label, 3, 1, 1, 1)
+        self.confirm_button = QPushButton(random_model_selecter)
+        sizePolicy = QSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        sizePolicy.setHorizontalStretch(0)
+        sizePolicy.setVerticalStretch(0)
+        sizePolicy.setHeightForWidth(self.confirm_button.sizePolicy().hasHeightForWidth())
+        self.confirm_button.setSizePolicy(sizePolicy)
+        self.confirm_button.setObjectName("confirm_button")
+        self.gridLayout_5.addWidget(self.confirm_button, 3, 2, 1, 1)
+        self.groupBox_view_model = QGroupBox(random_model_selecter)
+        sizePolicy = QSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
+        sizePolicy.setHorizontalStretch(2)
+        sizePolicy.setVerticalStretch(1)
+        sizePolicy.setHeightForWidth(self.groupBox_view_model.sizePolicy().hasHeightForWidth())
+        self.groupBox_view_model.setSizePolicy(sizePolicy)
+        self.groupBox_view_model.setObjectName("groupBox_view_model")
+        self.gridLayout_3 = QGridLayout(self.groupBox_view_model)
+        self.gridLayout_3.setObjectName("gridLayout_3")
+        self.random_model_list_viewer = QListView(self.groupBox_view_model)
+        self.random_model_list_viewer.setObjectName("random_model_list_viewer")
+        self.gridLayout_3.addWidget(self.random_model_list_viewer, 0, 0, 1, 1)
+        self.remove_model = QPushButton(self.groupBox_view_model)
+        self.remove_model.setObjectName("remove_model")
+        self.gridLayout_3.addWidget(self.remove_model, 1, 0, 1, 1)
+        self.gridLayout_5.addWidget(self.groupBox_view_model, 0, 1, 2, 2)
+
+        self.retranslateUi(random_model_selecter)
+        QMetaObject.connectSlotsByName(random_model_selecter)
+
+    def retranslateUi(self, random_model_selecter):
+        _translate = QCoreApplication.translate
+        random_model_selecter.setWindowTitle(_translate("random_model_selecter", "设置轮换/随机模型"))
+        self.groupBox.setTitle(_translate("random_model_selecter", "使用模型"))
+        self.order_radio.setText(_translate("random_model_selecter", "顺序输出"))
+        self.random_radio.setText(_translate("random_model_selecter", "随机选择"))
+        self.groupBox_add_model.setTitle(_translate("random_model_selecter", "添加模型"))
+        self.groupBox_model_config.setTitle(_translate("random_model_selecter", ""))
+        self.model_name_label.setText(_translate("random_model_selecter", "名称"))
+        self.model_provider_label.setText(_translate("random_model_selecter", "提供商"))
+        self.add_model_to_list.setText(_translate("random_model_selecter", "添加"))
+        self.confirm_button.setText(_translate("random_model_selecter", "完成"))
+        self.groupBox_view_model.setTitle(_translate("random_model_selecter", "模型库-使用的模型将在其中选择"))
+        self.remove_model.setText(_translate("random_model_selecter", "移除选中项"))
+
+class RandomModelSelecter(QWidget):
+    def __init__(self, parent=None,model_map={},logger=None):
+        super().__init__(parent)
+        self.ui = Ui_random_model_selecter()
+        self.ui.setupUi(self)
+        self.setGeometry(100, 100, 600, 350)
+        # 初始化数据
+        self.model_map = model_map
+        self.current_models = []  # 存储已添加的模型信息
+        self.last_check=0
+        self.logger=logger
+        
+        # 初始化UI组件
+        self.init_providers()
+        self.init_connections()
+        self.init_list_view()
+        
+        # 初始更新模型列表
+        self.update_model_names()
+
+    def init_providers(self):
+        """初始化模型提供商下拉框"""
+        self.ui.model_provider.addItems(self.model_map.keys())
+
+    def init_connections(self):
+        """建立信号槽连接"""
+        # 提供商变化时更新模型名称
+        self.ui.model_provider.currentTextChanged.connect(self.update_model_names)
+        # 添加模型按钮
+        self.ui.add_model_to_list.clicked.connect(self.add_model_to_list)
+        # 移除模型按钮
+        self.ui.remove_model.clicked.connect(self.remove_selected_model)
+        # 确认按钮
+        self.ui.confirm_button.clicked.connect(self.hide)
+
+    def init_list_view(self):
+        """初始化列表视图模型"""
+        self.list_model = QStandardItemModel()
+        self.ui.random_model_list_viewer.setModel(self.list_model)
+        self.ui.random_model_list_viewer.setSelectionMode(QListView.SingleSelection)
+
+    def update_model_names(self):
+        """更新模型名称下拉框"""
+        current_provider = self.ui.model_provider.currentText()
+        models = self.model_map.get(current_provider, [])
+        
+        self.ui.model_name.clear()
+        if models:
+            self.ui.model_name.addItems(models)
+            self.ui.model_name.setCurrentIndex(0)
+
+    def add_model_to_list(self):
+        """添加当前选择的模型到列表"""
+        self.last_check=0
+        provider = self.ui.model_provider.currentText()
+        model_name = self.ui.model_name.currentText()
+        
+        # 防止重复添加
+        if (provider, model_name) in self.current_models:
+            QMessageBox.warning(self, "警告", "该模型已存在于列表中！")
+            return
+        
+        # 创建列表项
+        item_text = f"{provider} - {model_name}"
+        item = QStandardItem(item_text)
+        item.setData({"provider": provider, "model": model_name})
+        
+        self.list_model.appendRow(item)
+        self.current_models.append((provider, model_name))
+
+    def remove_selected_model(self):
+        """移除选中的模型"""
+        selected = self.ui.random_model_list_viewer.selectedIndexes()
+        if not selected:
+            return
+        
+        for index in selected:
+            row = index.row()
+            # 从数据存储中移除
+            del self.current_models[row]
+            # 从列表模型中移除
+            self.list_model.removeRow(row)
+
+    def collect_selected_models(self):
+        """收集最终选择的模型信息"""
+        # 结果已实时存储在self.current_models中
+        if self.ui.order_radio.isChecked():
+            self.last_check+=1
+            return_model= self.current_models[self.last_check%len(self.current_models)]
+
+        else:
+            return_model=random.choice(self.current_models)
+        self.logger.info(f"Selected models:{return_model}")
+        return return_model
+
+    def get_selected_models(self):
+        """获取最终选择的模型列表"""
+        return self.current_models
+
+
+
 if __name__ == "__main__":
     import sys
     from PyQt5.QtWidgets import QApplication

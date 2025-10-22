@@ -33,7 +33,7 @@ print(f'CWLA 3rd party lib import finished, time cost:{time.time()-start_time_st
 
 #自定义类初始化
 from utils.custom_widget import *
-from utils.system_prompt_updater import SystemPromptUI
+from utils.system_prompt_updater import SystemPromptUI,SystemPromptComboBox
 from utils.settings import *
 from utils.model_map_manager import ModelMapManager,APIConfigWidget,RandomModelSelecter
 from utils.theme_manager import ThemeSelector
@@ -1076,13 +1076,27 @@ class MainWindow(QMainWindow):
         #self.api_window.configUpdated.connect(self._handle_api_init)
         
     def init_chat_history_bubbles(self):
-        # 聊天历史文本框
-        self.chat_history_label = QLabel("聊天历史")
+        # 当前聊天文本框
+        self.chat_history_label = QLabel("当前聊天")
         self.display_full_chat_history=QPushButton("完整记录")
         self.display_full_chat_history.clicked.connect(self.display_full_chat_history_window)
         self.chat_history_text = ChatapiTextBrowser()
         self.chat_history_text.anchorClicked.connect(lambda url: os.startfile(url.toString()))
         self.chat_history_text.setOpenExternalLinks(False)
+
+        self.quick_system_prompt_changer = SystemPromptComboBox(
+            folder_path='utils/system_prompt_presets',
+            parent=None,
+            include_placeholder=False,
+            current_filename_base='当前对话',
+        )
+        # 切换选择时覆盖系统提示
+        self.quick_system_prompt_changer.update_system_prompt.connect(
+            self.update_system_prompt
+        )
+        self.quick_system_prompt_changer.request_open_editor.connect(
+            self.open_system_prompt
+        )
 
         #0.25.1 更新
         #聊天历史气泡
@@ -1092,6 +1106,7 @@ class MainWindow(QMainWindow):
         self.main_layout.addWidget(self.chat_history_bubbles, 3, 2, 4, 3)
         self.main_layout.addWidget(self.display_full_chat_history, 2, 4, 1, 1)
         self.main_layout.addWidget(self.chat_history_label, 2, 2, 1, 1)
+        self.main_layout.addWidget(self.quick_system_prompt_changer, 2, 3, 1, 1)
 
         #气泡信号绑定
         self.chat_history_bubbles.regenerateRequested.connect(self.resend_message)
@@ -1853,13 +1868,15 @@ class MainWindow(QMainWindow):
         self.update_chat_history()
 
     #打开系统提示设置窗口
+    def update_system_prompt(self,prompt):
+        if self.chathistory and self.chathistory[0]['role'] == "system":
+            self.chathistory[0]['content'] = prompt
+        else:
+            self.creat_new_chathistory()
+        self.sysrule=prompt
+
     def open_system_prompt(self, show_at_call=True):
-        def update_system_prompt(prompt):
-            if self.chathistory and self.chathistory[0]['role'] == "system":
-                self.chathistory[0]['content'] = prompt
-            else:
-                self.creat_new_chathistory()
-            self.sysrule=prompt
+        
         def get_system_prompt():
             if len(self.chathistory)>1:
                 if self.chathistory and self.chathistory[0]['role'] == "system":
@@ -1869,7 +1886,7 @@ class MainWindow(QMainWindow):
         # 创建子窗口
         if not hasattr(self,"system_prompt_override_window"):
             self.system_prompt_override_window = SystemPromptUI(folder_path='utils/system_prompt_presets')
-            self.system_prompt_override_window.update_system_prompt.connect(update_system_prompt)
+            self.system_prompt_override_window.update_system_prompt.connect(self.update_system_prompt)
             self.system_prompt_override_window.name_user_edit.textChanged.connect(lambda text:self.handle_name_changed('user',text))
             self.system_prompt_override_window.name_ai_edit.textChanged.connect(lambda text:self.handle_name_changed('assistant',text))
         if show_at_call:

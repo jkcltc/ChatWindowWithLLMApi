@@ -697,8 +697,8 @@ class APIRequestHandler(FullFunctionRequestHandler):
         except ValueError as e:
             self.error_occurred.emit(f"API配置错误: {str(e)}")
             return
-
-        self.api_config = api_config or {}
+        if api_config:
+            self.api_config = api_config
         self.base_url = (url or '').rstrip('/')
         self.api_key = api_key
         self.provider_type = provider_type

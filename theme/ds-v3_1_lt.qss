@@ -100,22 +100,39 @@ QLineEdit:focus {
     background-color: white;
 }
 
-QRadioButton, QCheckBox {
-    color: #2c3e50;
-    spacing: 8px;
+/* 修复复选框和单选框的禁用状态样式 */
+QRadioButton::indicator:disabled, QCheckBox::indicator:disabled {
+    border-color: #bdc3c7;
+    background-color: #ecf0f1;  /* 未选中时的浅色背景 */
 }
 
+QRadioButton::indicator:checked:disabled, QCheckBox::indicator:checked:disabled {
+    background-color: #7f8c8d;  /* 选中时的深灰色背景 */
+    border-color: #636e72;     /* 更深的边框颜色 */
+}
+
+/* 确保非禁用状态下的正确显示 */
 QRadioButton::indicator, QCheckBox::indicator {
     width: 20px;
     height: 20px;
     border-radius: 10px;
     border: 2px solid #bdc3c7;
-    background-color: #ecf0f1;
+    background-color: #ecf0f1;  /* 未选中时的默认背景色 */
 }
 
 QRadioButton::indicator:checked, QCheckBox::indicator:checked {
-    background-color: #3498db;
-    border: 2px solid #2980b9;
+    background-color: #3498db;  /* 选中时的蓝色背景 */
+    border: 2px solid #2980b9;  /* 选中时的蓝色边框 */
+}
+
+/* 修复文本颜色的禁用状态 */
+QRadioButton:disabled, QCheckBox:disabled {
+    color: #95a5a6;  /* 更浅的灰色文字 */
+}
+
+QRadioButton, QCheckBox {
+    color: #2c3e50;
+    spacing: 8px;
 }
 
 /* 状态栏 */
@@ -444,20 +461,6 @@ QLineEdit:disabled {
     background-color: #ecf0f1;
     border-color: #bdc3c7;
     color: #95a5a6;
-}
-
-QRadioButton:disabled, QCheckBox:disabled {
-    color: #bdc3c7;
-}
-
-QRadioButton::indicator:disabled, QCheckBox::indicator:disabled {
-    border-color: #bdc3c7;
-    background-color: #ecf0f1;
-}
-
-QRadioButton::indicator:checked:disabled, QCheckBox::indicator:checked极速:disabled {
-    background-color: #bdc3c7;
-    border-color: #95a5a6;
 }
 
 QTreeWidget:disabled {

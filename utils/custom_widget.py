@@ -717,7 +717,7 @@ class MarkdownTextBrowser(ChatapiTextBrowser):
         :param text: Markdown 文本
         :param is_streaming: bool, 是否处于流式更新中
         """
-        
+        self.content=text
         self._is_streaming = is_streaming
         super().setMarkdown(text) # 调用父类的方法来处理文本
 
@@ -1191,7 +1191,7 @@ class ChatBubble(QWidget):
         if self.editor.isVisible():
             text = self.editor.toPlainText()
         else:
-            text = self.content.toPlainText()  # 获取纯文本内容
+            text = self.content.content  # 获取纯文本内容
             
         QApplication.clipboard().setText(text)
     

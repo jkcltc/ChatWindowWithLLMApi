@@ -4,7 +4,7 @@ import openai
 import time
 import json
 import requests
-from utils.function_manager import FunctionManager
+from utils.tool_core import get_tool_registry
 
 class DeltaObject:
     def __init__(self, delta_data):
@@ -138,6 +138,12 @@ class FullFunctionRequestHandler(QObject):
     # 工具调用（参数）
     tool_response_signal = pyqtSignal(str, str)
 
+    # 日志
+    log_signal = pyqtSignal(str)
+
+    # 警告
+    warning_signal = pyqtSignal(str)
+
     # 报错
     completion_failed = pyqtSignal(str, str)
 
@@ -157,7 +163,7 @@ class FullFunctionRequestHandler(QObject):
         self.think_response = ''
         self.chatting_tool_call = None
         self.request_id = 'init'
-        self.function_manager = FunctionManager()
+        self.function_manager = get_tool_registry()
         self.pause_flag = False
         self.multimodal_content = False
         self.tool_response = ''
@@ -547,7 +553,14 @@ Request payload :
                         "arguments": parsed_args
                     }
                 }
-                tool_result = self.function_manager.call_function(call_for_exec)
+                exec_result = self.function_manager.call_from_openai(call_for_exec)
+                self.log_signal.emit(f"工具调用结果: {exec_result}")
+                if  exec_result['ok']:
+                    tool_result = exec_result['result']
+                else:
+                    tool_result = f"工具执行出错: {exec_result['message']}"
+                    self.warning_signal.emit(tool_result)
+
                 if not isinstance(tool_result, str):
                     tool_result = json.dumps(tool_result, ensure_ascii=False)
 

@@ -2,8 +2,8 @@ import os
 import json
 from PyQt5.QtWidgets import *
 from PyQt5.QtCore import *
-
-class FileManager:
+#from utils.function_manager import FunctionSelectorUI
+class SystemPromptFileManager:
     """文件管理类，负责JSON文件的读取和保存"""
     def __init__(self, folder_path="system_prompt_presets"):
         self.folder_path = folder_path
@@ -11,23 +11,29 @@ class FileManager:
             os.makedirs(folder_path)
     
     def get_all_presets(self):
-        """获取所有预设文件信息"""
+        """获取所有预设文件信息（使用 os.scandir 提升效率）"""
         presets = []
-        for filename in os.listdir(self.folder_path):
-            if filename.endswith(".json"):
-                file_path = os.path.join(self.folder_path, filename)
-                try:
-                    with open(file_path, 'r', encoding='utf-8') as f:
-                        data = json.load(f)
-                        presets.append({
-                            "file_path": file_path,
-                            "file_name": filename,
-                            "name": data.get("name", ""),
-                            "content": data.get("content", ""),
-                            "post_history": data.get("post_history", "")
-                        })
-                except Exception as e:
-                    print(f"Error reading {file_path}: {str(e)}")
+        try:
+            with os.scandir(self.folder_path) as it:
+                for entry in it:
+                    if not entry.is_file(follow_symlinks=False):
+                        continue
+                    if entry.name.endswith(".json"):
+                        try:
+                            with open(entry.path, 'r', encoding='utf-8') as f:
+                                data = json.load(f)
+                            presets.append({
+                                "file_path": entry.path,
+                                "file_name": entry.name,
+                                "name": data.get("name", ""),
+                                "content": data.get("content", ""),
+                                "post_history": data.get("post_history", ""),
+                                "tool_use": data.get("tool_use", []),
+                            })
+                        except Exception as e:
+                            print(f"Error reading {entry.path}: {str(e)}")
+        except FileNotFoundError:
+            print(f"Folder not found: {self.folder_path}")
         return presets
     
     def save_preset(self, file_path, data):
@@ -49,12 +55,7 @@ class FileManager:
     
     def delete_preset(self, file_path):
         """删除预设文件"""
-        try:
-            os.remove(file_path)
-            return True
-        except Exception as e:
-            print(f"Error deleting {file_path}: {str(e)}")
-            return False
+        os.remove(file_path)
 
 class SystemPromptUI(QWidget):
     update_system_prompt = pyqtSignal(str)
@@ -65,7 +66,7 @@ class SystemPromptUI(QWidget):
 
         self.setWindowTitle('system prompt')
         # 初始化文件管理器
-        self.file_manager = FileManager(folder_path)
+        self.file_manager = SystemPromptFileManager(folder_path)
 
         screen_geometry = QApplication.primaryScreen().availableGeometry()
         
@@ -112,29 +113,34 @@ class SystemPromptUI(QWidget):
         self.right_layout.addLayout(self.name_layout)
         
         # 内容编辑
+        self.content_layout = QVBoxLayout()
         self.content_label = QLabel("配置内容:")
-        self.right_layout.addWidget(self.content_label)
-        
+        self.content_layout.addWidget(self.content_label)
+
         self.content_edit = QTextEdit()
         self.content_edit.textChanged.connect(self.on_content_changed)
-        self.right_layout.addWidget(self.content_edit)
-        
-        info_layout=QHBoxLayout()
+        self.content_layout.addWidget(self.content_edit)
+
+        self.info_layout = QHBoxLayout()
 
         name_user_label=QLabel(r'用户代称{{user}}=')
         self.name_user_edit=QLineEdit()
 
-        info_layout.addWidget(name_user_label)
-        info_layout.addWidget(self.name_user_edit)
+        self.info_layout.addWidget(name_user_label)
+        self.info_layout.addWidget(self.name_user_edit)
 
         name_ai_label=QLabel(r'AI代称{{char}}=')
         self.name_ai_edit=QLineEdit()
 
-        info_layout.addWidget(name_ai_label)
-        info_layout.addWidget(self.name_ai_edit)
+        self.info_layout.addWidget(name_ai_label)
+        self.info_layout.addWidget(self.name_ai_edit)
 
-        self.right_layout.addLayout(info_layout)
+        self.content_layout.addLayout(self.info_layout)
 
+        # 工具选择
+
+
+        self.right_layout.addLayout(self.content_layout)
         # 按钮区域
         self.button_layout = QHBoxLayout()
         

@@ -37,7 +37,7 @@ from utils.system_prompt_updater import SystemPromptUI,SystemPromptComboBox
 from utils.settings import *
 from utils.model_map_manager import ModelMapManager,APIConfigWidget,RandomModelSelecter
 from utils.theme_manager import ThemeSelector
-from utils.function_manager import *
+from utils.tool_core import FunctionManager
 from utils.concurrentor import ConvergenceDialogueOptiProcessor
 from utils.preset_data import *
 from utils.usage_analysis import TokenAnalysisWidget
@@ -418,29 +418,11 @@ class MessagePreprocessor:
         if self.god.thinking_enabled:
             params['enable_thinking']=True
 
-        if hasattr(self.god, 'function_chooser') and self.god.function_chooser:
-            selected_names = self.god.function_chooser.get_selected_functions()
-        
-        if selected_names :#and not tools:
-            function_definitions = []
-            manager = self.god.function_chooser.function_manager
-            
-            for func_name in selected_names:
-                func_info = manager.get_function(func_name)
-                if not func_info:  # 如果函数不存在，跳过
-                    continue
-                
-                # 确保必要的字段存在，否则提供默认值
-                function_definitions.append({
-                    "type": "function",
-                    "function": {
-                    'name': func_name,
-                    'description': func_info.get('description', 'No description provided'),
-                    'parameters': func_info.get('parameters', {})  # 默认空字典
-                }})
-            
-            if function_definitions:
-                params['tools'] = function_definitions
+        function_definitions = []
+        manager = self.god.function_manager
+        function_definitions = manager.get_selected_functions()
+        if function_definitions:
+            params['tools'] = function_definitions
         return params
 
 #主类
@@ -1051,6 +1033,9 @@ class MainWindow(QMainWindow):
             )
         )
 
+        self.requester.log_signal.connect(lambda message: self.info_manager.notify(str(message), level='info'))
+        self.requester.warning_signal.connect(lambda message: self.info_manager.notify(str(message), level='warning'))
+
     @pyqtSlot(str, str)
     def _requester_completion_failed(self, id_, content):
         self.request_id = id_
@@ -1066,7 +1051,7 @@ class MainWindow(QMainWindow):
 
     def init_function_call(self):
         self.function_manager = FunctionManager()
-        self.function_chooser = FunctionSelectorUI(self.function_manager)
+
 
     def init_post_ui_creation(self):
         self.mod_configer.finish_story_creator_init()
@@ -1131,6 +1116,9 @@ class MainWindow(QMainWindow):
             
             # 获取content字段的值
             self.sysrule = config_data["content"]
+            if config_data.get("info",None):
+                self.name_user = config_data["info"].get("name", {}).get("user", self.name_user)
+                self.name_ai = config_data["info"].get("name", {}).get("assistant", self.name_ai)
         else:
             # 创建目录（如果不存在）
             os.makedirs(os.path.dirname(file_path), exist_ok=True)
@@ -1140,7 +1128,13 @@ class MainWindow(QMainWindow):
             new_config = {
                 "name": "当前对话",
                 "content": default_content,
-                "post_history": ""
+                "post_history": "",
+                'info':{
+                    'id':'system_prompt',
+                    'name':{'user':self.name_user,'assistant':self.name_ai},
+                    'title':'New Chat',
+                    'tools':[]
+                }
             }
             
             # 写入新文件
@@ -1431,7 +1425,7 @@ class MainWindow(QMainWindow):
       return super().eventFilter(obj, event)
 
     def show_function_call_window(self):
-        self.function_chooser.show()
+        self.function_manager.show()
 
     #api来源：更改提供商
     def update_model_combobox(self, selected_api):
@@ -2953,7 +2947,8 @@ class MainWindow(QMainWindow):
                 'name':{'user':self.name_user,'assistant':self.name_ai},
                 'avatar':{'user':user_avatar_path,'assistant':ai_avatar_path},
                 'chat_id':str(uuid.uuid4()),
-                'title':'New Chat'
+                'title':'New Chat',
+                'tools':[]
                 }
             }
         )

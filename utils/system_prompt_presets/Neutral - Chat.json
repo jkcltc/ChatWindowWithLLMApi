@@ -1,5 +1,18 @@
 {
-    "name": "Neutral - Chat",
-    "content": "Write {{char}}'s next reply in a fictional chat between {{char}} and {{user}}.",
-    "post_history": ""
+  "name": "Neutral - Chat",
+  "content": "Write {{char}}'s next reply in a fictional chat between {{char}} and {{user}}.",
+  "post_history": "",
+  "info": {
+    "id": "system_prompt",
+    "name": {
+      "user": "",
+      "assistant": ""
+    },
+    "title": "New Chat",
+    "tools": [],
+    "avatar": {
+      "user": "",
+      "assistant": ""
+    }
+  }
 }

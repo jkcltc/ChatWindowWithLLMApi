@@ -311,21 +311,21 @@ def sys_time(type: str):
 
 @registry.tool(
     name="python_cmd",
-    description="Execute restricted Python code in a sandboxed subprocess. Only print() output is returned.",
+    description="A Python interpreter that will run the code you provide.Only print() output is returned.. Ensure the code is safe.",
     parameters={
         "type": "object",
         "properties": {
             "code": {"type": "string", "minLength": 1},
-            "timeout_sec": {"type": "number", "minimum": 0, "default": 30}
+            "timeout_sec": {"type": "number", "minimum": 0, "default": 300}
         },
         "required": ["code"]
     },
     tags=["dangerous", "dev",'builtin'],
-    timeout=30,
+    timeout=300,
     permissions=["sandbox"]
 )
 
-def python_cmd(code: str, timeout_sec: float = 30):
+def python_cmd(code: str, timeout_sec: float = 300):
     """Python命令执行函数，捕获print输出"""
     import contextlib
     from io import StringIO
@@ -498,7 +498,7 @@ class ToolsListModel(QtCore.QAbstractListModel):
         # 刷新后同步一次选择变更
         self.selectionChanged.emit(self.get_selected_functions())
 
-    def set_active_names(self, names: _t.List[str]):
+    def set_active_tools(self, names: _t.List[str]):
         """
         设置初始激活集合。调用后请执行 refresh_from_registry() 以应用到视图。
         """
@@ -631,8 +631,8 @@ class FunctionsSelectorWidget(QtWidgets.QWidget):
         # 勾选变化透传
         self._model.selectionChanged.connect(self.selectionChanged)
 
-        # 双击项切换勾选
-        self._list.doubleClicked.connect(self._toggle_checked_on_index)
+        # 单击项切换勾选
+        self._list.clicked.connect(self._toggle_checked_on_index)
 
         # 初次加载
         self.refresh()
@@ -649,7 +649,7 @@ class FunctionsSelectorWidget(QtWidgets.QWidget):
         """
         设置初始激活集合后刷新。
         """
-        self._model.set_active_names(names)
+        self._model.set_active_tools(names)
         # 刷新以更新视图勾选状态
         self._model.refresh_from_registry()
 
@@ -671,7 +671,7 @@ class FunctionsSelectorWidget(QtWidgets.QWidget):
         """
         return self._model.get_selected_functions()
 
-    # 内部事件：双击切换勾选
+    # 内部事件：单击切换勾选
     def _toggle_checked_on_index(self, proxy_index: QtCore.QModelIndex):
         if not proxy_index.isValid():
             return
@@ -686,10 +686,10 @@ class FunctionsSelectorWidget(QtWidgets.QWidget):
 # 事件总线（全局）
 # -----------------------
 class ToolsEventBus(QtCore.QObject):
-    toolsChanged = QtCore.pyqtSignal()
-    reloadStarted = QtCore.pyqtSignal()
-    reloadFinished = QtCore.pyqtSignal(dict)
-    errorOccurred = QtCore.pyqtSignal(str)
+    toolsChanged    = QtCore.pyqtSignal()
+    reloadStarted   = QtCore.pyqtSignal()
+    reloadFinished  = QtCore.pyqtSignal(dict)
+    errorOccurred   = QtCore.pyqtSignal(str)
 
 _EVENT_BUS_SINGLETON: ToolsEventBus = None
 
@@ -699,6 +699,8 @@ def get_tools_event_bus() -> ToolsEventBus:
         _EVENT_BUS_SINGLETON = ToolsEventBus()
     return _EVENT_BUS_SINGLETON
 
+# 写个别称
+get_functions_events = get_tools_event_bus
 
 # -----------------------
 # 加载索引与结果摘要
@@ -1267,7 +1269,16 @@ class FunctionManager(QtWidgets.QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Tools Manager")
-        self.resize(1000, 640)
+        
+        screen_geometry = QtWidgets.QApplication.primaryScreen().availableGeometry()
+        
+        width = int(screen_geometry.width() * 0.6)
+        height = int(screen_geometry.height() * 0.6)
+        
+        left = (screen_geometry.width() - width) // 2
+        top = (screen_geometry.height() - height) // 2
+        
+        self.setGeometry(left, top, width, height)
 
         self._registry = get_tool_registry() if get_tool_registry else None
         self._pm = get_functions_plugin_manager()
@@ -1294,7 +1305,13 @@ class FunctionManager(QtWidgets.QWidget):
         leftBox.addWidget(self.searchEdit)
         leftBox.addWidget(self.listView)
 
-        # 右侧：详情 + 测试
+        # 右侧：TabWidget 包含详情和测试
+        self.tabWidget = QtWidgets.QTabWidget(self)
+        
+        # 详情 Tab
+        self.detailWidget = QtWidgets.QWidget()
+        detailLayout = QtWidgets.QVBoxLayout(self.detailWidget)
+        
         # 详情区域
         self.lblName = QtWidgets.QLabel("-")
         self.lblSource = QtWidgets.QLabel("-")
@@ -1342,7 +1359,14 @@ class FunctionManager(QtWidgets.QWidget):
 
         infoLay.addLayout(btnRow1)
         grpInfo.setLayout(infoLay)
+        
+        detailLayout.addWidget(grpInfo)
+        self.tabWidget.addTab(self.detailWidget, "工具详情")
 
+        # 测试运行 Tab
+        self.testWidget = QtWidgets.QWidget()
+        testLayout = QtWidgets.QVBoxLayout(self.testWidget)
+        
         # 测试运行区域
         self.argsEdit = QtWidgets.QPlainTextEdit()
         self.argsEdit.setPlaceholderText('输入 JSON 参数，例如：{"text": "hello"}')
@@ -1363,10 +1387,12 @@ class FunctionManager(QtWidgets.QWidget):
         testLay.addWidget(QtWidgets.QLabel("返回结果:"))
         testLay.addWidget(self.outputEdit, 2)
         grpTest.setLayout(testLay)
+        
+        testLayout.addWidget(grpTest)
+        self.tabWidget.addTab(self.testWidget, "测试运行")
 
         right = QtWidgets.QVBoxLayout()
-        right.addWidget(grpInfo, 2)
-        right.addWidget(grpTest, 3)
+        right.addWidget(self.tabWidget, 1)
 
         root = QtWidgets.QGridLayout(self)
         leftWidget = QtWidgets.QWidget(self)
@@ -1411,10 +1437,17 @@ class FunctionManager(QtWidgets.QWidget):
             self._pm.initial_load()  # 加载用户自定义工具
         
         # 先设定激活，再刷新
-        self._model.set_active_names(initial_active_names or [])
+        self._model.set_active_tools(initial_active_names or [])
         self._model.refresh_from_registry(available_names=self._available_names)
         self._ensure_first_selection()
         self._update_details_from_index(self.listView.currentIndex())
+
+    def set_active_tools(self, names: _t.List[str]):
+        """
+        设置当前激活的工具名列表（覆盖）。
+        """
+        self._model.set_active_tools(names or [])
+        self._ensure_first_selection()
 
     def refresh(self):
         """

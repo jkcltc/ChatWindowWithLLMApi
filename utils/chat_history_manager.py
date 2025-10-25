@@ -39,17 +39,19 @@ class ChatHistoryTools:
                 request_id += 1
 
             if i == 0:
-                if names and 'name' not in info:
+                if names and not 'name' in info:
                     info['name'] = names
-                if avatar and 'avatar' not in info:
+                if avatar and not 'avatar' in info:
                     info['avatar'] = avatar
                 role = item.get('role')
                 if role in ('system', 'developer'):
                     info['id'] = 'system_prompt'
-                if 'chat_id' not in info:
+                if not 'chat_id' in info:
                     info['chat_id'] = str(uuid.uuid4())
-                if 'title' not in info:
+                if not 'title' in info:
                     info['title'] = title
+                if not 'tools' in info:
+                    info['tools'] = []
         return chathistory
     
     @staticmethod

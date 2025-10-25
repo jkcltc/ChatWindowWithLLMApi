@@ -33,11 +33,11 @@ print(f'CWLA 3rd party lib import finished, time cost:{time.time()-start_time_st
 
 #自定义类初始化
 from utils.custom_widget import *
-from utils.system_prompt_updater import SystemPromptUI,SystemPromptComboBox
+from utils.system_prompt_manager import SystemPromptManager,SystemPromptComboBox
 from utils.settings import *
 from utils.model_map_manager import ModelMapManager,APIConfigWidget,RandomModelSelecter
 from utils.theme_manager import ThemeSelector
-from utils.tool_core import FunctionManager
+from utils.tool_core import FunctionManager,get_functions_events
 from utils.concurrentor import ConvergenceDialogueOptiProcessor
 from utils.preset_data import *
 from utils.usage_analysis import TokenAnalysisWidget
@@ -48,6 +48,7 @@ from utils.background_generate import BackgroundAgent
 from utils.tools.one_shot_api_request import FullFunctionRequestHandler,APIRequestHandler
 from utils.status_analysis import StatusAnalyzer
 from utils.tools.str_tools import StrTools
+
 
 #UI组件初始化
 from utils.info_module import InfoManager,LogManager
@@ -478,6 +479,7 @@ class MainWindow(QMainWindow):
         ConfigManager.init_settings(self, exclude=['application_path','temp_style','full_response','think_response'])
 
         self.init_title_creator()
+        self.init_system_prompt_window()
         
         # 模型轮询器
         self.ordered_model=RandomModelSelecter(model_map=MODEL_MAP,logger=self.info_manager)
@@ -978,6 +980,12 @@ class MainWindow(QMainWindow):
         self.title_creator_max_length=20
         self.title_creator_provider='siliconflow'
         self.title_creator_model= 'deepseek-ai/DeepSeek-R1-0528-Qwen3-8B'
+    
+    def init_system_prompt_window(self):
+        self.system_prompt_override_window = SystemPromptManager()#folder_path='utils/system_prompt_presets'
+        self.system_prompt_override_window.update_tool_selection.connect(self.function_manager.set_active_tools)
+        self.system_prompt_override_window.update_preset.connect(self.update_system_preset)
+
 
     def init_response_manager(self):
         # AI响应更新控制
@@ -1033,7 +1041,7 @@ class MainWindow(QMainWindow):
             )
         )
 
-        self.requester.log_signal.connect(lambda message: self.info_manager.notify(str(message), level='info'))
+        self.requester.log_signal.connect(lambda message: self.info_manager.log(str(message)))
         self.requester.warning_signal.connect(lambda message: self.info_manager.notify(str(message), level='warning'))
 
     @pyqtSlot(str, str)
@@ -1051,6 +1059,9 @@ class MainWindow(QMainWindow):
 
     def init_function_call(self):
         self.function_manager = FunctionManager()
+        get_functions_events().errorOccurred.connect(
+            lambda message: self.info_manager.notify(message, level='error')
+            )
 
 
     def init_post_ui_creation(self):
@@ -1076,9 +1087,13 @@ class MainWindow(QMainWindow):
             current_filename_base='当前对话',
         )
         # 切换选择时覆盖系统提示
-        self.quick_system_prompt_changer.update_system_prompt.connect(
-            self.update_system_prompt
+        self.quick_system_prompt_changer.update_preset.connect(
+            lambda preset:(
+                self.update_system_preset(preset),
+                self.system_prompt_override_window.load_income_prompt(preset),
+                )
         )
+        self.quick_system_prompt_changer.update_tool_selection.connect(self.function_manager.set_active_tools)
         self.quick_system_prompt_changer.request_open_editor.connect(
             self.open_system_prompt
         )
@@ -1116,9 +1131,7 @@ class MainWindow(QMainWindow):
             
             # 获取content字段的值
             self.sysrule = config_data["content"]
-            if config_data.get("info",None):
-                self.name_user = config_data["info"].get("name", {}).get("user", self.name_user)
-                self.name_ai = config_data["info"].get("name", {}).get("assistant", self.name_ai)
+            
         else:
             # 创建目录（如果不存在）
             os.makedirs(os.path.dirname(file_path), exist_ok=True)
@@ -1861,34 +1874,27 @@ class MainWindow(QMainWindow):
         self.update_opti_bar()
         self.update_chat_history()
 
-    #打开系统提示设置窗口
-    def update_system_prompt(self,prompt):
-        if self.chathistory and self.chathistory[0]['role'] == "system":
-            self.chathistory[0]['content'] = prompt
-        else:
-            self.creat_new_chathistory()
-        self.sysrule=prompt
 
+    def update_system_preset(self,preset):
+        self.chathistory[0]['content']=preset['content']
+        info=preset["info"]
+        self.name_user=info['name']['user']
+        self.name_ai=info['name']['assistant']
+        for key,value in info.items():
+            if key == 'title':
+                continue
+            self.chathistory[0]['info'][key]=value
+        self.update_avatar_to_chat_bubbles()
+        self.update_name_to_chatbubbles()
+
+    # 打开系统提示设置窗口
     def open_system_prompt(self, show_at_call=True):
-        
-        def get_system_prompt():
-            if len(self.chathistory)>1:
-                if self.chathistory and self.chathistory[0]['role'] == "system":
-                    return self.chathistory[0]['content']
-            else:
-                return self.sysrule
-        # 创建子窗口
-        if not hasattr(self,"system_prompt_override_window"):
-            self.system_prompt_override_window = SystemPromptUI(folder_path='utils/system_prompt_presets')
-            self.system_prompt_override_window.update_system_prompt.connect(self.update_system_prompt)
-            self.system_prompt_override_window.name_user_edit.textChanged.connect(lambda text:self.handle_name_changed('user',text))
-            self.system_prompt_override_window.name_ai_edit.textChanged.connect(lambda text:self.handle_name_changed('assistant',text))
         if show_at_call:
             self.system_prompt_override_window.show()
         if self.system_prompt_override_window.isVisible():
             self.system_prompt_override_window.raise_()
             self.system_prompt_override_window.activateWindow()
-        self.system_prompt_override_window.load_income_prompt(get_system_prompt(),name=self.chathistory[0]['info']['name'])
+        self.system_prompt_override_window.load_income_prompt(self.chathistory[0])
 
 
     #打开设置，快捷键
@@ -2901,10 +2907,16 @@ class MainWindow(QMainWindow):
     
     #头像注入气泡
     def update_avatar_to_chat_bubbles(self):
+        ai_avatar_path=os.path.join(self.application_path,'pics','avatar','AI_avatar.png')
+        user_avatar_path=os.path.join(self.application_path,'pics','avatar','USER_avatar.png')
         if 'avatar' in self.chathistory[0]['info']:
+            avatar_path=self.chathistory[0]['info']['avatar']
+            if not avatar_path['user'] or not os.path.exists(avatar_path['user']):
+                avatar_path['user']=user_avatar_path
+            if not avatar_path['assistant'] or not os.path.exists(avatar_path['assistant']):
+                avatar_path['assistant']=ai_avatar_path
             self.chat_history_bubbles.avatars=self.chathistory[0]['info']['avatar']
         else:
-            self.chat_history_bubbles.avatars={'user':'','assistant':''}
             return
         self.chat_history_bubbles.update_all_avatars()
 
@@ -2932,6 +2944,7 @@ class MainWindow(QMainWindow):
     #初始化系统提示
     def init_system_message(self):
         self.sysrule=self.init_sysrule()
+        
         ai_avatar_path=os.path.join(self.application_path,'pics','avatar','AI_avatar.png')
         ai_avatar_path= ai_avatar_path if os.path.exists(ai_avatar_path) else ''
 
@@ -3033,7 +3046,7 @@ LOGGER.log(f'CWLA Class import finished, time cost:{time.time()-start_time_stamp
 def start():
     app = QApplication(sys.argv)
     if sys.platform == 'win32':
-        appid = 'CWLA 0.25.3'
+        appid = 'CWLA 0.25.4'
         ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(appid)
     window = MainWindow()
     window.show()

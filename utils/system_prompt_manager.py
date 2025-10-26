@@ -92,7 +92,6 @@ class SystemPromptStore:
             return None
 
     def save(self, file_path: str, preset: SystemPromptPreset) -> bool:
-        print('save',preset)
         try:
             with open(file_path, "w", encoding="utf-8") as f:
                 json.dump(preset.to_json(), f, indent=2, ensure_ascii=False)

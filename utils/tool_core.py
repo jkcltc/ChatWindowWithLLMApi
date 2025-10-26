@@ -311,21 +311,21 @@ def sys_time(type: str):
 
 @registry.tool(
     name="python_cmd",
-    description="A Python interpreter that will run the code you provide.Only print() output is returned.. Ensure the code is safe.",
+    description="A Python interpreter that will run the code you provide.Only print() output is returned. Ensure the code is safe.",
     parameters={
         "type": "object",
         "properties": {
             "code": {"type": "string", "minLength": 1},
-            "timeout_sec": {"type": "number", "minimum": 0, "default": 300}
+            "timeout_sec": {"type": "number", "minimum": 0, "default": 6000}
         },
         "required": ["code"]
     },
     tags=["dangerous", "dev",'builtin'],
-    timeout=300,
+    timeout=6000,
     permissions=["sandbox"]
 )
 
-def python_cmd(code: str, timeout_sec: float = 300):
+def python_cmd(code: str, timeout_sec: float = 6000):
     """Python命令执行函数，捕获print输出"""
     import contextlib
     from io import StringIO

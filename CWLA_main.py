@@ -646,7 +646,9 @@ class MainWindow(QMainWindow):
         self.web_search_button=ExpandableButton(["搜索：关闭","搜索：自动","搜索：强制",])
         self.web_search_button.toggled.connect(self.handle_web_search_button_toggled)
         self.web_search_button.indexChanged.connect(self.handle_web_search_button_index_changed)
-        self.web_search_button.setChecked(self.web_search_enabled)
+        if self.web_search_enabled:
+            self.web_search_button.setCurrentIndex(2)
+        
 
         self.enable_thinking_button=ExpandableButton(['深度思考','思考：短','思考：中','思考：高'])
         self.enable_thinking_button.setChecked(self.thinking_enabled)
@@ -712,13 +714,6 @@ class MainWindow(QMainWindow):
 
         self.main_layout.addWidget(ai_control_widget, 6, 1, 1, 1,Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignRight)
 
-
-        #思考内容文本框
-        self.think_text_box=QTextBrowser()
-        self.ai_think_label=QLabel("AI思考链")
-        
-        self.think_text_box.hide()
-        
         #历史记录 显示框
         self.past_chat_frame = QGroupBox()
         self.past_chat_frame_layout = QGridLayout()
@@ -1532,12 +1527,6 @@ class MainWindow(QMainWindow):
         self.message_status.process_input(self.think_response+self.full_response)
 
     def perform_think_actual_update(self,request_id):
-
-        # 更新界面和滚动条
-        self.think_text_box.setMarkdown(self.think_response.replace(r'\n','\n'))
-        self.think_text_box.verticalScrollBar().setValue(
-            self.think_text_box.verticalScrollBar().maximum()
-        )
         #0.25.1 气泡思考栏
         self.chat_history_bubbles.streaming_scroll(True)
         self.chat_history_bubbles.update_bubble(msg_id=request_id,reasoning_content=self.think_response,streaming='streaming')

@@ -3,9 +3,10 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Union
 import json, inspect, concurrent.futures, importlib, pkgutil, time, logging, asyncio, threading
 from jsonschema import Draft202012Validator, ValidationError
-import os, sys, webbrowser,subprocess, re, multiprocessing,time, json
+import os, sys, webbrowser,subprocess, re, time, json
 import typing as _t
 from pathlib import Path
+from PyQt5 import QtCore, QtWidgets
 
 
 
@@ -345,8 +346,39 @@ def python_cmd(code: str, timeout_sec: float = 6000):
         return f"执行失败：{str(e)}"
 
 
-import typing as _t
-from PyQt5 import QtCore, QtWidgets
+@registry.tool(
+    name="web_search",
+    description="A simple web search based on web crawlers.",
+    parameters={
+        "type": "object",
+        "properties": {
+            "keywords": {"type": "string", "minLength": 1},
+            'engine':{'type':'string',"enum":['bing','baidu'], "default":'bing'},
+            "timeout_sec": {"type": "number", "minimum": 0, "default": 40},
+            'result_num':{'type':'integer',"default":10,'maximum':10}
+        },
+        "required": ["keywords"]
+    },
+    tags=["search", "web"],
+    timeout=40
+)
+
+def web_search(keywords: str,engine='bing',timeout_sec: float = 40,result_num=10):
+    """联网搜索"""
+   
+    # 根据引擎创建搜索器
+    if engine == "baidu":
+        from utils.online_rag import baidu_search
+        searcher = baidu_search()
+        searcher.TOTAL_SEARCH_RESULTS = result_num
+    elif engine == "bing":
+        from utils.online_rag import bing_search
+        searcher = bing_search()
+    try:
+        result = searcher.get_search_results(query=keywords)
+        return result[:result_num]
+    except Exception as e:
+        return f'web_search failed: Interal - {e} '
 
 
 # -----------------------

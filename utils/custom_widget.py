@@ -1,12 +1,19 @@
-from PyQt5.QtWidgets import *
-from PyQt5.QtCore import *
-from PyQt5.QtGui import *
+from PyQt5.QtWidgets import (
+    QApplication, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QFrame,
+    QLabel, QPushButton, QToolButton, QScrollArea, QTextEdit, QStackedWidget,
+    QSizePolicy, QGraphicsOpacityEffect,QTextBrowser,qApp
+)
+from PyQt5.QtCore import (
+    Qt, QTimer, QThread, pyqtSignal, QPoint, QSize, QPropertyAnimation,QEasingCurve, QRectF
+)
+from PyQt5.QtGui import (
+    QFont, QFontMetrics, QPixmap, QIcon, QColor, QPainter, QPainterPath,
+    QLinearGradient, QTextCursor, QTextOption, QPalette
+)
 import sys
 import json
 import html
 import os
-from typing import Any, Dict, List, Tuple,Optional
-from urllib.parse import quote
 from pygments import highlight
 from pygments.lexers import get_lexer_by_name
 from pygments.formatters import HtmlFormatter
@@ -165,7 +172,7 @@ class ExpandableButton(QWidget):
     """可扩展按钮控件"""
     toggled = pyqtSignal(bool)  # 状态切换信号
     itemSelected = pyqtSignal(str)  # 项目选择信号
-    
+    indexChanged = pyqtSignal(int)  # 索引变化信号
     def __init__(self, items=None, parent=None):
         super().__init__(parent)
         
@@ -182,11 +189,6 @@ class ExpandableButton(QWidget):
         
     def _setup_ui(self):
         """设置UI界面"""
-        #self.setStyleSheet("""
-        #    QWidget {
-        #        margin: 0px;
-        #        padding: 0px;
-        #    }""")
         # 主布局
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0,0,0)
@@ -261,7 +263,14 @@ class ExpandableButton(QWidget):
         """处理菜单项选择"""
         self._current_text = text
         self.left_button.setText(text)
+        # 发出文本与索引变化信号
+        try:
+            idx = self._items.index(text)
+        except ValueError:
+            idx = -1
         self.itemSelected.emit(text)
+        if idx >= 0:
+            self.indexChanged.emit(idx)
         
     # 公共方法
     def setItems(self, items):
@@ -270,6 +279,8 @@ class ExpandableButton(QWidget):
         if items and self._current_text not in items:
             self._current_text = items[0]
             self.left_button.setText(self._current_text)
+            # 当前索引已变为0
+            self.indexChanged.emit(0)
         self.dropdown_menu.set_items(items)
         
     def get_items(self):
@@ -281,6 +292,8 @@ class ExpandableButton(QWidget):
         if text in self._items:
             self._current_text = text
             self.left_button.setText(text)
+            # 发出相应索引变化
+            self.indexChanged.emit(self._items.index(text))
     
     def setCurrentIndex(self, index):
         """设置当前显示的索引"""
@@ -288,7 +301,9 @@ class ExpandableButton(QWidget):
             text = self._items[index]
             self._current_text = text
             self.left_button.setText(text)
+            # 发出文本与索引变化信号
             self.itemSelected.emit(text)
+            self.indexChanged.emit(index)
         else:
             raise IndexError("Index out of range")
 

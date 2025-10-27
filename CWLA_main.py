@@ -42,7 +42,6 @@ from utils.concurrentor import ConvergenceDialogueOptiProcessor
 from utils.preset_data import *
 from utils.usage_analysis import TokenAnalysisWidget
 from utils.chat_history_manager import ChatHistoryEditor,ChathistoryFileManager,TitleGenerator,ChatHistoryTools,ChatHistoryTextView,HistoryListWidget
-from utils.online_rag import *
 from utils.avatar import AvatarCreatorWindow
 from utils.background_generate import BackgroundAgent
 from utils.tools.one_shot_api_request import FullFunctionRequestHandler,APIRequestHandler
@@ -263,6 +262,7 @@ class MessagePreprocessor:
 
     def _handle_web_search_results(self, message):
         """处理网络搜索结果"""
+        #self.god.init_web_searcher()
         if self.god.web_search_enabled:
             self.god.web_searcher.wait_for_search_completion()
             message = [copy.deepcopy(msg) for msg in message]
@@ -637,9 +637,16 @@ class MainWindow(QMainWindow):
         self.edit_message_button=QPushButton("原始记录")
         self.edit_message_button.clicked.connect(self.edit_chathistory)
 
-        self.web_search_button=SearchButton("联网搜索")
+        self.search_result_button=SwitchButton(texta='搜索结果 ',textb=' 搜索结果')
+        self.search_result_label=QLabel("搜索结果")
+        self.search_result_button.hide()
+        self.search_result_button.clicked.connect(self.handle_search_result_button_toggle)
+        self.main_layout.addWidget(self.search_result_button,6,1,1,1,Qt.AlignmentFlag.AlignBottom | Qt.AlignmentFlag.AlignRight)
+
+        self.web_search_button=ExpandableButton(["搜索：关闭","搜索：自动","搜索：强制",])
+        self.web_search_button.toggled.connect(self.handle_web_search_button_toggled)
+        self.web_search_button.indexChanged.connect(self.handle_web_search_button_index_changed)
         self.web_search_button.setChecked(self.web_search_enabled)
-        self.web_search_button.toggled.connect(self.handel_web_search_button_toggled)
 
         self.enable_thinking_button=ExpandableButton(['深度思考','思考：短','思考：中','思考：高'])
         self.enable_thinking_button.setChecked(self.thinking_enabled)
@@ -691,15 +698,6 @@ class MainWindow(QMainWindow):
         ai_control_layout=QGridLayout()
         ai_control_layout.setContentsMargins(margin,margin,margin,margin)
         ai_control_widget.setLayout(ai_control_layout)
-        #思考内容角标
-        think_info_pixmap = QPixmap()
-        think_info_pixmap.loadFromData(self.think_img)
-
-        self.think_info=QPushButton()
-        self.think_info.clicked.connect(self.extend_think_text_box)
-        self.think_info.setIcon(QIcon(think_info_pixmap))
-        self.think_info.setFixedSize(sub_width,sub_height)
-        self.think_info.setIconSize(self.think_info.size()*0.8)
 
         open_image_icon=QPixmap()
         open_image_icon.loadFromData(image_icon)
@@ -710,7 +708,6 @@ class MainWindow(QMainWindow):
         self.open_image_button.setToolTip('打开背景图')
         self.open_image_button.clicked.connect(self.open_background_pic)
 
-        ai_control_layout.addWidget(self.think_info,0,0,1,1)
         ai_control_layout.addWidget(self.open_image_button,1,0,1,1)
 
         self.main_layout.addWidget(ai_control_widget, 6, 1, 1, 1,Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignRight)
@@ -722,12 +719,6 @@ class MainWindow(QMainWindow):
         
         self.think_text_box.hide()
         
-        self.search_result_button=SwitchButton(texta='搜索结果 ',textb=' 搜索结果')
-        self.search_result_label=QLabel("搜索结果")
-        self.search_result_button.hide()
-        self.search_result_button.clicked.connect(self.handle_search_result_button_toggle)
-        self.main_layout.addWidget(self.search_result_button,6,1,1,1,Qt.AlignmentFlag.AlignBottom | Qt.AlignmentFlag.AlignRight)
-
         #历史记录 显示框
         self.past_chat_frame = QGroupBox()
         self.past_chat_frame_layout = QGridLayout()
@@ -802,10 +793,6 @@ class MainWindow(QMainWindow):
         hislabel=QLabel("历史记录")
         hislabel.setMaximumHeight(20)
 
-        #完整/极简切换
-        self.hide_extra_items=SwitchButton(texta="完整    ",textb="    极简")
-        self.hide_extra_items.clicked.connect(self.handle_hide_extra_items_toggle)
-
         self.past_chat_frame_layout.addWidget(self.stat_tab_widget,         0,0,1,5)
         self.past_chat_frame_layout.addWidget(hislabel,                     1,0,1,4)
         self.past_chat_frame_layout.addWidget(self.past_chat_list,          2,1,8,4)
@@ -814,7 +801,7 @@ class MainWindow(QMainWindow):
         self.past_chat_frame_layout.addWidget(self.del_item_chat_list,      4,0,1,1)
         self.past_chat_frame_layout.addWidget(self.load_sys_pmt_chat_list,  5,0,1,1)
         self.past_chat_frame_layout.addWidget(self.load_stories_chat_list,  6,0,1,1)
-        self.past_chat_frame_layout.addWidget(self.hide_extra_items,        10,1,1,1)
+
         self.past_chat_frame.setParent(self)
         self.past_chat_frame.hide()
 
@@ -894,7 +881,6 @@ class MainWindow(QMainWindow):
         self.enforce_lower_repeat_var=False
         self.enforce_lower_repeat_text=''
         self.novita_model='foddaxlPhotorealism_v45_122788.safetensors'
-        self.web_searcher=WebSearchSettingWindows(MODEL_MAP,DEFAULT_APIS)
 
         # 状态控制标志
         self.stream_receive = True
@@ -1178,6 +1164,12 @@ class MainWindow(QMainWindow):
         self.title_generator.error_signal.connect(self.info_manager.error)
         self.title_generator.warning_signal.connect(self.info_manager.warning)
         self.title_generator.title_generated.connect(self.update_chat_title)
+
+    def init_web_searcher(self):
+        '懒导入，不常用模块，加速启动'
+        if not hasattr(self, 'web_searcher'):
+            from utils.online_rag import WebSearchSettingWindows
+            self.web_searcher=WebSearchSettingWindows(MODEL_MAP,DEFAULT_APIS)
     
     def create_one_time_use_title_creator(self):
         api_requester=APIRequestHandler(api_config=self.api)
@@ -1247,36 +1239,6 @@ class MainWindow(QMainWindow):
             icon.addPixmap(pixmap)
         
         return icon
-
-    #Ai思考框收起/打开
-    def extend_think_text_box(self):
-        if not self.think_text_box.isVisible():
-            self.ai_think_label.setVisible(True)
-            self.think_text_box.setVisible(True)
-            if self.search_result_button.isChecked():
-                self.main_layout.addWidget(self.web_searcher.search_results_widget,3, 2, 2, 1)
-                self.main_layout.addWidget(self.ai_think_label, 5, 2, 1,1)
-                self.main_layout.addWidget(self.think_text_box, 6, 2, 2,1)#,Qt.AlignmentFlag.AlignBottom | Qt.AlignmentFlag.AlignRight)
-            else:
-                self.main_layout.addWidget(self.ai_think_label, 2, 2, 1,1)
-                self.main_layout.addWidget(self.think_text_box, 3, 2, 4,1)
-                self.main_layout.addWidget(self.chat_history_label, 2, 3, 1, 1)
-                self.main_layout.addWidget(self.chat_history_bubbles, 3, 3, 4, 3)
-            if self.hide_extra_items.isChecked() and(not self.search_result_button.isChecked()):
-                self.main_layout.setColumnStretch(2, 2)
-                WindowAnimator.animate_resize(self, QSize(self.width(),self.height()), QSize(int(self.width()*2),self.height()))
-            self.think_text_box.repaint()
-        else:
-            self.think_text_box.hide()
-            self.ai_think_label.hide()
-            if not self.search_result_button.isChecked():
-                self.main_layout.addWidget(self.chat_history_label, 2, 2, 1, 1)
-                self.main_layout.addWidget(self.chat_history_bubbles, 3, 2, 4, 3)
-            else:
-                self.main_layout.addWidget(self.web_searcher.search_results_widget,3, 2, 4, 1)
-            if self.hide_extra_items.isChecked() and(not self.search_result_button.isChecked()):
-                self.main_layout.setColumnStretch(2, 0)
-                WindowAnimator.animate_resize(self, QSize(self.width(),self.height()), QSize(int(self.width()/2),self.height()))
 
     #设置按钮：大小自适应
     def on_button_resize(self, event):
@@ -2738,8 +2700,7 @@ class MainWindow(QMainWindow):
 
     #联网搜索结果窗口
     def handle_search_result_button_toggle(self):
-        if not hasattr(self, 'web_searcher'):
-            self.web_searcher=WebSearchSettingWindows(MODEL_MAP,DEFAULT_APIS)
+        self.init_web_searcher()
         if self.search_result_button.isChecked():
             self.web_searcher.search_results_widget.show()
             self.search_result_label.show()
@@ -2747,66 +2708,53 @@ class MainWindow(QMainWindow):
             self.main_layout.addWidget(self.chat_history_label, 2, 3, 1, 1)
             self.main_layout.addWidget(self.chat_history_bubbles, 3, 3, 4, 3)
             self.main_layout.addWidget(self.search_result_label, 2, 2, 1, 1)
-            if self.think_text_box.isVisible():
-                self.main_layout.addWidget(self.web_searcher.search_results_widget,3, 2, 2, 1)
-                self.main_layout.addWidget(self.ai_think_label, 5, 2, 1,1)
-                self.main_layout.addWidget(self.think_text_box, 6, 2, 2,1)
-            else:
-                self.main_layout.addWidget(self.web_searcher.search_results_widget,3, 2, 4, 1)
-                self.main_layout.setColumnStretch(0, 1)
-            if self.hide_extra_items.isChecked():
-                self.main_layout.setColumnStretch(2, 2)
-                WindowAnimator.animate_resize(self, QSize(self.width(),self.height()), QSize(int(self.width()*2),self.height()))
+            self.main_layout.addWidget(self.web_searcher.search_results_widget,3, 2, 4, 1)
+            self.main_layout.setColumnStretch(0, 1)
 
         else:
             self.web_searcher.search_results_widget.hide()
             self.search_result_label.hide()
-            if self.think_text_box.isVisible():
-                self.main_layout.addWidget(self.ai_think_label, 2, 2, 1,1)
-                self.main_layout.addWidget(self.think_text_box, 3, 2, 4,1)
-            else:
-                self.main_layout.addWidget(self.display_full_chat_history, 2, 4, 1, 1)
-                self.main_layout.addWidget(self.chat_history_label, 2, 2, 1, 1)
-                self.main_layout.addWidget(self.chat_history_bubbles, 3, 2, 4, 3)
-            if self.hide_extra_items.isChecked():
-                self.main_layout.setColumnStretch(2, 0)
-                WindowAnimator.animate_resize(self, QSize(self.width(),self.height()), QSize(int(self.width()/2),self.height()))
+            self.main_layout.addWidget(self.display_full_chat_history, 2, 4, 1, 1)
+            self.main_layout.addWidget(self.chat_history_label, 2, 2, 1, 1)
+            self.main_layout.addWidget(self.chat_history_bubbles, 3, 2, 4, 3)
 
-    #联网搜索设置窗口
-    def open_web_search_setting_window(self):
-        self.web_searcher.search_settings_widget.show()
-
-    #极简界面
-    def handle_hide_extra_items_toggle(self):
-        if self.hide_extra_items.isChecked():
-            self.chat_history_label .hide()
-            self.chat_history_bubbles  .hide()
-            self.bubble_background  .hide()
-            self.main_layout.setColumnStretch(0, 1)
-            self.main_layout.setColumnStretch(1, 1)
-            self.main_layout.setColumnStretch(2, 0)
-            self.main_layout.setColumnStretch(3, 0)
-            WindowAnimator.animate_resize(self, QSize(self.width(),self.height()), QSize(int(self.height()/2),self.height()-100))
-        else:
-            self.chat_history_label     .show()
-            self.chat_history_bubbles   .show()
-            self.bubble_background      .show()
-            self.main_layout.setColumnStretch(0, 1)
-            self.main_layout.setColumnStretch(1, 1)
-            self.main_layout.setColumnStretch(2, 1)
-            self.main_layout.setColumnStretch(3, 1)
-            WindowAnimator.animate_resize(self, QSize(self.width(),self.height()), QSize(int(self.height()*1.7),self.height()+100))
-
-    def handel_web_search_button_toggled(self,checked):
-        self.web_search_enabled = checked
-        if self.web_search_enabled:
-            self.search_result_button.show()
-        else:
+    def handle_web_search_button_index_changed(self,index):
+        # 关闭搜索模块
+        if index==0:
+            self.web_search_button.setChecked(False)
             self.search_result_button.setChecked(False)
             self.handle_search_result_button_toggle()
             self.search_result_button.hide()
             self.web_searcher.search_results_widget.hide()
             self.search_result_label.hide()
+        # 启用搜索工具
+        if index == 1:
+            self.web_search_button.setChecked(True)
+            selected_functions = self.function_manager.get_selected_function_names()
+            selected_functions = list(set(selected_functions) | {'web_search'})
+        if index ==2 :
+            self.init_web_searcher()
+            self.web_search_button.setChecked(True)
+            self.search_result_button.show()
+
+        if index in [0,2]:
+            selected_functions = self.function_manager.get_selected_function_names()
+            selected_functions = [func for func in selected_functions if func != 'web_search']
+        self.function_manager.set_active_tools(selected_functions)
+        
+        # 强制搜索，老接口
+        self.web_search_enabled = index == 2
+            
+
+    def handle_web_search_button_toggled(self,checked):
+        if not checked and self.web_search_button.currentIndex()!=0:
+            self.web_search_button.setCurrentIndex(0)
+        if  checked and self.web_search_button.currentIndex()==0:
+            self.web_search_button.setCurrentIndex(1)
+
+    def open_web_search_setting_window(self):
+        self.init_web_searcher()
+        self.web_searcher.search_settings_widget.show()
 
     #长对话/背景更新启用时的消息回退
     def handel_call_back_to_lci_bgu(self):

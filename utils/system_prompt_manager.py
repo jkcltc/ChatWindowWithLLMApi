@@ -363,8 +363,7 @@ class SystemPromptManager(QtWidgets.QWidget):
         
         # 更新工具选择
         tools = info.get('tools', [])
-        if tools:
-            self.tools_widget.set_initial_selection(tools)
+        self.tools_widget.set_initial_selection(tools)
         
         # 查找或创建"当前对话"配置
         filename = f"{self.default_current_filename}.json"

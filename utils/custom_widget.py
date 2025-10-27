@@ -1,10 +1,10 @@
 from PyQt5.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QFrame,
     QLabel, QPushButton, QToolButton, QScrollArea, QTextEdit, QStackedWidget,
-    QSizePolicy, QGraphicsOpacityEffect,QTextBrowser,qApp
+    QSizePolicy, QGraphicsOpacityEffect,QTextBrowser,qApp,QScrollBar
 )
 from PyQt5.QtCore import (
-    Qt, QTimer, QThread, pyqtSignal, QPoint, QSize, QPropertyAnimation,QEasingCurve, QRectF
+    Qt, QTimer, QThread, pyqtSignal, QPoint, QSize, QPropertyAnimation,QEasingCurve, QRectF,QEvent
 )
 from PyQt5.QtGui import (
     QFont, QFontMetrics, QPixmap, QIcon, QColor, QPainter, QPainterPath,
@@ -1347,6 +1347,14 @@ class ChatHistoryWidget(QFrame):
         self.init_ui()
         self.connect_signals()
 
+
+        self.is_auto_scroll_enabled = True  # 自动滚动是否启用
+        self.not_streaming_dont_scroll=True
+        self.wheel_timer=QTimer()
+        self.wheel_timer.setInterval(500)
+        self.wheel_timer.setSingleShot(True)
+
+
     def init_ui(self):
         """初始化UI布局"""
 
@@ -1371,6 +1379,12 @@ class ChatHistoryWidget(QFrame):
         # 设置滚动区域
         scroll_area.setWidget(content_widget)
         self.layout().addWidget(scroll_area)
+
+        self.scroll_area = self.findChild(QScrollArea)
+        self.scroll_bar = self.scroll_area.verticalScrollBar()
+        if self.scroll_area:
+            self.scroll_area.viewport().installEventFilter(self)
+            self.scroll_area.verticalScrollBar().installEventFilter(self)
         
         # 占位控件
         self.spacer = QLabel()
@@ -1396,6 +1410,9 @@ class ChatHistoryWidget(QFrame):
         设置完整的聊天历史记录，高效更新UI
         :param history: 新的聊天历史记录列表
         """
+        # 恢复自动滚动功能
+        self.is_auto_scroll_enabled = True
+        self.not_streaming_dont_scroll=True
         # 创建新历史记录的ID到内容的映射
         try:
             history=history[-30:]#优化不动，先截了
@@ -1658,12 +1675,15 @@ class ChatHistoryWidget(QFrame):
 
     def scroll_to_bottom(self):
         """滚动到底部"""
-        scroll_area = self.findChild(QScrollArea)
-        if scroll_area:
-            scroll_bar = scroll_area.verticalScrollBar()
-            scroll_bar.setValue(scroll_bar.maximum())
+        if self.scroll_area:
+            self.scroll_bar.setValue(self.scroll_bar.maximum())
 
     def streaming_scroll(self,run=True,scroll_time=10):
+        self.not_streaming_dont_scroll=False
+        if not self.is_auto_scroll_enabled:
+            self.scroll_timer.stop()
+            return  # 自动滚动被禁用，不执行任何操作
+        
         if self.scroll_timer.interval()!=scroll_time:
             self.scroll_timer.stop()
             self.scroll_timer.setInterval(scroll_time)
@@ -1677,6 +1697,31 @@ class ChatHistoryWidget(QFrame):
         else:
             self.is_scroll_update_active=False
             self.scroll_timer.stop()
+    
+    def eventFilter(self, obj, event):
+        """事件过滤器，检测鼠标滚轮事件"""
+        if event.type() == QEvent.Wheel:
+            self._handle_wheel_event(event)
+            return False  # 继续传递事件
+        
+        return super().eventFilter(obj, event)
+    
+    def _handle_wheel_event(self,event):
+        """处理鼠标滚轮事件"""
+        if self.wheel_timer.isActive() or self.not_streaming_dont_scroll:
+            return
+        if self.is_auto_scroll_enabled and event.angleDelta().y() > 0:
+            self.wheel_timer.start()
+            # 停止自动滚动计时器
+            self.scroll_timer.stop()
+            self.is_auto_scroll_enabled = False
+            self.is_scroll_update_active = False
+        elif int(self.scroll_bar.value())==int(self.scroll_bar.maximum()) and event.angleDelta().y() < 0:
+            self.wheel_timer.start()
+            self.is_auto_scroll_enabled = True
+            self.streaming_scroll()
+
+
         
 if __name__=='__main__':
     app = QApplication(sys.argv)

@@ -6,6 +6,7 @@ import json
 from typing import List, Tuple, Optional
 import hashlib
 from utils.tool_core import FunctionsSelectorWidget
+import uuid
 
 @dataclass
 class SystemPromptPreset:
@@ -347,19 +348,17 @@ class SystemPromptManager(QtWidgets.QWidget):
 
         # 更新代称
         name_info = info.get('name', {})
-        if name_info:
-            self.name_user = name_info.get('user', self.name_user)
-            self.name_ai = name_info.get('assistant', self.name_ai)
-            self.name_user_edit.setText(self.name_user)
-            self.name_ai_edit.setText(self.name_ai)
+        self.name_user = name_info.get('user', "")
+        self.name_ai = name_info.get('assistant', "")
+        self.name_user_edit.setText(self.name_user)
+        self.name_ai_edit.setText(self.name_ai)
         
         # 更新头像路径
         avatar_info = info.get('avatar', {})
-        if avatar_info:
-            self.avatar_user_path = avatar_info.get('user', self.avatar_user_path)
-            self.avatar_ai_path = avatar_info.get('assistant', self.avatar_ai_path)
-            self._update_avatar_preview("user")
-            self._update_avatar_preview("assistant")
+        self.avatar_user_path = avatar_info.get('user', self.avatar_user_path)
+        self.avatar_ai_path = avatar_info.get('assistant', self.avatar_ai_path)
+        self._update_avatar_preview("user")
+        self._update_avatar_preview("assistant")
         
         # 更新工具选择
         tools = info.get('tools', [])
@@ -368,11 +367,6 @@ class SystemPromptManager(QtWidgets.QWidget):
         # 查找或创建"当前对话"配置
         filename = f"{self.default_current_filename}.json"
         current_path = self.store.current_dialog_path(self.default_current_filename)
-        
-        # 检查是否已存在
-        existing_preset = None
-        if os.path.exists(current_path):
-            existing_preset = self.store.read(current_path)
         
         # 创建新的预设对象
         preset = SystemPromptPreset(
@@ -418,6 +412,14 @@ class SystemPromptManager(QtWidgets.QWidget):
         finally:
             self.ignore_changes = False
     
+    def get_init_system_message(self):
+        """
+        更新本地存储的当前对话，然后返回一个尽可能保留原参数的系统提示
+        """
+        current_path = self.store.current_dialog_path(self.default_current_filename)
+        preset=self.store.read(current_path)
+        return self._build_system_message(preset)
+
     # ---------- 内部工具 ----------
     def _reload_list(self, select_path: Optional[str] = None):
         blocker = QtCore.QSignalBlocker(self.list_widget)
@@ -507,6 +509,24 @@ class SystemPromptManager(QtWidgets.QWidget):
         finally:
             self.ignore_changes = False
 
+    def _build_system_message(self,preset : SystemPromptPreset):
+        """构造一个系统提示消息"""
+        system_message=(
+            {
+            'role': 'system', 
+            'content': preset.content,
+            'info':{
+                'id':'system_prompt',
+                'name':preset.info.get('name',{'user':'','assistant':''}),
+                'avatar':preset.info.get('avatar',{'user':'','assistant':''}),
+                'chat_id':str(uuid.uuid4()),
+                'title':'New Chat',
+                'tools':preset.info.get("tools", [])
+                }
+            }
+        )
+        return system_message
+    
     # ---------- 列表交互 ----------
     def _on_file_selected(self):
         if getattr(self, "_ignore_selection", False):

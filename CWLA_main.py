@@ -868,6 +868,7 @@ class MainWindow(QMainWindow):
         self.info_manager.log(f'CWLA init finished, time cost:{time.time()-start_time_stamp:.2f}s',level='debug')
 
     def init_self_params(self):
+        self.chathistory=[]
         self.setting_img = setting_img
         self.think_img = think_img
         self.application_path = application_path
@@ -1424,22 +1425,10 @@ class MainWindow(QMainWindow):
 
     #流式处理的末端方法
     def update_chat_history(self, clear=True, new_msg=None,msg_id=''):
-        buffer = []
-        if self.name_ai=='':
-            role_ai=self.model_combobox.currentText()
-        else:
-            role_ai=self.name_ai
-        
-        if self.name_user=='':
-            role_user='user'
-        else:
-            role_user=self.name_user
-    
-
         if not new_msg:
             self.chat_history_bubbles.streaming_scroll(False)
-            self.chat_history_bubbles.set_role_nickname('assistant', role_ai)
-            self.chat_history_bubbles.set_role_nickname('user', role_user)
+            self.chat_history_bubbles.set_role_nickname('assistant', self.name_ai)
+            self.chat_history_bubbles.set_role_nickname('user', self.name_user)
             self.chat_history_bubbles.set_chat_history(self.chathistory)
             try:
                 self.tts_handler.send_tts_request(
@@ -1452,10 +1441,15 @@ class MainWindow(QMainWindow):
 
         else:
             self.chat_history_bubbles.streaming_scroll(True)
-            self.chat_history_bubbles.update_bubble(msg_id=msg_id,content=self.full_response,streaming='streaming')
+            self.chat_history_bubbles.update_bubble(
+                msg_id=msg_id,
+                content=self.full_response,
+                streaming='streaming',
+                model=self.message_status.model #发送时绑定的模型参数就剩它了
+            )
 
         # 条件保存（仅在内容变化时）
-        if clear or buffer:
+        if clear :
             if not new_msg:
                 self.chathistory_file_manager.autosave_save_chathistory(self.chathistory)
                 
@@ -1529,7 +1523,7 @@ class MainWindow(QMainWindow):
     def perform_think_actual_update(self,request_id):
         #0.25.1 气泡思考栏
         self.chat_history_bubbles.streaming_scroll(True)
-        self.chat_history_bubbles.update_bubble(msg_id=request_id,reasoning_content=self.think_response,streaming='streaming')
+        self.chat_history_bubbles.update_bubble(msg_id=request_id,reasoning_content=self.think_response,streaming='streaming',model=self.message_status.model)
         
         # 更新时间戳
         self.think_last_update_time = QDateTime.currentDateTime().toMSecsSinceEpoch()
@@ -1825,18 +1819,16 @@ class MainWindow(QMainWindow):
         self.update_opti_bar()
         self.update_chat_history()
 
-
+    # 系统提示预设更新
     def update_system_preset(self,preset):
+        # 只需要content，剩下post_history和name没必要
         self.chathistory[0]['content']=preset['content']
         info=preset["info"]
-        self.name_user=info['name']['user']
-        self.name_ai=info['name']['assistant']
         for key,value in info.items():
             if key == 'title':
                 continue
             self.chathistory[0]['info'][key]=value
-        self.update_avatar_to_chat_bubbles()
-        self.update_name_to_chatbubbles()
+        self._update_preset_to_ui_by_system_message()
 
     # 打开系统提示设置窗口
     def open_system_prompt(self, show_at_call=True):
@@ -1995,17 +1987,12 @@ class MainWindow(QMainWindow):
                     'assistant':''
                     }
                 )
-            self.update_chat_history()  # 更新聊天历史显示
-            #覆盖两人名字
-            self.name_user=self.chathistory[0]['info']['name']['user'     ]
-            self.name_ai  =self.chathistory[0]['info']['name']['assistant']
-
             self.new_chat_rounds=min(self.max_message_rounds,len(self.chathistory))
             self.new_background_rounds=min(self.max_background_rounds,len(self.chathistory))
             self.last_summary=''
             self.update_opti_bar()
-            self.update_avatar_to_chat_bubbles()
-            self.update_name_to_chatbubbles()
+            self._update_preset_to_ui_by_system_message()
+            self.update_chat_history()  # 更新聊天历史显示
             self.info_manager.notify(
                 f'''聊天记录已导入，当前聊天记录：{file_path}
 对话长度 {len(self.chathistory)},
@@ -2852,9 +2839,12 @@ class MainWindow(QMainWindow):
                 avatar_path['user']=user_avatar_path
             if not avatar_path['assistant'] or not os.path.exists(avatar_path['assistant']):
                 avatar_path['assistant']=ai_avatar_path
-            self.chat_history_bubbles.avatars=self.chathistory[0]['info']['avatar']
         else:
-            return
+            self.chathistory[0]['info']['avatar']={
+                'user':user_avatar_path,
+                'assistant':ai_avatar_path
+            }
+        self.chat_history_bubbles.avatars=self.chathistory[0]['info']['avatar']
         self.chat_history_bubbles.update_all_avatars()
 
     #气泡名称更新
@@ -2871,43 +2861,27 @@ class MainWindow(QMainWindow):
 
     #创建新消息
     def creat_new_chathistory(self):
-        self.chathistory = []
-        self.init_system_message()
-        self.chat_history_bubbles.update_all_avatars(
-            new_path=self.chathistory[0]['info']['avatar']
-            )
-
-    #0.25.2
-    #初始化系统提示
-    def init_system_message(self):
-        self.sysrule=self.init_sysrule()
-        
-        ai_avatar_path=os.path.join(self.application_path,'pics','avatar','AI_avatar.png')
-        ai_avatar_path= ai_avatar_path if os.path.exists(ai_avatar_path) else ''
-
-        user_avatar_path=os.path.join(self.application_path,'pics','avatar','USER_avatar.png')
-        user_avatar_path= user_avatar_path if os.path.exists(user_avatar_path) else ''
-        
-        system_message=(
-            {
-            'role': 'system', 
-            'content': self.sysrule,
-            'info':{
-                'id':'system_prompt',
-                'name':{'user':self.name_user,'assistant':self.name_ai},
-                'avatar':{'user':user_avatar_path,'assistant':ai_avatar_path},
-                'chat_id':str(uuid.uuid4()),
-                'title':'New Chat',
-                'tools':[]
-                }
-            }
-        )
-
+        # 如果已有历史消息，更新系统提示窗口暂存的预设到本地
         if self.chathistory:
-            self.chathistory[0] = system_message
-        else:
-            self.chathistory.append(system_message)
+            self.system_prompt_override_window.load_income_prompt(self.chathistory[0])
 
+        # 获取系统提示管理器洗干净的预设消息
+        system_message=self.system_prompt_override_window.get_init_system_message()
+
+        # 清空历史记录，添加系统消息
+        self.chathistory = []
+        self.chathistory.append(system_message)
+        
+        self._update_preset_to_ui_by_system_message()
+
+    def _update_preset_to_ui_by_system_message(self,chathistory=[]):
+        system_message=chathistory[0] if chathistory else self.chathistory[0]
+        info=system_message["info"]
+        self.name_user=info['name']['user']
+        self.name_ai=info['name']['assistant']
+        self.update_avatar_to_chat_bubbles()
+        self.update_name_to_chatbubbles()
+    
     #状态分析器
     def get_status_str(self,message_finished=False):
         # 表格头部

@@ -1076,7 +1076,7 @@ class ChatBubble(QWidget):
         self._setup_avatar()
         
         # 创建角色标签
-        self.role_label = QLabel(nickname if nickname else self.role)
+        self.role_label = QLabel(self._get_patched_name(nickname))
         font = self.role_label.font()
         font.setBold(True)
         self.role_label.setFont(font)
@@ -1156,6 +1156,23 @@ class ChatBubble(QWidget):
         # 连接信号
         self._connect_signals()
 
+    def _get_patched_name(self,nickname):
+        """
+        用户和工具直接大写返回，AI提取个模型名称
+        """
+        print(self.message_data)
+        if self.role=='user':
+            if not nickname:
+                return self.role.upper()
+            return nickname
+        if self.role=='tool':
+            return self.role.upper()
+        if self.role=='assistant':
+            info_data = self.message_data.get('info', {})
+            if not nickname:#要换到小部件里去
+                nickname=info_data['model']
+            return nickname
+    
     def _setup_avatar(self):
         """设置头像显示（无圆形效果）"""
         if self.avatar_path and os.path.exists(self.avatar_path):
@@ -1251,7 +1268,7 @@ class ChatBubble(QWidget):
         
     def update_nickname(self, new_nickname):
         """更新昵称显示"""
-        self.role_label.setText(new_nickname)
+        self.role_label.setText(self._get_patched_name(new_nickname))
     
     def getcontent(self):
         """获取当前消息内容"""
@@ -1456,7 +1473,10 @@ class ChatHistoryWidget(QFrame):
             # 找出要添加的新消息
             h3=history
             existing_msg_ids = [bubble.msg_id for bubble in self.bubble_list]
-            new_messages = [msg for msg in history if msg['info']['id'] not in existing_msg_ids]
+            new_messages = []
+            for msg in history:
+                if msg['info']['id'] not in existing_msg_ids:
+                    new_messages.append(msg)
             
             # 添加新消息
             for new_msg in new_messages:
@@ -1556,7 +1576,7 @@ class ChatHistoryWidget(QFrame):
         # 创建气泡控件
         bubble = ChatBubble(
             message_data,
-            nickname=self.nicknames.get(role, role.capitalize()),
+            nickname=self.nicknames.get(role, ''),
             avatar_path=self.avatars.get(role, ''),
             msg_id=msg_id
         )
@@ -1592,7 +1612,7 @@ class ChatHistoryWidget(QFrame):
         if bubble:
             bubble.message_data['info'] = info_data
     
-    def update_bubble(self,message='',msg_id=0, content='', reasoning_content='',info='',streaming='streaming'):
+    def update_bubble(self,message='',msg_id=0, content='', reasoning_content='',info='',streaming='streaming',model=''):
         #处理输入方式为message
         #输入方式为message，未初始化
 
@@ -1618,7 +1638,10 @@ class ChatHistoryWidget(QFrame):
                 'role': 'assistant',  # 默认为assistant
                 'content': content,
                 'reasoning_content': reasoning_content,
-                'info': {'id': msg_id},
+                'info': {
+                    'id': msg_id,
+                    'model':model
+                    },
                 'streaming':streaming
             }
             self.add_message(build_message)
@@ -1637,9 +1660,7 @@ class ChatHistoryWidget(QFrame):
                 'streaming':streaming
                          })      
             if info:
-                self.update_bubble_info(msg_id, 
-                        {'info': info,
-                'streaming':streaming})
+                self.update_bubble_info(msg_id, info)
             return
 
         if info:  # 确保info更新被处理

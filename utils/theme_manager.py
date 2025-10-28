@@ -1,9 +1,9 @@
 # utils/theme_manager.py
 import os
 import configparser
-from PyQt5.QtWidgets import *
-from PyQt5.QtCore import *
-from PyQt5.QtGui import *
+from PyQt6.QtWidgets import *
+from PyQt6.QtCore import *
+from PyQt6.QtGui import *
 
 class ThemeSelector(QWidget):
     def __init__(self, init_path=None):
@@ -39,7 +39,7 @@ class ThemeSelector(QWidget):
         
         # 添加各种控件用于预览
         self.preview_label = QLabel("Deepseek:\n你好，我是一个AI助手。")
-        self.preview_label.setAlignment(Qt.AlignCenter)
+        self.preview_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.preview_label.setFont(QFont("Arial", 12))
         
         self.preview_button = QPushButton("发送消息")
@@ -143,7 +143,7 @@ class ThemeSelector(QWidget):
             if file.endswith(".qss"):
                 theme_path = os.path.join(theme_dir, file)
                 item = QListWidgetItem(os.path.splitext(file)[0])
-                item.setData(Qt.UserRole, theme_path)
+                item.setData(Qt.ItemDataRole.UserRole, theme_path)
                 self.theme_list.addItem(item)
                 
         # 默认选择第一个主题
@@ -157,7 +157,7 @@ class ThemeSelector(QWidget):
             return
             
         selected_item = selected_items[0]
-        theme_path = selected_item.data(Qt.UserRole)
+        theme_path = selected_item.data(Qt.ItemDataRole.UserRole)
         self.current_theme = theme_path
         
         try:
@@ -253,7 +253,7 @@ class ThemeSelector(QWidget):
 # 使用示例
 if __name__ == "__main__":
     import sys
-    from PyQt5.QtWidgets import QMainWindow, QTextEdit
+    from PyQt6.QtWidgets import QMainWindow, QTextEdit
     
     class MainWindow(QMainWindow):
         def __init__(self):
@@ -278,4 +278,4 @@ if __name__ == "__main__":
     app = QApplication(sys.argv)
     window = MainWindow()
     window.show()
-    sys.exit(app.exec_())
+    sys.exit(app.exec())

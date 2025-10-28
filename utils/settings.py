@@ -1,6 +1,6 @@
-from PyQt5.QtCore import *
-from PyQt5.QtWidgets import *
-from PyQt5.QtGui import QPixmap
+from PyQt6.QtCore import *
+from PyQt6.QtWidgets import *
+from PyQt6.QtGui import QPixmap
 import sys,os,configparser
 
 #简易小组件
@@ -9,11 +9,11 @@ class QuickSeparator(QFrame):
     def __init__(self, orientation="h"):
         super().__init__()
         if orientation == "h":
-            self.setFrameShape(QFrame.HLine)
-            self.setFrameShadow(QFrame.Sunken)
+            self.setFrameShape(QFrame.Shape.HLine)
+            self.setFrameShadow(QFrame.Shadow.Sunken)
         else:
-            self.setFrameShape(QFrame.VLine)
-            self.setFrameShadow(QFrame.Sunken)
+            self.setFrameShape(QFrame.Shape.VLine)
+            self.setFrameShadow(QFrame.Shadow.Sunken)
 
 class SendMethodWindow(QWidget):
     stream_receive_changed = pyqtSignal(bool)
@@ -135,7 +135,7 @@ class MainSettingWindow(QWidget):
         rounds_input_layout.addWidget(self.max_rounds_edit)
         rounds_input_layout.addStretch()
         
-        self.max_rounds_slider = QSlider(Qt.Horizontal)
+        self.max_rounds_slider = QSlider(Qt.Orientation.Horizontal)
         self.max_rounds_slider.setMinimum(-1)
         self.max_rounds_slider.setMaximum(500)
         self.max_rounds_slider.setValue(self.config.get('max_message_rounds', 10))
@@ -396,7 +396,7 @@ class MainSettingWindow(QWidget):
         self.title_max_length_edit.setMaximumWidth(60)
         max_length_layout.addWidget(self.title_max_length_edit)
         
-        self.title_max_length_slider = QSlider(Qt.Horizontal)
+        self.title_max_length_slider = QSlider(Qt.Orientation.Horizontal)
         self.title_max_length_slider.setMinimum(5)
         self.title_max_length_slider.setMaximum(50)
         self.title_max_length_slider.setValue(self.config.get('title_creator_max_length', 20))
@@ -458,7 +458,7 @@ class MainSettingWindow(QWidget):
         
         # 长对话优化
         self.long_chat_checkbox.stateChanged.connect(
-            lambda state: self.long_chat_improve_changed.emit(state == Qt.Checked))
+            lambda state: self.long_chat_improve_changed.emit(state == Qt.CheckState.Checked))
         
         self.include_system_prompt.stateChanged.connect(self.include_system_prompt_changed.emit)
 
@@ -475,17 +475,17 @@ class MainSettingWindow(QWidget):
         
         # 参数设置
         self.top_p_checkbox.stateChanged.connect(
-            lambda state: self.top_p_enable_changed.emit(state == Qt.Checked))
+            lambda state: self.top_p_enable_changed.emit(state == Qt.CheckState.Checked))
         self.top_p_edit.textChanged.connect(
             lambda text: self.handle_float_change(text, self.top_p_changed))
         
         self.temp_checkbox.stateChanged.connect(
-            lambda state: self.temperature_enable_changed.emit(state == Qt.Checked))
+            lambda state: self.temperature_enable_changed.emit(state == Qt.CheckState.Checked))
         self.temp_edit.textChanged.connect(
             lambda text: self.handle_float_change(text, self.temperature_changed))
         
         self.penalty_checkbox.stateChanged.connect(
-            lambda state: self.presence_penalty_enable_changed.emit(state == Qt.Checked))
+            lambda state: self.presence_penalty_enable_changed.emit(state == Qt.CheckState.Checked))
         self.penalty_edit.textChanged.connect(
             lambda text: self.handle_float_change(text, self.presence_penalty_changed))
         
@@ -495,7 +495,7 @@ class MainSettingWindow(QWidget):
         
         # 自动替换
         self.autoreplace_checkbox.stateChanged.connect(
-            lambda state: self.autoreplace_changed.emit(state == Qt.Checked))
+            lambda state: self.autoreplace_changed.emit(state == Qt.CheckState.Checked))
         self.autoreplace_from_edit.textChanged.connect(
             self.autoreplace_from_changed.emit)
         self.autoreplace_to_edit.textChanged.connect(
@@ -510,7 +510,7 @@ class MainSettingWindow(QWidget):
         self.title_llm_radio.toggled.connect(self.handle_title_method_changed)
         
         self.title_system_prompt_checkbox.stateChanged.connect(
-            lambda state: self.title_creator_system_prompt_changed.emit(state == Qt.Checked))
+            lambda state: self.title_creator_system_prompt_changed.emit(state == Qt.CheckState.Checked))
         
         self.title_max_length_edit.textChanged.connect(
             lambda text: self.handle_title_max_length_text(text))
@@ -704,4 +704,4 @@ class ConfigManager:
 if __name__=='__main__':
     app = QApplication(sys.argv)
     
-    sys.exit(app.exec_())
+    sys.exit(app.exec())

@@ -1,12 +1,12 @@
-from PyQt5.QtWidgets import (
+from PyQt6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QFrame,
     QLabel, QPushButton, QToolButton, QScrollArea, QTextEdit, QStackedWidget,
-    QSizePolicy, QGraphicsOpacityEffect,QTextBrowser,qApp,QScrollBar
+    QSizePolicy, QGraphicsOpacityEffect,QTextBrowser,QScrollBar
 )
-from PyQt5.QtCore import (
+from PyQt6.QtCore import (
     Qt, QTimer, QThread, pyqtSignal, QPoint, QSize, QPropertyAnimation,QEasingCurve, QRectF,QEvent
 )
-from PyQt5.QtGui import (
+from PyQt6.QtGui import (
     QFont, QFontMetrics, QPixmap, QIcon, QColor, QPainter, QPainterPath,
     QLinearGradient, QTextCursor, QTextOption, QPalette
 )
@@ -37,7 +37,7 @@ class WindowAnimator:
         anim.setDuration(duration)
         anim.setStartValue(start_size)
         anim.setEndValue(end_size)
-        anim.setEasingCurve(QEasingCurve.InOutQuad)  # 平滑过渡
+        anim.setEasingCurve(QEasingCurve.Type.InOutQuad)  # 平滑过渡
         
         # 启动动画
         anim.start()
@@ -46,7 +46,7 @@ class GradientLabel(QLabel):
     def __init__(self, text="", parent=None):
         super().__init__(text, parent)
         self.setMinimumSize(100, 40)
-        self.setAlignment(Qt.AlignCenter)
+        self.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.setStyleSheet("""
             font-size: 15px;
             font-weight: bold;
@@ -60,7 +60,7 @@ class GradientLabel(QLabel):
             QColor("#26d0ce"),  # 青色
             QColor("#1a2980")   # 深蓝(循环)
         ]
-        root_style = qApp.styleSheet()
+        root_style = QApplication.instance().styleSheet()
         
         # 提取变量值 (简化示例)
         primary = self.extract_color(root_style, "--color-primary", "#1a2980")
@@ -106,8 +106,8 @@ class GradientLabel(QLabel):
         painter.fillPath(path, gradient)
         
         # 绘制文本
-        painter.setPen(Qt.white)
-        painter.drawText(self.rect(), Qt.AlignCenter, self.text())
+        painter.setPen(Qt.GlobalColor.white)
+        painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, self.text())
 
     def hide(self):
         """重写hide方法，停止动画定时器"""
@@ -143,7 +143,7 @@ class EPDropdownMenu(QWidget):
     itemSelected = pyqtSignal(str)  # 项目选择信号
     
     def __init__(self, parent=None):
-        super().__init__(parent, Qt.Popup)  # 设置为弹出窗口
+        super().__init__(parent, Qt.WindowType.Popup)  # 设置为弹出窗口
         self.layout = QVBoxLayout(self)
         self.layout.setSpacing(0)
         self.layout.setContentsMargins(0, 0, 0, 0)
@@ -159,7 +159,7 @@ class EPDropdownMenu(QWidget):
         # 添加新项目
         for item in items:
             label = QLabel(item)
-            label.setCursor(Qt.PointingHandCursor)
+            label.setCursor(Qt.CursorShape.PointingHandCursor)
             label.mousePressEvent = lambda event, text=item: self._on_item_clicked(event, text)
             self.layout.addWidget(label)
 
@@ -196,13 +196,13 @@ class ExpandableButton(QWidget):
         
         # 左侧按钮
         self.left_button = QPushButton(self._current_text)
-        self.left_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.left_button.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self._update_button_style()
         
         # 右侧下拉按钮
         self.dropdown_button = QPushButton()
         self.dropdown_button.setFixedWidth(24)
-        self.dropdown_button.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding)
+        self.dropdown_button.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Expanding)
 
         # 设置下拉图标
         self.dropdown_button.setText("▼")
@@ -332,9 +332,9 @@ class AspectLabel(QLabel):
         super().__init__(parent)
         self.master_pixmap = master_pixmap
         self.setText(text)
-        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.setMinimumSize(1, 1)
-        self.setAlignment(Qt.AlignCenter)  # 居中显示
+        self.setAlignment(Qt.AlignmentFlag.AlignCenter)  # 居中显示
         self.locked = False
         
     def lock(self):
@@ -350,13 +350,13 @@ class AspectLabel(QLabel):
             return
         target_size = self.master_pixmap.size().scaled(
             event.size(),
-            Qt.KeepAspectRatioByExpanding
+            Qt.AspectRatioMode.KeepAspectRatioByExpanding
         )
         
         scaled_pix = self.master_pixmap.scaled(
             target_size,
-            Qt.KeepAspectRatioByExpanding,
-            Qt.SmoothTransformation
+            Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+            Qt.TransformationMode.SmoothTransformation
         )
         
         self.setPixmap(scaled_pix)
@@ -372,14 +372,14 @@ class AspectLabel(QLabel):
             self.master_pixmap=pic
         target_size = self.master_pixmap.size().scaled(
             self.size(),
-            Qt.KeepAspectRatioByExpanding  # 关键模式
+            Qt.AspectRatioMode.KeepAspectRatioByExpanding  # 关键模式
         )
         
         # 执行高质量缩放
         scaled_pix = self.master_pixmap.scaled(
             target_size,
-            Qt.KeepAspectRatioByExpanding,
-            Qt.SmoothTransformation
+            Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+            Qt.TransformationMode.SmoothTransformation
         )
         
         self.setPixmap(scaled_pix)
@@ -396,13 +396,13 @@ class AspectRatioButton(QPushButton):
             self.aspect_ratio = 1.0  # 或者其他默认值
  
         # 初始化配置
-        self.setSizePolicy(QSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding))
+        self.setSizePolicy(QSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding))
         self.setMinimumSize(40, 30)  # 合理的最小尺寸
         self.setIconSize(QSize(0, 0))  # 初始图标尺寸清零
  
         # 视觉效果
         self.setFlat(True)  # 移除默认按钮样式
-        self.setCursor(Qt.PointingHandCursor)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
 
         self.setStyleSheet("""
     QPushButton {
@@ -423,8 +423,8 @@ class AspectRatioButton(QPushButton):
         self.original_pixmap=pic
         scaled_pix = self.original_pixmap.scaled(
             self.size(),
-            Qt.KeepAspectRatio,
-            Qt.SmoothTransformation
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation
         )
         self.setIcon(QIcon(scaled_pix))
         self.setIconSize(scaled_pix.size())
@@ -464,13 +464,13 @@ class SwitchButton(QPushButton):
         self.texta = texta
         self.textb = textb
         self.setCheckable(True)
-        self.setSizePolicy(QSizePolicy.MinimumExpanding, QSizePolicy.Fixed)
+        self.setSizePolicy(QSizePolicy.Policy.MinimumExpanding, QSizePolicy.Policy.Fixed)
         
         # 计算文本所需尺寸
         font = self.font()
         fm = QFontMetrics(font)
-        self.texta_width = fm.width(texta) + self.SPACING
-        self.textb_width = fm.width(textb) + self.SPACING
+        self.texta_width = fm.horizontalAdvance(texta) + self.SPACING
+        self.textb_width = fm.horizontalAdvance(textb) + self.SPACING
         
         # 计算滑块尺寸（根据文本高度）
         slider_height = self.HEIGHT - 2 * self.SLIDER_MARGIN
@@ -479,11 +479,11 @@ class SwitchButton(QPushButton):
         # 创建滑块按钮
         self._slider = QPushButton(self)
         self._slider.setFixedSize(slider_width, slider_height)
-        self._slider.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        self._slider.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         
         # 创建文本标签
         self._label = QLabel(self)
-        self._label.setAlignment(Qt.AlignCenter)
+        self._label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._label.setFixedHeight(self.HEIGHT)
         
         # 初始状态
@@ -606,7 +606,7 @@ class ChatapiTextBrowser(QTextBrowser):
         thread = MarkdownProcessorThread(text, self.code_style, current_id, self)
         thread.processingFinished.connect(
             lambda html, rid: self.handle_processed_html(html, rid),
-            Qt.QueuedConnection  # 确保跨线程信号安全
+            Qt.ConnectionType.QueuedConnection  # 确保跨线程信号安全
         )
         thread.start()
 
@@ -617,7 +617,7 @@ class ChatapiTextBrowser(QTextBrowser):
 
         super().setHtml(html_content)
         # 自动滚动到底部
-        self.moveCursor(QTextCursor.End)
+        self.moveCursor(QTextCursor.MoveOperation.End)
         self.ensureCursorVisible()
         #self.verticalScrollBar().setValue(
         #    self.verticalScrollBar().maximum()
@@ -694,13 +694,13 @@ class MarkdownTextBrowser(ChatapiTextBrowser):
         super().__init__(parent)
 
         # 气泡特定的设置
-        self.setFrameShape(QFrame.NoFrame)
-        self.setWordWrapMode(QTextOption.WrapAtWordBoundaryOrAnywhere)
+        self.setFrameShape(QFrame.Shape.NoFrame)
+        self.setWordWrapMode(QTextOption.WrapMode.WrapAtWordBoundaryOrAnywhere)
         self.setOpenExternalLinks(False)
         self.anchorClicked.connect(lambda url: os.startfile(url.toString()))
 
-        self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 
         self._is_streaming = False
 
@@ -741,8 +741,8 @@ class MarkdownTextBrowser(ChatapiTextBrowser):
 class InfoPopup(QWidget):
     """用于显示消息详情信息的悬浮窗"""
     def __init__(self, parent=None):
-        super().__init__(parent, Qt.Popup | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
-        self.setAttribute(Qt.WA_TranslucentBackground)
+        super().__init__(parent, Qt.WindowType.Popup | Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         
         # 主布局
         layout = QVBoxLayout(self)
@@ -764,8 +764,8 @@ class InfoPopup(QWidget):
         
         # 分隔线
         separator = QFrame()
-        separator.setFrameShape(QFrame.HLine)
-        separator.setFrameShadow(QFrame.Sunken)
+        separator.setFrameShape(QFrame.Shape.HLine)
+        separator.setFrameShadow(QFrame.Shadow.Sunken)
         container_layout.addWidget(separator)
         
         # 详细信息区域
@@ -786,7 +786,7 @@ class InfoPopup(QWidget):
         # 如果包含透明元素，设置为字体颜色的反色且不透明
         if is_transparent:
             # 获取默认 label 的字体颜色
-            default_color = QLabel().palette().color(QPalette.Text)
+            default_color = QLabel().palette().color(QPalette.ColorRole.Text)
             # 计算反色
             inverted_color = QColor(
                 255 - default_color.red(),
@@ -826,13 +826,13 @@ class InfoPopup(QWidget):
                 # 键标签
                 key_label = QLabel(f"{key}:")
                 key_label.setMinimumWidth(80)
-                key_label.setAlignment(Qt.AlignRight | Qt.AlignTop)
+                key_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignTop)
                 row_layout.addWidget(key_label)
                 
                 # 值显示
                 value_str = json.dumps(value, indent=2) if isinstance(value, dict) else str(value)
                 value_label = QLabel(value_str)
-                value_label.setAlignment(Qt.AlignLeft | Qt.AlignTop)
+                value_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
                 value_label.setWordWrap(True)
                 row_layout.addWidget(value_label)
                 
@@ -853,17 +853,17 @@ class EditWidget(QTextEdit):
     """可编辑文本框"""
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setFrameShape(QFrame.NoFrame)
-        self.setWordWrapMode(QTextOption.WrapAtWordBoundaryOrAnywhere)
-        self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.setFrameShape(QFrame.Shape.NoFrame)
+        self.setWordWrapMode(QTextOption.WrapMode.WrapAtWordBoundaryOrAnywhere)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 
 class ReasoningDisplay(MarkdownTextBrowser):
     """思考内容显示控件"""
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setFrameShape(QFrame.NoFrame)
-        self.setWordWrapMode(QTextOption.WrapAtWordBoundaryOrAnywhere)
-        self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.setFrameShape(QFrame.Shape.NoFrame)
+        self.setWordWrapMode(QTextOption.WrapMode.WrapAtWordBoundaryOrAnywhere)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.setVisible(False)
         #min_height=min(QApplication.primaryScreen().availableGeometry().height() * 0.1,100)
         #self.setMinimumHeight(min_height)
@@ -948,12 +948,12 @@ class BubbleControlButtons(QFrame):
         """设置内部控件的对齐方式"""
         if align_left:
             # 用户气泡：内部控件左贴靠
-            self.layout.setAlignment(Qt.AlignLeft)
-            self.main_layout.setAlignment(Qt.AlignLeft)
+            self.layout.setAlignment(Qt.AlignmentFlag.AlignLeft)
+            self.main_layout.setAlignment(Qt.AlignmentFlag.AlignLeft)
         else:
             # AI气泡：内部控件右贴靠
-            self.layout.setAlignment(Qt.AlignRight)
-            self.main_layout.setAlignment(Qt.AlignRight)
+            self.layout.setAlignment(Qt.AlignmentFlag.AlignRight)
+            self.main_layout.setAlignment(Qt.AlignmentFlag.AlignRight)
             
     def set_has_reasoning(self, has_reasoning):
         """设置是否有思考内容"""
@@ -1045,7 +1045,7 @@ class ChatBubble(QWidget):
         self.role = message_data['role']
         self.message_data = message_data
         self.setMouseTracking(True)  # 启用鼠标跟踪
-        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.MinimumExpanding)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.MinimumExpanding)
         self.setObjectName('chatbubble')
         self.manual_expand_reasoning=False
         self.msg_id=msg_id
@@ -1071,7 +1071,7 @@ class ChatBubble(QWidget):
         # 头像处理
         self.avatar = QPushButton()
         self.avatar.setFixedSize(24, 24)
-        self.avatar.setCursor(Qt.PointingHandCursor)  # 显示手型指针
+        self.avatar.setCursor(Qt.CursorShape.PointingHandCursor)  # 显示手型指针
         self.avatar_path = avatar_path  # 存储头像路径
         self._setup_avatar()
         
@@ -1089,7 +1089,7 @@ class ChatBubble(QWidget):
         self.button_container.addWidget(QWidget())  # 索引0: 一个空的占位符
         self.button_container.addWidget(self.buttons)   # 索引1: 真实的按钮
         self.button_container.setCurrentIndex(0) 
-        self.button_container.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
+        self.button_container.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
 
         
         # 根据角色决定布局方向
@@ -1099,24 +1099,24 @@ class ChatBubble(QWidget):
             top_layout.addStretch()
             top_layout.addWidget(self.role_label)
             top_layout.addWidget(self.avatar)
-            top_layout.setAlignment(Qt.AlignRight)
+            top_layout.setAlignment(Qt.AlignmentFlag.AlignRight)
             # 顶部栏贴靠右侧
-            layout.addWidget(self.top_bar_container, 0, 0, 1, 1, Qt.AlignRight | Qt.AlignTop)
+            layout.addWidget(self.top_bar_container, 0, 0, 1, 1, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignTop)
         else:
             # AI消息：头像在左，按钮在右
             top_layout.addWidget(self.avatar)
             top_layout.addWidget(self.role_label)
             top_layout.addStretch()
             top_layout.addWidget(self.button_container)
-            top_layout.setAlignment(Qt.AlignLeft)
+            top_layout.setAlignment(Qt.AlignmentFlag.AlignLeft)
             # 顶部栏贴靠左侧
-            layout.addWidget(self.top_bar_container, 0, 0, 1, 1, Qt.AlignLeft | Qt.AlignTop)
+            layout.addWidget(self.top_bar_container, 0, 0, 1, 1, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
 
 
         # 内容区 - 使用自定义 Markdown 渲染控件
         self.content = MarkdownTextBrowser()
         self.content.setMarkdown(message_data['content'])
-        self.content.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
+        self.content.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
         
         # 编辑控件（初始隐藏）
         self.editor = EditWidget()
@@ -1132,7 +1132,7 @@ class ChatBubble(QWidget):
         self.content_container.addWidget(self.content)
         self.content_container.addWidget(self.editor)
         self.content_container.setCurrentIndex(0)  # 默认显示内容区
-        self.content_container.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
+        self.content_container.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
         
         # 添加内容容器到网格布局
         layout.addWidget(self.content_container, 2, 0, 1, 1)
@@ -1185,15 +1185,15 @@ class ChatBubble(QWidget):
             
             # 添加简单文字标识
             painter = QPainter(pixmap)
-            painter.setPen(Qt.white)
-            painter.setFont(QFont("Arial", 10, QFont.Bold))
-            painter.drawText(pixmap.rect(), Qt.AlignCenter, self.role[0].upper())
+            painter.setPen(Qt.GlobalColor.white)
+            painter.setFont(QFont("Arial", 10, QFont.Weight.Bold))
+            painter.drawText(pixmap.rect(), Qt.AlignmentFlag.AlignCenter, self.role[0].upper())
             painter.end()
             
         # 缩放图片以适应显示大小
         size = self.avatar.size()
         scaled = pixmap.scaled(size.width(), size.height(), 
-                             Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                             Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
         
         self.avatar.setIcon(QIcon(scaled))
         self.avatar.setIconSize(size)
@@ -1382,16 +1382,16 @@ class ChatHistoryWidget(QFrame):
         # 创建滚动区域
         scroll_area = QScrollArea()
         scroll_area.setWidgetResizable(True)
-        scroll_area.setFrameShape(QFrame.NoFrame)
-        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        scroll_area.setFrameShape(QFrame.Shape.NoFrame)
+        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         
         # 内容容器
         content_widget = QFrame()
         self.content_layout = QVBoxLayout(content_widget)
         self.content_layout.setContentsMargins(20, 10, 20, 20)
         self.content_layout.setSpacing(15)
-        self.content_layout.setAlignment(Qt.AlignBottom)
+        self.content_layout.setAlignment(Qt.AlignmentFlag.AlignBottom)
         
         # 设置滚动区域
         scroll_area.setWidget(content_widget)
@@ -1405,7 +1405,7 @@ class ChatHistoryWidget(QFrame):
         
         # 占位控件
         self.spacer = QLabel()
-        self.spacer.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Expanding)
+        self.spacer.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Expanding)
         self.spacer.setStyleSheet("""
             /* 添加半透明背景 */
             QWidget {
@@ -1721,7 +1721,7 @@ class ChatHistoryWidget(QFrame):
     
     def eventFilter(self, obj, event):
         """事件过滤器，检测鼠标滚轮事件"""
-        if event.type() == QEvent.Wheel:
+        if event.type() == QEvent.Type.Wheel:
             self._handle_wheel_event(event)
             return False  # 继续传递事件
         
@@ -1748,4 +1748,4 @@ if __name__=='__main__':
     app = QApplication(sys.argv)
     window = ChatHistoryWidget()
     window.show()
-    sys.exit(app.exec_())
+    sys.exit(app.exec())

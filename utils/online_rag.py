@@ -5,10 +5,10 @@ import os
 import threading
 from typing import Any, Dict, List, Tuple,Optional
 from urllib.parse import quote
-from PyQt5.QtWidgets import *
-from PyQt5.QtCore import *
-from PyQt5.QtGui import *
-from PyQt5.QtSvg import *
+from PyQt6.QtWidgets import *
+from PyQt6.QtCore import *
+from PyQt6.QtGui import *
+from PyQt6.QtSvg import *
 import openai, requests
 from requests.adapters import HTTPAdapter
 from requests.exceptions import RequestException
@@ -491,7 +491,7 @@ class WebSearchSettingWindows:
         # 初始隐藏RAG控件
         self.toggle_rag_controls(False)
         self.rag_checkbox.stateChanged.connect(
-            lambda state: self.toggle_rag_controls(state == Qt.Checked)
+            lambda state: self.toggle_rag_controls(state == Qt.CheckState.Checked)
         )
         
         # 确定按钮
@@ -654,7 +654,7 @@ class WebSearchSettingWindows:
             key, value = item
             btn = QPushButton(f"{key}. {value['title']}")
             btn.setStyleSheet(button_style)
-            btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+            btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
             
             # 紧凑尺寸设置
             btn.setFixedHeight(32)  # 减少按钮高度

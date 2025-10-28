@@ -6,7 +6,7 @@ from jsonschema import Draft202012Validator, ValidationError
 import os, sys, webbrowser,subprocess, re, time, json
 import typing as _t
 from pathlib import Path
-from PyQt5 import QtCore, QtWidgets
+from PyQt6 import QtCore, QtWidgets
 
 
 
@@ -403,15 +403,15 @@ class ToolsListModel(QtCore.QAbstractListModel):
       - name、description、tags、timeout、is_async、permissions、parameters、source、checked
     """
 
-    NameRole = QtCore.Qt.UserRole + 1
-    DescriptionRole = QtCore.Qt.UserRole + 2
-    TagsRole = QtCore.Qt.UserRole + 3
-    TimeoutRole = QtCore.Qt.UserRole + 4
-    IsAsyncRole = QtCore.Qt.UserRole + 5
-    PermissionsRole = QtCore.Qt.UserRole + 6
-    ParametersRole = QtCore.Qt.UserRole + 7
-    SourceRole = QtCore.Qt.UserRole + 8
-    CheckedRole = QtCore.Qt.UserRole + 9
+    NameRole = QtCore.Qt.ItemDataRole.UserRole + 1
+    DescriptionRole = QtCore.Qt.ItemDataRole.UserRole + 2
+    TagsRole = QtCore.Qt.ItemDataRole.UserRole + 3
+    TimeoutRole = QtCore.Qt.ItemDataRole.UserRole + 4
+    IsAsyncRole = QtCore.Qt.ItemDataRole.UserRole + 5
+    PermissionsRole = QtCore.Qt.ItemDataRole.UserRole + 6
+    ParametersRole = QtCore.Qt.ItemDataRole.UserRole + 7
+    SourceRole = QtCore.Qt.ItemDataRole.UserRole + 8
+    CheckedRole = QtCore.Qt.ItemDataRole.UserRole + 9
 
     selectionChanged = QtCore.pyqtSignal(list)  # 发出当前选中（激活）的工具名列表
 
@@ -423,8 +423,8 @@ class ToolsListModel(QtCore.QAbstractListModel):
 
     def roleNames(self):
         return {
-            QtCore.Qt.DisplayRole: b"display",
-            QtCore.Qt.ToolTipRole: b"tooltip",
+            QtCore.Qt.ItemDataRole.DisplayRole: b"display",
+            QtCore.Qt.ItemDataRole.ToolTipRole: b"tooltip",
             self.NameRole: b"name",
             self.DescriptionRole: b"description",
             self.TagsRole: b"tags",
@@ -441,13 +441,13 @@ class ToolsListModel(QtCore.QAbstractListModel):
             return 0
         return len(self._items)
 
-    def data(self, index, role=QtCore.Qt.DisplayRole):
+    def data(self, index, role=QtCore.Qt.ItemDataRole.DisplayRole):
         if not index.isValid():
             return None
         item = self._items[index.row()]
-        if role == QtCore.Qt.DisplayRole:
+        if role == QtCore.Qt.ItemDataRole.DisplayRole:
             return item["name"]
-        if role == QtCore.Qt.ToolTipRole:
+        if role == QtCore.Qt.ItemDataRole.ToolTipRole:
             return item.get("description", "") or item["name"]
         if role == self.NameRole:
             return item["name"]
@@ -467,28 +467,28 @@ class ToolsListModel(QtCore.QAbstractListModel):
             return item.get("source", "")
         if role == self.CheckedRole:
             return item.get("checked", False)
-        if role == QtCore.Qt.CheckStateRole:
-            return QtCore.Qt.Checked if item.get("checked", False) else QtCore.Qt.Unchecked
+        if role == QtCore.Qt.ItemDataRole.CheckStateRole:
+            return QtCore.Qt.CheckState.Checked if item.get("checked", False) else QtCore.Qt.CheckState.Unchecked
         return None
 
     def flags(self, index):
         if not index.isValid():
             return QtCore.Qt.NoItemFlags
-        base = QtCore.Qt.ItemIsEnabled | QtCore.Qt.ItemIsSelectable | QtCore.Qt.ItemIsUserCheckable
+        base = QtCore.Qt.ItemFlag.ItemIsEnabled | QtCore.Qt.ItemFlag.ItemIsSelectable | QtCore.Qt.ItemFlag.ItemIsUserCheckable
         return base
 
-    def setData(self, index, value, role=QtCore.Qt.EditRole):
+    def setData(self, index, value, role=QtCore.Qt.ItemDataRole.EditRole):
         if not index.isValid():
             return False
-        if role in (QtCore.Qt.CheckStateRole, self.CheckedRole):
-            checked = bool(value == QtCore.Qt.Checked or value is True)
+        if role in (QtCore.Qt.ItemDataRole.CheckStateRole, self.CheckedRole):
+            checked = bool(value == QtCore.Qt.CheckState.Checked or value is True)
             name = self._items[index.row()]["name"]
             self._items[index.row()]["checked"] = checked
             if checked:
                 self._active_set.add(name)
             else:
                 self._active_set.discard(name)
-            self.dataChanged.emit(index, index, [QtCore.Qt.CheckStateRole, self.CheckedRole])
+            self.dataChanged.emit(index, index, [QtCore.Qt.ItemDataRole.CheckStateRole, self.CheckedRole])
             self.selectionChanged.emit(self.get_selected_functions())
             return True
         return False
@@ -542,7 +542,7 @@ class ToolsListModel(QtCore.QAbstractListModel):
                 if it.get("checked") != new_checked:
                     it["checked"] = new_checked
                     idx = self.index(i)
-                    self.dataChanged.emit(idx, idx, [QtCore.Qt.CheckStateRole, self.CheckedRole])
+                    self.dataChanged.emit(idx, idx, [QtCore.Qt.ItemDataRole.CheckStateRole, self.CheckedRole])
             self.selectionChanged.emit(self.get_selected_functions())
 
     def get_selected_functions(self) -> _t.List[str]:
@@ -571,7 +571,7 @@ class ToolsFilterProxyModel(QtCore.QSortFilterProxyModel):
         self._allowed_names: _t.Optional[_t.Set[str]] = None
         self._include_tags: _t.Optional[_t.Set[str]] = None
         self._exclude_tags: _t.Optional[_t.Set[str]] = None
-        self.setFilterCaseSensitivity(QtCore.Qt.CaseInsensitive)
+        self.setFilterCaseSensitivity(QtCore.Qt.CaseSensitivity.CaseInsensitive)
 
     # 配置接口
     def set_search_text(self, text: str):
@@ -649,8 +649,8 @@ class FunctionsSelectorWidget(QtWidgets.QWidget):
         self._search.setPlaceholderText("搜索工具（名称/描述/标签）")
         self._list = QtWidgets.QListView(self)
         self._list.setModel(self._proxy)
-        self._list.setSelectionMode(QtWidgets.QAbstractItemView.SingleSelection)
-        self._list.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
+        self._list.setSelectionMode(QtWidgets.QAbstractItemView.SelectionMode.SingleSelection)
+        self._list.setEditTriggers(QtWidgets.QAbstractItemView.EditTrigger.NoEditTriggers)
         self._list.setUniformItemSizes(True)
 
         layout = QtWidgets.QVBoxLayout(self)
@@ -710,8 +710,8 @@ class FunctionsSelectorWidget(QtWidgets.QWidget):
         src_index = self._proxy.mapToSource(proxy_index)
         if not src_index.isValid():
             return
-        checked = self._model.data(src_index, QtCore.Qt.CheckStateRole) == QtCore.Qt.Checked
-        self._model.setData(src_index, QtCore.Qt.Unchecked if checked else QtCore.Qt.Checked, QtCore.Qt.CheckStateRole)
+        checked = self._model.data(src_index, QtCore.Qt.ItemDataRole.CheckStateRole) == QtCore.Qt.CheckState.Checked
+        self._model.setData(src_index, QtCore.Qt.CheckState.Unchecked if checked else QtCore.Qt.CheckState.Checked, QtCore.Qt.ItemDataRole.CheckStateRole)
 
 
 # -----------------------
@@ -1329,7 +1329,7 @@ class FunctionManager(QtWidgets.QWidget):
         self.listView = QtWidgets.QListView(self)
         self.listView.setModel(self._proxy)
         self.listView.setUniformItemSizes(True)
-        self.listView.setSelectionMode(QtWidgets.QAbstractItemView.SingleSelection)
+        self.listView.setSelectionMode(QtWidgets.QAbstractItemView.SelectionMode.SingleSelection)
         self.listView.clicked.connect(self._toggle_checked_on_click)
         self.listView.doubleClicked.connect(self._toggle_checked_on_click)
 
@@ -1517,8 +1517,8 @@ class FunctionManager(QtWidgets.QWidget):
         if not proxy_index.isValid():
             return
         src_index = self._proxy.mapToSource(proxy_index)
-        checked = self._model.data(src_index, QtCore.Qt.CheckStateRole) == QtCore.Qt.Checked
-        self._model.setData(src_index, QtCore.Qt.Unchecked if checked else QtCore.Qt.Checked, QtCore.Qt.CheckStateRole)
+        checked = self._model.data(src_index, QtCore.Qt.ItemDataRole.CheckStateRole) == QtCore.Qt.CheckState.Checked
+        self._model.setData(src_index, QtCore.Qt.CheckState.Unchecked if checked else QtCore.Qt.CheckState.Checked, QtCore.Qt.ItemDataRole.CheckStateRole)
         self._on_apply()
 
     def _on_current_changed(self, current: QtCore.QModelIndex, previous: QtCore.QModelIndex):
@@ -1617,7 +1617,7 @@ class FunctionManager(QtWidgets.QWidget):
 
     def _on_new_tool(self):
         dlg = FunctionEditorDialog(self)
-        if dlg.exec_():
+        if dlg.exec():
             # 插件管理器会在保存时触发 reload；此处保守再刷新一次 UI
             self._refresh_list_only()
 
@@ -1633,7 +1633,7 @@ class FunctionManager(QtWidgets.QWidget):
             QtWidgets.QMessageBox.information(self, "提示", "只能编辑用户工具（utils/functions 下的工具）")
             return
         dlg = FunctionEditorDialog(self, existing_file=fp)
-        if dlg.exec_():
+        if dlg.exec():
             self._refresh_list_only()
 
     def _on_delete_tool(self):

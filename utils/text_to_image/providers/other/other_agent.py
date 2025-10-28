@@ -4,7 +4,7 @@ import requests
 import time
 import threading
 import random
-from PyQt5.QtCore import QObject,pyqtSignal
+from PyQt6.QtCore import QObject,pyqtSignal
 from urllib.parse import urljoin
 
 class OtherModelFetcher(QObject):

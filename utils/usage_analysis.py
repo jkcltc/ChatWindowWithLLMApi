@@ -1,11 +1,11 @@
 import json
 import os
 from collections import defaultdict
-from PyQt5.QtCore import pyqtSignal,QThread,Qt
-from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
+from PyQt6.QtCore import pyqtSignal,QThread,Qt
+from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
                              QLabel, QLineEdit, QFileDialog, QProgressBar,
                              QTabWidget, QTreeWidget, QTreeWidgetItem,QGroupBox,QHeaderView,QMessageBox)
-from PyQt5.QtGui import QFont
+from PyQt6.QtGui import QFont
 class TokenAnalyzer:
     """Token分析逻辑类"""
     
@@ -264,7 +264,7 @@ class TokenAnalysisWidget(QWidget):
         self.summary_tree = QTreeWidget()
         self.summary_tree.setHeaderLabels(["项目", "值"])
         self.summary_tree.setColumnWidth(0, 200)
-        self.summary_tree.header().setSectionResizeMode(1, QHeaderView.Stretch)
+        self.summary_tree.header().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         summary_layout.addWidget(self.summary_tree)
         self.summary_tab.setLayout(summary_layout)
         self.result_tabs.addTab(self.summary_tab, "摘要")
@@ -495,10 +495,10 @@ class TokenAnalysisWidget(QWidget):
             # 高亮显示content和reasoning_content字段
             if field.endswith('.content') or field == 'content':
                 for i in range(7):
-                    item.setBackground(i, Qt.yellow)
+                    item.setBackground(i, Qt.GlobalColor.yellow)
             elif field.endswith('.reasoning_content') or field == 'reasoning_content':
                 for i in range(7):
-                    item.setBackground(i, Qt.cyan)
+                    item.setBackground(i, Qt.GlobalColor.cyan)
             
             self.stats_tree.addTopLevelItem(item)
         
@@ -538,8 +538,8 @@ class TokenAnalysisWidget(QWidget):
         self.path_input.setPlaceholderText("选择文件或文件夹路径，或直接粘贴JSON内容")
 
 if __name__ == "__main__":
-    from PyQt5.QtWidgets import QApplication
+    from PyQt6.QtWidgets import QApplication
     app = QApplication([])
     window = TokenAnalysisWidget()
     window.show()
-    app.exec_()
+    app.exec()

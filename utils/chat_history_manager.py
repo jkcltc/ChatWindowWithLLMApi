@@ -9,9 +9,9 @@ from typing import Any, Dict, List, Optional, Tuple
 from pathlib import Path
 import heapq
 
-from PyQt5.QtCore import *
-from PyQt5.QtGui import *
-from PyQt5.QtWidgets import *
+from PyQt6.QtCore import *
+from PyQt6.QtGui import *
+from PyQt6.QtWidgets import *
 
 from utils.tools.one_shot_api_request import APIRequestHandler
 
@@ -122,7 +122,7 @@ class ChatHistoryTextView(QWidget):
         
         # 创建右侧面板布局
         controls_layout = QVBoxLayout()
-        controls_layout.setAlignment(Qt.AlignTop)
+        controls_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
         
         # 添加"显示选项"分组框（右侧）
         options_group = QGroupBox("显示选项")
@@ -192,15 +192,15 @@ class ChatHistoryTextView(QWidget):
         self.setLayout(main_layout)
     
     def _toggle_reasoning(self, state):
-        self.show_reasoning = (state == Qt.Checked)
+        self.show_reasoning = (state == Qt.CheckState.Checked)
         self._load_chat_history()
     
     def _toggle_tools(self, state):
-        self.show_tools = (state == Qt.Checked)
+        self.show_tools = (state == Qt.CheckState.Checked)
         self._load_chat_history()
     
     def _toggle_metadata(self, state):
-        self.show_metadata = (state == Qt.Checked)
+        self.show_metadata = (state == Qt.CheckState.Checked)
         self._load_chat_history()
     
     def _toggle_format(self):
@@ -1402,7 +1402,7 @@ class HistoryListWidget(QListWidget):
         selected_fp = None
         cur = self.currentItem()
         if cur:
-            data = cur.data(Qt.UserRole)
+            data = cur.data(Qt.ItemDataRole.UserRole)
             if isinstance(data, dict):
                 selected_fp = data.get('file_path')
 
@@ -1432,7 +1432,7 @@ class HistoryListWidget(QListWidget):
             old_map = {}
             for row in range(self.count()):
                 item = self.item(row)
-                data = item.data(Qt.UserRole)
+                data = item.data(Qt.ItemDataRole.UserRole)
                 fp = data.get('file_path') if isinstance(data, dict) else None
                 if fp:
                     old_map[fp] = item
@@ -1455,7 +1455,7 @@ class HistoryListWidget(QListWidget):
                     if item.text() != data['title']:
                         item.setText(data['title'])
                     # 更新存储数据
-                    item.setData(Qt.UserRole, data)
+                    item.setData(Qt.ItemDataRole.UserRole, data)
                     # 若位置不对，移动到目标位置
                     cur_row = self.row(item)
                     if cur_row != target_row:
@@ -1464,14 +1464,14 @@ class HistoryListWidget(QListWidget):
                 else:
                     # 新增项
                     item = QListWidgetItem(data['title'])
-                    item.setData(Qt.UserRole, data)
+                    item.setData(Qt.ItemDataRole.UserRole, data)
                     self.insertItem(target_row, item)
 
             # 恢复选中项（若仍存在）
             if selected_fp and selected_fp in new_map:
                 for row in range(self.count()):
                     item = self.item(row)
-                    data = item.data(Qt.UserRole)
+                    data = item.data(Qt.ItemDataRole.UserRole)
                     if isinstance(data, dict) and data.get('file_path') == selected_fp:
                         self.setCurrentRow(row)
                         break
@@ -1489,7 +1489,7 @@ class HistoryListWidget(QListWidget):
         """获取当前选中项的文件路径"""
         current_item = self.currentItem()
         if current_item:
-            item_data = current_item.data(Qt.UserRole)
+            item_data = current_item.data(Qt.ItemDataRole.UserRole)
             return item_data.get('file_path')
         return None
 
@@ -1497,5 +1497,5 @@ class HistoryListWidget(QListWidget):
         """获取当前选中项的完整数据"""
         current_item = self.currentItem()
         if current_item:
-            return current_item.data(Qt.UserRole)
+            return current_item.data(Qt.ItemDataRole.UserRole)
         return None

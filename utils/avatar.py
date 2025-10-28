@@ -1,7 +1,7 @@
 
-from PyQt5.QtWidgets import *
-from PyQt5.QtCore import *
-from PyQt5.QtGui import *
+from PyQt6.QtWidgets import *
+from PyQt6.QtCore import *
+from PyQt6.QtGui import *
 import os,json
 from jsonfinder import jsonfinder
 import copy
@@ -79,7 +79,7 @@ class ImageProcessor:
         # 缩放至目标尺寸
         return cropped.scaled(
             target_size[0], target_size[1],
-            Qt.IgnoreAspectRatio, Qt.SmoothTransformation
+            Qt.IgnoreAspectRatio, Qt.TransformationMode.SmoothTransformation
         )
 
 class ImagePreviewer(QLabel):
@@ -89,10 +89,10 @@ class ImagePreviewer(QLabel):
     def __init__(self, label_text="", parent=None):
         super().__init__(parent)
         self.setText(label_text)
-        self.setAlignment(Qt.AlignCenter)
+        self.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.setMinimumSize(100, 100)
-        self.setFrameShape(QLabel.Box)
-        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.setFrameShape(QFrame.Shape.Box)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         
         # 框选相关变量
         self._is_selecting = False
@@ -140,8 +140,8 @@ class ImagePreviewer(QLabel):
         # 应用缩放
         scaled_pix = self._original_image.scaled(
             self._scaled_size,
-            Qt.KeepAspectRatio, 
-            Qt.SmoothTransformation
+            Qt.AspectRatioMode.KeepAspectRatio, 
+            Qt.TransformationMode.SmoothTransformation
         )
         
         self.setPixmap(scaled_pix)
@@ -297,7 +297,7 @@ class ImagePreviewer(QLabel):
             painter.setBrush(selection_brush)
             
             # 设置选择框样式
-            pen = QPen(Qt.red, 2, Qt.DashLine)
+            pen = QPen(Qt.GlobalColor.red, 2, Qt.DashLine)
             painter.setPen(pen)
             
             # 绘制选择框
@@ -305,11 +305,11 @@ class ImagePreviewer(QLabel):
             
             # 清除选择区域内容
             painter.setCompositionMode(QPainter.CompositionMode_Clear)
-            painter.fillRect(self._draw_rect, Qt.transparent)
+            painter.fillRect(self._draw_rect, Qt.GlobalColor.transparent)
             
             # 绘制尺寸文本
             painter.setCompositionMode(QPainter.CompositionMode_SourceOver)
-            pen.setColor(Qt.black)
+            pen.setColor(Qt.GlobalColor.black)
             painter.setPen(pen)
             
             # 显示像素尺寸
@@ -607,7 +607,7 @@ class AvatarCreatorWindow(QWidget):
         manual_layout = QVBoxLayout(self.manual_page)
         
         self.selector_btn = QPushButton(AvatarCreatorText.BUTTON_SELECT_IMAGE)
-        self.selector_btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.selector_btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.selector_btn.setToolTip(AvatarCreatorText.TOOLTIP_SELECT_IMAGE)
         manual_layout.addWidget(self.selector_btn)
         
@@ -636,7 +636,7 @@ class AvatarCreatorWindow(QWidget):
         ai_layout.addWidget(self.character_include_syspromt)
         
         qfa=QFrame()
-        qfa.setFrameShape(QFrame.HLine)
+        qfa.setFrameShape(QFrame.Shape.HLine)
         ai_layout.addWidget(qfa)
 
         ai_layout.addWidget(QLabel(AvatarCreatorText.LABEL_SUMMARY_PROVIDER))
@@ -678,14 +678,14 @@ class AvatarCreatorWindow(QWidget):
             )
 
         qf0 = QFrame()
-        qf0.setFrameShape(QFrame.HLine)
+        qf0.setFrameShape(QFrame.Shape.HLine)
         ai_layout.addWidget(qf0)
         ai_layout.addWidget(QLabel(AvatarCreatorText.LABEL_PROVIDER))
         ai_layout.addWidget(self.model_provider)
         ai_layout.addWidget(QLabel(AvatarCreatorText.LABEL_MODEL))
         ai_layout.addWidget(self.model_choice)
         qf1 = QFrame()
-        qf1.setFrameShape(QFrame.HLine)
+        qf1.setFrameShape(QFrame.Shape.HLine)
         ai_layout.addWidget(qf1)
 
         ai_layout.addWidget(QLabel(AvatarCreatorText.LABEL_STYLE))
@@ -706,17 +706,17 @@ class AvatarCreatorWindow(QWidget):
         
         # 预览区组件
         self.original_preview_label = QLabel(AvatarCreatorText.LABEL_ORIGINAL_PREVIEW)
-        self.original_preview_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
+        self.original_preview_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
         self.original_preview = ImagePreviewer(AvatarCreatorText.LABEL_ORIGINAL_PREVIEW)
         
         # 在原始预览控件上添加一个标签说明
         self.selection_hint = QLabel("")
         self.selection_hint.setStyleSheet("background-color: rgba(255,255,255,150);")
-        self.selection_hint.setAlignment(Qt.AlignCenter)
+        self.selection_hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
         
         
         self.result_preview_label = QLabel(AvatarCreatorText.LABEL_RESULT_PREVIEW)
-        self.original_preview_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
+        self.original_preview_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
         self.result_preview = ImagePreviewer(AvatarCreatorText.LABEL_RESULT_PREVIEW)
 
         # 添加确认按钮
@@ -744,7 +744,7 @@ class AvatarCreatorWindow(QWidget):
 
         # 分隔线
         qf0 = QFrame()
-        qf0.setFrameShape(QFrame.HLine)
+        qf0.setFrameShape(QFrame.Shape.HLine)
         control_layout.addWidget(qf0, row, 0, 1, 2)
         row += 1
         
@@ -754,7 +754,7 @@ class AvatarCreatorWindow(QWidget):
         
         # 添加额外设置
         qf1 = QFrame()
-        qf1.setFrameShape(QFrame.HLine)
+        qf1.setFrameShape(QFrame.Shape.HLine)
         control_layout.addWidget(qf1, row, 0, 1, 2)
         row += 1
 
@@ -1015,4 +1015,4 @@ if __name__ == "__main__":
     )
     window.error_log.connect(print)#调试时顺便打印内容
     window.show()
-    app.exec_()
+    app.exec()

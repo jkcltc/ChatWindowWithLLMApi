@@ -23,10 +23,10 @@ print(f'CWLA iner import finished, time cost:{time.time()-start_time_stamp:.2f}s
 install_packages()
 
 #第三方类初始化
-from PyQt5.QtWidgets import *
-from PyQt5.QtCore import *
-from PyQt5.QtGui import *
-from PyQt5.QtSvg import *
+from PyQt6.QtWidgets import *
+from PyQt6.QtCore import *
+from PyQt6.QtGui import *
+from PyQt6.QtSvg import *
 import openai
 
 print(f'CWLA 3rd party lib import finished, time cost:{time.time()-start_time_stamp:.2f}s')
@@ -554,7 +554,7 @@ class MainWindow(QMainWindow):
         self.opti_frame.hide()
 
         self.stat_tab_widget = QTabWidget()
-        self.stat_tab_widget.setSizePolicy(QSizePolicy.Preferred,QSizePolicy.Minimum)
+        self.stat_tab_widget.setSizePolicy(QSizePolicy.Policy.Preferred,QSizePolicy.Policy.Minimum)
         api_page = QWidget()
         api_page_layout = QGridLayout(api_page)
 
@@ -663,8 +663,8 @@ class MainWindow(QMainWindow):
 
         separators = [QFrame() for _ in range(3)]
         for sep in separators:
-            sep.setFrameShape(QFrame.VLine)
-            sep.setFrameShadow(QFrame.Sunken)
+            sep.setFrameShape(QFrame.Shape.VLine)
+            sep.setFrameShadow(QFrame.Shadow.Sunken)
         self.control_frame_layout.addWidget(self.send_button,           0, 0, 1, 15)
         self.control_frame_layout.addWidget(self.pause_button,          1, 0, 1, 2)
         self.control_frame_layout.addWidget(self.clear_button,          1, 2, 1, 2)
@@ -720,9 +720,9 @@ class MainWindow(QMainWindow):
         self.past_chat_frame.setLayout(self.past_chat_frame_layout)
 
         self.past_chat_list = HistoryListWidget()
-        self.past_chat_list.setSelectionMode(QAbstractItemView.SingleSelection)  # 强制单选模式
+        self.past_chat_list.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)  # 强制单选模式
         self.past_chat_list.itemClicked.connect(self.load_from_past)
-        self.past_chat_list.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.past_chat_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.past_chat_list.customContextMenuRequested.connect(self.past_chats_menu)
         
         self.reload_chat_list=QPushButton("🗘")
@@ -1226,7 +1226,7 @@ class MainWindow(QMainWindow):
         
         for size in sizes:
             pixmap = QPixmap(size, size)
-            pixmap.fill(Qt.transparent)
+            pixmap.fill(Qt.GlobalColor.transparent)
             
             painter = QPainter(pixmap)
             svg_renderer.render(painter)
@@ -1306,14 +1306,14 @@ class MainWindow(QMainWindow):
             parent_name = item["上级名称"]
             parent_item = parent_nodes[parent_name]
             child_item = QTreeWidgetItem([item["提示语"]])
-            child_item.setData(0, Qt.UserRole, item["执行函数"])  # 将执行函数存储在用户数据中
+            child_item.setData(0, Qt.ItemDataRole.UserRole, item["执行函数"])  # 将执行函数存储在用户数据中
             parent_item.addChild(child_item)
         self.tree_view.expandAll()
 
     #设置界面：响应点击
     def on_tree_item_clicked(self, item, column):
         # 获取用户数据（执行函数名）
-        function_name = item.data(column, Qt.UserRole)
+        function_name = item.data(column, Qt.ItemDataRole.UserRole)
         if function_name:
             # 动态调用对应的函数
             func = getattr(self, function_name.split('.')[-1])
@@ -1328,7 +1328,7 @@ class MainWindow(QMainWindow):
             self.past_chat_frame.show()
             self.past_chat_frame_animation = QPropertyAnimation(self.past_chat_frame, b"geometry")
             self.past_chat_frame_animation.setDuration(300)
-            self.past_chat_frame_animation.setEasingCurve(QEasingCurve.InOutQuad)
+            self.past_chat_frame_animation.setEasingCurve(QEasingCurve.Type.InOutQuad)
             self.past_chat_frame_animation.setStartValue(QRect(self.width(), 0, self.past_chat_frame.width(), self.height()))
             self.past_chat_frame_animation.setEndValue(QRect(self.width()-self.past_chat_frame.width(), 0, self.past_chat_frame.width(), self.height()))
             self.past_chat_frame.raise_()
@@ -1341,14 +1341,14 @@ class MainWindow(QMainWindow):
             # 创建 TreeView 的动画
             self.tree_animation = QPropertyAnimation(self.tree_view, b"geometry")
             self.tree_animation.setDuration(300)
-            self.tree_animation.setEasingCurve(QEasingCurve.InOutQuad)
+            self.tree_animation.setEasingCurve(QEasingCurve.Type.InOutQuad)
             self.tree_animation.setStartValue(QRect(-self.tree_view.width(), 0, self.tree_view.width(), self.height()))
             self.tree_animation.setEndValue(QRect(0, 0, self.tree_view.width(), self.height()))
 
             # 创建 toggle_tree_button 的动画
             self.button_animation = QPropertyAnimation(self.toggle_tree_button, b"geometry")
             self.button_animation.setDuration(300)
-            self.button_animation.setEasingCurve(QEasingCurve.InOutQuad)
+            self.button_animation.setEasingCurve(QEasingCurve.Type.InOutQuad)
             self.button_animation.setStartValue(self.toggle_tree_button.geometry())
             self.button_animation.setEndValue(QRect(self.tree_view.width(), self.toggle_tree_button.y(), self.toggle_tree_button.width(), self.toggle_tree_button.height()))
 
@@ -1360,7 +1360,7 @@ class MainWindow(QMainWindow):
         else:
             self.past_chat_frame_animation = QPropertyAnimation(self.past_chat_frame, b"geometry")
             self.past_chat_frame_animation.setDuration(300)
-            self.past_chat_frame_animation.setEasingCurve(QEasingCurve.InOutQuad)
+            self.past_chat_frame_animation.setEasingCurve(QEasingCurve.Type.InOutQuad)
             self.past_chat_frame_animation.setStartValue(QRect(self.width()-self.past_chat_frame.width(), 0, self.past_chat_frame.width(), self.height()))
             self.past_chat_frame_animation.setEndValue(QRect(self.width(), 0, self.past_chat_frame.width(), self.height()))
             self.past_chat_frame_animation.finished.connect(self.past_chat_frame.hide)
@@ -1368,7 +1368,7 @@ class MainWindow(QMainWindow):
             # 隐藏 TreeView
             self.tree_animation = QPropertyAnimation(self.tree_view, b"geometry")
             self.tree_animation.setDuration(300)
-            self.tree_animation.setEasingCurve(QEasingCurve.InOutQuad)
+            self.tree_animation.setEasingCurve(QEasingCurve.Type.InOutQuad)
             self.tree_animation.setStartValue(QRect(0, 0, self.tree_view.width(), self.height()))
             self.tree_animation.setEndValue(QRect(-self.tree_view.width(), 0, self.tree_view.width(), self.height()))
             self.tree_animation.finished.connect(self.tree_view.hide)
@@ -1376,7 +1376,7 @@ class MainWindow(QMainWindow):
             # 创建 toggle_tree_button 的动画
             self.button_animation = QPropertyAnimation(self.toggle_tree_button, b"geometry")
             self.button_animation.setDuration(300)
-            self.button_animation.setEasingCurve(QEasingCurve.InOutQuad)
+            self.button_animation.setEasingCurve(QEasingCurve.Type.InOutQuad)
             self.button_animation.setStartValue(self.toggle_tree_button.geometry())
             self.button_animation.setEndValue(QRect(0, self.toggle_tree_button.y(), self.toggle_tree_button.width(), self.toggle_tree_button.height()))
 
@@ -1387,10 +1387,10 @@ class MainWindow(QMainWindow):
 
     #设置界面：点击外部收起
     def eventFilter(self, obj, event):
-      if event.type() == QEvent.MouseButtonPress:
+      if event.type() == QEvent.Type.MouseButtonPress:
           if self.tree_view.isVisible():
               # 将全局坐标转换为树视图的局部坐标
-              local_pos = self.tree_view.mapFromGlobal(event.globalPos())
+              local_pos = self.tree_view.mapFromGlobal(event.globalPosition().toPoint())
               if not self.tree_view.rect().contains(local_pos):
                   self.toggle_tree_view()
       return super().eventFilter(obj, event)
@@ -1624,7 +1624,7 @@ class MainWindow(QMainWindow):
             btn_edit = msg_box.addButton('编辑聊天记录', QMessageBox.ActionRole)
             
             # 显示消息框并获取用户的选择
-            msg_box.exec_()
+            msg_box.exec()
             
             # 根据用户点击的按钮执行操作
             if msg_box.clickedButton() == btn_yes:
@@ -1873,7 +1873,7 @@ class MainWindow(QMainWindow):
             self.settings_window.close()
 
         confirm_bu.clicked.connect(confirm_settings)
-        self.settings_window.exec_()
+        self.settings_window.exec()
 
     #绑定快捷键
     def bind_enter_key(self):
@@ -1907,44 +1907,37 @@ class MainWindow(QMainWindow):
             lambda: self.showFullScreen() if not self.isFullScreen() else self.showNormal()
         )
 
-        QShortcut(QKeySequence(Qt.CTRL + Qt.Key_N), self).activated.connect(self.clear_history)
-
-        QShortcut(QKeySequence(Qt.CTRL + Qt.Key_O), self).activated.connect(self.load_chathistory)
-
-        QShortcut(QKeySequence(Qt.CTRL + Qt.Key_S), self).activated.connect(lambda :self.chathistory_file_manager.save_chathistory(self.chathistory))
-
-        QShortcut(QKeySequence(Qt.CTRL + Qt.Key_M), self).activated.connect(self.show_mod_configer)
-
-        QShortcut(QKeySequence(Qt.CTRL + Qt.Key_T), self).activated.connect(self.show_theme_settings)
-
-        QShortcut(QKeySequence(Qt.CTRL + Qt.Key_D), self).activated.connect(self.open_max_send_lenth_window)
-
-        QShortcut(QKeySequence(Qt.CTRL + Qt.Key_B), self).activated.connect(self.background_settings_window)
+        QShortcut(QKeySequence("Ctrl+N"), self).activated.connect(self.clear_history)
+        QShortcut(QKeySequence("Ctrl+O"), self).activated.connect(self.load_chathistory)
+        QShortcut(QKeySequence("Ctrl+S"), self).activated.connect(lambda: self.chathistory_file_manager.save_chathistory(self.chathistory))
+        QShortcut(QKeySequence("Ctrl+M"), self).activated.connect(self.show_mod_configer)
+        QShortcut(QKeySequence("Ctrl+T"), self).activated.connect(self.show_theme_settings)
+        QShortcut(QKeySequence("Ctrl+D"), self).activated.connect(self.open_max_send_lenth_window)
+        QShortcut(QKeySequence("Ctrl+B"), self).activated.connect(self.background_settings_window)
 
         if self.send_message_var:
-            self.send_message_shortcut=QShortcut(QKeySequence(), self)
-            self.send_message_shortcut.setKey(QKeySequence(Qt.CTRL + Qt.Key_Return))
+            self.send_message_shortcut = QShortcut(QKeySequence(), self)
+            self.send_message_shortcut.setKey(QKeySequence("Ctrl+Return"))
             self.send_message_shortcut.activated.connect(self.send_message)
-            self.send_message_var=True
+            self.send_message_var = True
         elif self.send_message_shortcut:
             self.send_message_shortcut.setKey(QKeySequence())
-        
+            
         if self.autoslide_var:
             self.shortcut1 = QShortcut(QKeySequence(), self)
-            self.shortcut1.setKey(QKeySequence(Qt.Key_Tab))
+            self.shortcut1.setKey(QKeySequence(Qt.Key.Key_Tab))  # 修复
             self.shortcut1.activated.connect(self.toggle_tree_view)
             self.shortcut2 = QShortcut(QKeySequence(), self)
-            self.shortcut2.setKey(QKeySequence(Qt.CTRL+Qt.Key_Q))
+            self.shortcut2.setKey(QKeySequence("Ctrl+Q"))  # 使用字符串格式
             self.shortcut2.activated.connect(self.toggle_tree_view)
             self.autoslide_var=True
         elif self.shortcut1:
             self.shortcut1.setKey(QKeySequence())
             self.shortcut2.setKey(QKeySequence())
 
-        
         if self.hotkey_sysrule_var:
-            self.hotkey_sysrule= QShortcut(QKeySequence(), self)
-            self.hotkey_sysrule.setKey(QKeySequence(Qt.CTRL+Qt.Key_E))
+            self.hotkey_sysrule = QShortcut(QKeySequence(), self)
+            self.hotkey_sysrule.setKey(QKeySequence("Ctrl+E"))  # 使用字符串格式
             self.hotkey_sysrule.activated.connect(self.open_system_prompt)
             self.hotkey_sysrule_var=True
         elif self.hotkey_sysrule:
@@ -2432,7 +2425,7 @@ class MainWindow(QMainWindow):
             lambda: self.analysis_past_chat()
         )
 
-        context_menu.exec_(self.past_chat_list.viewport().mapToGlobal(position))
+        context_menu.exec(self.past_chat_list.viewport().mapToGlobal(position))
 
     #删除记录
     def delete_selected_history(self):
@@ -2632,7 +2625,7 @@ class MainWindow(QMainWindow):
         self.anim_out.setDuration(300)
         self.anim_out.setStartValue(0.5)
         self.anim_out.setEndValue(0.0)
-        self.anim_out.setEasingCurve(QEasingCurve.InOutQuad)
+        self.anim_out.setEasingCurve(QEasingCurve.Type.InOutQuad)
         self.anim_out.finished.connect(lambda: self._apply_image(new_pixmap))
         self.anim_out.start()
     def _apply_image(self, pixmap):
@@ -2641,7 +2634,7 @@ class MainWindow(QMainWindow):
         self.anim_in.setDuration(300)
         self.anim_in.setStartValue(0.0)
         self.anim_in.setEndValue(0.5)
-        self.anim_in.setEasingCurve(QEasingCurve.InOutQuad)
+        self.anim_in.setEasingCurve(QEasingCurve.Type.InOutQuad)
         self.anim_in.finished.connect(self.back_animation_finished.emit)
         self.anim_in.start()
  
@@ -2962,7 +2955,7 @@ def start():
     window = MainWindow()
     window.show()
     LOGGER.log(f'CWLA shown on desktop, time cost:{time.time()-start_time_stamp:.2f}s',level='debug')
-    sys.exit(app.exec_())
+    sys.exit(app.exec())
 
 if __name__=="__main__":
     start()

@@ -241,9 +241,7 @@ QComboBox {
     border-radius: 4px;                          /* 圆角半径 */
     color: #1a2980;                              /* 文字颜色 */
     font-weight: bold;                           /* 加粗文字 */
-    font-size: 14px;                            /* 字体大小 */
-    padding: 6px 10px;                           /* 内边距 */
-    min-width: 80px;                             /* 最小宽度 */
+    padding: 3px 5px;                           /* 内边距 */
     selection-background-color: #26d0ce;         /* 选择文本背景色 */
     selection-color: white;                      /* 选择文本颜色 */
 }
@@ -276,7 +274,6 @@ QComboBox:disabled {
 QComboBox::drop-down {
     subcontrol-origin: padding;
     subcontrol-position: top right;
-    width: 24px;                                /* 箭头区域宽度 */
     border-left: 1px solid #d0d8e0;             /* 左侧分隔线 */
     border-top-right-radius: 4px;               /* 右上角圆角 */
     border-bottom-right-radius: 4px;            /* 右下角圆角 */
@@ -330,9 +327,7 @@ QComboBox QAbstractItemView {
 
 /* 下拉列表项样式 */
 QComboBox QAbstractItemView::item {
-    padding: 8px 15px;                          /* 项内边距 */
     border-bottom: 1px solid transparent;       /* 透明底部边框 */
-    margin: 2px;                                /* 项外边距 */
 }
 
 /* 下拉列表项悬停效果 */

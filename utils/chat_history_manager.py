@@ -227,7 +227,7 @@ class ChatHistoryTextView(QWidget):
                 buffer.append(f"\n\n{name}")
 
             # 添加思考链（如果存在且需要显示）
-            msg: Dict[str, str] = {...}
+            msg: Dict[str, str]
             if self.show_reasoning and 'reasoning_content' in msg:
                 reasoning_content = msg['reasoning_content'].replace('### AI 思考链\n---', '').strip()
                 if reasoning_content:

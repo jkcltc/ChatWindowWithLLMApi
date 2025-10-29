@@ -1661,21 +1661,20 @@ class MainWindow(QMainWindow):
                     ''.join(
                         [
                             '长对话优化日志：',
-                            '\n当前对话次数:',len(self.chathistory)-1,
-                            '\n当前对话长度（包含system prompt）:',full_chat_lenth,
-                            '\n当前新对话轮次:',self.new_chat_rounds,'/',self.max_message_rounds,
-                            '\n新对话长度:',len(str(self.chathistory[-self.new_chat_rounds:])),
+                            '\n当前对话次数:', str(len(self.chathistory)-1),
+                            '\n当前对话长度（包含system prompt）:', str(full_chat_lenth),
+                            '\n当前新对话轮次:', str(self.new_chat_rounds), '/', str(self.max_message_rounds),
+                            '\n新对话长度:', str(len(str(self.chathistory[-self.new_chat_rounds:]))),
                             '\n触发条件:',
                             '\n总对话轮数达标:'
-                            '\n对话长度达达到',self.max_total_length,":", message_lenth_bool,
-                            '\n新对话轮次超过限制:', newchat_rounds_bool,
-                            '\n新对话长度超过限制:', newchat_lenth_bool,
-                            '\n触发长对话优化:',long_chat_improve_bool
-                            ]
-                        ),
-                        level='info'
-                    )
-                
+                            '\n对话长度达达到', str(self.max_total_length), ":", str(message_lenth_bool),
+                            '\n新对话轮次超过限制:', str(newchat_rounds_bool),
+                            '\n新对话长度超过限制:', str(newchat_lenth_bool),
+                            '\n触发长对话优化:', str(long_chat_improve_bool)
+                        ]
+                    ),
+                    level='info'
+                )
                 if long_chat_improve_bool:
                     self.new_chat_rounds=0
                     self.info_manager.notify('条件达到,长文本优化已触发','info')
@@ -1689,18 +1688,16 @@ class MainWindow(QMainWindow):
                 message_lenth_bool=(len(self.chathistory)>self.max_background_rounds or full_chat_lenth>self.max_backgound_lenth)
                 newchat_rounds_bool=self.new_background_rounds>self.max_background_rounds
                 long_chat_improve_bool=message_lenth_bool and newchat_rounds_bool
-                self.info_manager.log(''.join(
-                        ['背景更新日志：',
-                    '\n当前对话次数:',len(self.chathistory)-1,
-                    '\n当前对话长度（包含system prompt）:',full_chat_lenth,
-                    '\n当前新对话轮次:',self.new_background_rounds,'/',self.max_background_rounds,
-                    '\n新对话长度:',(len(str(self.chathistory[-self.new_background_rounds:]))-len(str(self.chathistory[0]))),
-                    '\n触发条件:',
-                    '\n总对话轮数达标:',
-                    '\n对话长度达达到',self.max_backgound_lenth,":", message_lenth_bool,
-                    '\n新对话轮次超过限制:', newchat_rounds_bool,
-                    '\n触发背景更新:',long_chat_improve_bool]
-                    ),
+                self.info_manager.log(f"""背景更新日志：
+当前对话次数: {len(self.chathistory)-1}
+当前对话长度（包含system prompt）: {full_chat_lenth}
+当前新对话轮次: {self.new_background_rounds}/{self.max_background_rounds}
+新对话长度: {len(str(self.chathistory[-self.new_background_rounds:]))-len(str(self.chathistory[0]))}
+触发条件:
+总对话轮数达标:
+对话长度达到 {self.max_backgound_lenth}: {message_lenth_bool}
+新对话轮次超过限制: {newchat_rounds_bool}
+触发背景更新: {long_chat_improve_bool}""",
                     level='info')
                 if long_chat_improve_bool:
                     self.new_background_rounds=0
@@ -1708,8 +1705,6 @@ class MainWindow(QMainWindow):
                     self.info_manager.notify('条件达到,背景更新已触发')
                     self.call_background_update()
                 
-            except Exception as e:
-                LOGGER.error(f"long chat improvement failed, Error code:{e}")
             except Exception as e:
                 LOGGER.error(f"long chat improvement failed, Error code:{e}")
         if self.enforce_lower_repeat_var:

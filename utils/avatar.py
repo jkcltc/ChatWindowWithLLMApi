@@ -79,7 +79,7 @@ class ImageProcessor:
         # 缩放至目标尺寸
         return cropped.scaled(
             target_size[0], target_size[1],
-            Qt.IgnoreAspectRatio, Qt.TransformationMode.SmoothTransformation
+            Qt.AspectRatioMode.IgnoreAspectRatio, Qt.TransformationMode.SmoothTransformation
         )
 
 class ImagePreviewer(QLabel):
@@ -166,7 +166,7 @@ class ImagePreviewer(QLabel):
         # 将显示的矩形坐标转换为原始图像坐标
         return self.map_to_original(self._draw_rect)
         
-    def map_to_original(self, widget_rect):
+    def map_to_original(self, widget_rect:QRect):
         """
         将控件坐标映射回原始图像坐标
         """
@@ -222,9 +222,9 @@ class ImagePreviewer(QLabel):
         super().resizeEvent(event)
         self._update_pixmap()
             
-    def mousePressEvent(self, event):
+    def mousePressEvent(self, event:QMouseEvent):
         """鼠标按下时开始选择区域"""
-        if event.button() == Qt.LeftButton and not self._original_image.isNull():
+        if event.button() == Qt.MouseButton.LeftButton and not self._original_image.isNull():
             # 检查点击是否在图像区域内
             pixmap = self.pixmap()
             if pixmap is None or pixmap.isNull():
@@ -246,16 +246,16 @@ class ImagePreviewer(QLabel):
             self._draw_rect = QRect(self._start_point, self._end_point).normalized()
             self.update()
             
-    def mouseMoveEvent(self, event):
+    def mouseMoveEvent(self, event:QMouseEvent):
         """鼠标移动时更新选择区域"""
         if self._is_selecting:
             self._end_point = event.pos()
             self._draw_rect = QRect(self._start_point, self._end_point).normalized()
             self.update()
             
-    def mouseReleaseEvent(self, event):
+    def mouseReleaseEvent(self, event:QMouseEvent):
         """鼠标释放时结束选择并发送信号"""
-        if self._is_selecting and event.button() == Qt.LeftButton:
+        if self._is_selecting and event.button() == Qt.MouseButton.LeftButton:
             self._is_selecting = False
             self._end_point = event.pos()
             self._draw_rect = QRect(self._start_point, self._end_point).normalized()
@@ -267,13 +267,13 @@ class ImagePreviewer(QLabel):
                 
             self.update()
             
-    def paintEvent(self, event):
+    def paintEvent(self, event:QPaintEvent):
         """绘制选择框"""
         super().paintEvent(event)
         
         if self._is_selecting and not self._draw_rect.isNull():
             painter = QPainter(self)
-            painter.setRenderHint(QPainter.Antialiasing)
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
             
             # 获取图像位置
             pixmap = self.pixmap()
@@ -293,22 +293,22 @@ class ImagePreviewer(QLabel):
             painter.fillRect(QRect(x_offset, y_offset, pixmap_width, pixmap_height), fill_color)
             
             # 绘制选择区域
-            selection_brush = QBrush(Qt.NoBrush)
+            selection_brush = QBrush(Qt.BrushStyle.NoBrush)
             painter.setBrush(selection_brush)
             
             # 设置选择框样式
-            pen = QPen(Qt.GlobalColor.red, 2, Qt.DashLine)
+            pen = QPen(Qt.GlobalColor.red, 2, Qt.PenStyle.DashLine)
             painter.setPen(pen)
             
             # 绘制选择框
             painter.drawRect(self._draw_rect)
             
             # 清除选择区域内容
-            painter.setCompositionMode(QPainter.CompositionMode_Clear)
+            painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_Clear)
             painter.fillRect(self._draw_rect, Qt.GlobalColor.transparent)
             
             # 绘制尺寸文本
-            painter.setCompositionMode(QPainter.CompositionMode_SourceOver)
+            painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceOver)
             pen.setColor(Qt.GlobalColor.black)
             painter.setPen(pen)
             
@@ -495,7 +495,6 @@ class AvatarImageGenerator(QObject):
 
         
     def image_request_sender(self,json_return):
-        print(json_return)
         if not hasattr(self,'message'):
             self.failure.emit('AvartarImageGenerator','Not init yet')
         self.status_update.emit(AvatarCreatorText.IMAGE_GENERATE_STATUS_IMAGE)
@@ -543,7 +542,7 @@ class AvatarCreatorWindow(QWidget):
 
         # 初始化变量
         self.current_image_path = ""    # 当前处理的图像路径
-        self.avatar_info = avatar_info   # 头像信息字典
+        self.avatar_info:dict = avatar_info   # 头像信息字典
         self.init_character = init_character  # 初始角色设置
         self.application_path = application_path  # 应用路径
         self.model_map = model_map       # 模型映射关系

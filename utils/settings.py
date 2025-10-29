@@ -570,7 +570,7 @@ class MainSettingWindow(QWidget):
 
     def populate_values(self,config):
         """填充控件值的方法"""
-        self.config=config
+        self.config:dict=config
         self.blockSignals(True)
         self.update_api_provider_combo()
         self.update_model_combo()
@@ -680,7 +680,7 @@ class ConfigManager:
                     setattr(obj, option, value)
 
     @staticmethod
-    def config_save(obj, filename='chatapi.ini', section="others"):
+    def config_save(obj:QObject, filename='chatapi.ini', section="others"):
         """
         保存对象属性到INI文件
         :param obj: 需要保存属性的对象实例

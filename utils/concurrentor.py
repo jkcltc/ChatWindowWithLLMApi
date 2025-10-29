@@ -178,7 +178,7 @@ class ConvergenceDialogueOptiUI(QWidget):
         models_layout = QHBoxLayout(models_container)
         models_layout.setSpacing(8)
         
-        self.model_groups = []
+        self.model_groups:list[QGroupBox] = []
         
         # 初始模型组
         for i in range(3):

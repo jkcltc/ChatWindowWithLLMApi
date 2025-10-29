@@ -220,9 +220,9 @@ class CosyVoiceTTSWindow(QWidget):
                 self,
                 "错误",
                 "无法连接到TTS服务，是否尝试启动服务？",
-                QMessageBox.Yes | QMessageBox.No
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
             )
-            if choice == QMessageBox.Yes:
+            if choice == QMessageBox.StandardButton.Yes:
                 self.prompt_and_start_tts_server()
         except Exception as e:
             QMessageBox.critical(self, "错误", f"未知错误：{str(e)}")
@@ -537,14 +537,14 @@ class EdgeTTSSelectionDialog(QWidget):
         super().paintEvent(event)
 
         painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
         # 获取样式表定义的颜色
         palette = self.palette()
         bg_color = palette.color(QPalette.ColorRole.Window)
 
         if bg_color.alpha() < 255:
-            painter.setCompositionMode(QPainter.CompositionMode_Source)
+            painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_Source)
 
         # 应用圆角裁剪
         path = QPainterPath()
@@ -1411,11 +1411,11 @@ class TTSAgent(QGroupBox):
             self,
             '生成器更换',
             f'生成器将被更换为{name}，旧任务将被抛弃，要继续吗？',
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No
         )
         
-        if reply == QMessageBox.Yes:
+        if reply == QMessageBox.StandardButton.Yes:
             self.set_generator(name)
             self.current_generator = name
             self.tts_state.emit(self.tts_enabled,name)

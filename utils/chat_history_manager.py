@@ -225,8 +225,9 @@ class ChatHistoryTextView(QWidget):
                 buffer.append(f"\n\n**{name}**")
             else:
                 buffer.append(f"\n\n{name}")
-            
+
             # 添加思考链（如果存在且需要显示）
+            msg: Dict[str, str] = {...}
             if self.show_reasoning and 'reasoning_content' in msg:
                 reasoning_content = msg['reasoning_content'].replace('### AI 思考链\n---', '').strip()
                 if reasoning_content:
@@ -242,7 +243,7 @@ class ChatHistoryTextView(QWidget):
             
             # 添加元数据（如果存在且需要显示）
             if self.show_metadata and 'info' in msg:
-                info = msg['info']
+                info:dict = msg['info']
                 if info:
                     if self.use_markdown:
                         buffer.append("\n\n<small>")
@@ -320,40 +321,17 @@ class TitleGenerator(QObject):
     # ---------- API 处理器绑定/配置 ----------
     def bind_api_handler(self, api_handler: 'APIRequestHandler'):
         """绑定 API 处理器，自动连接完成与错误信号"""
-        # 先断开旧的连接（若存在）
+        # 先断开旧的连接
         if self.api_handler:
-            try:
-                if hasattr(self.api_handler, "request_completed"):
-                    self.api_handler.request_completed.disconnect(self._handle_title_response)
-            except Exception:
-                pass
-            try:
-                if hasattr(self.api_handler, "error_occurred"):
-                    self.api_handler.error_occurred.disconnect(self._on_api_error)
-            except Exception:
-                pass
+            self.api_handler.request_completed.disconnect(self._handle_title_response)
+            self.api_handler.error_occurred.disconnect(self._on_api_error)
 
         self.api_handler = api_handler
 
         # 安全连接
         if self.api_handler:
-            if hasattr(self.api_handler, "request_completed"):
-                try:
-                    self.api_handler.request_completed.connect(self._handle_title_response)
-                except Exception as e:
-                    self.warning_signal.emit(f"无法连接 API 的 request_completed 信号：{e}")
-            else:
-                self.warning_signal.emit("API handler 不包含 request_completed 信号，无法异步获取结果。")
-
-            if hasattr(self.api_handler, "error_occurred"):
-                try:
-                    self.api_handler.error_occurred.connect(self._on_api_error)
-                except Exception as e:
-                    self.warning_signal.emit(f"无法连接 API 的 error_occurred 信号：{e}")
-            else:
-                self.warning_signal.emit("API handler 不包含 error_occurred 信号，无法感知错误。")
-
-            self.log_signal.emit("已绑定 API 处理器。")
+            self.api_handler.request_completed.connect(self._handle_title_response)
+            self.api_handler.error_occurred.connect(self._on_api_error)
 
     def set_provider(self, provider: str, model: str, api_config: Optional[Dict[str, Any]] = None):
         """设置 API 提供商与配置信息"""
@@ -524,6 +502,12 @@ class ChatHistoryEditor(QWidget):
         self._load_history_to_form()
         self._update_json_editor_from_history()
 
+        self._last_applied_json_text: str = self.json_edit.toPlainText()
+        self._json_debounce_timer = QTimer(self)
+        self._json_debounce_timer.setSingleShot(True)
+        self._json_debounce_timer.setInterval(50)
+        self._json_debounce_timer.timeout.connect(self._apply_json_editor_to_form_auto)
+
     # ---------- UI ----------
     def _build_ui(self) -> None:
         screen_geometry = QApplication.primaryScreen().availableGeometry()
@@ -611,15 +595,6 @@ class ChatHistoryEditor(QWidget):
 
         form_layout.addWidget(title_group)
 
-        # 操作
-        action_row = QHBoxLayout()
-        self.btn_save = QPushButton("保存并关闭", self)
-        self.btn_reset = QPushButton("放弃修改并恢复", self)
-        action_row.addStretch(1)
-        action_row.addWidget(self.btn_reset)
-        action_row.addWidget(self.btn_save)
-        form_layout.addLayout(action_row)
-
         self.tabs.addTab(form_page, "表单编辑")
 
         # JSON 编辑页
@@ -648,6 +623,15 @@ class ChatHistoryEditor(QWidget):
 
         self.tabs.addTab(json_page, "JSON编辑")
         main_layout.addWidget(self.tabs)
+
+        # 操作
+        action_row = QHBoxLayout()
+        self.btn_save = QPushButton("保存并关闭", self)
+        self.btn_reset = QPushButton("放弃修改并恢复", self)
+        action_row.addStretch(1)
+        action_row.addWidget(self.btn_reset)
+        action_row.addWidget(self.btn_save)
+        main_layout.addLayout(action_row)
 
     def _wrap_row(self, layout: QHBoxLayout) -> QWidget:
         w = QWidget(self)
@@ -696,35 +680,15 @@ class ChatHistoryEditor(QWidget):
                 idx = i
                 sys_item = item
                 break
-        if sys_item is None:
-            sys_item = {
-                "role": "system",
-                "content": "你是{{char}}。你正在和{{user}}聊天。",
-                "info": {
-                    "id": "system_prompt",
-                    "name": {"user": "", "assistant": ""},
-                    "avatar": {"user": "", "assistant": ""},
-                    "chat_id": str(uuid.uuid4()),
-                    "title": ""
-                }
-            }
-            idx = 0
-            self._history.insert(0, sys_item)
-
-        info = sys_item.setdefault("info", {})
-        info.setdefault("name", {}).setdefault("user", "")
-        info.setdefault("name", {}).setdefault("assistant", "")
-        info.setdefault("avatar", {}).setdefault("user", "")
-        info.setdefault("avatar", {}).setdefault("assistant", "")
-        info.setdefault("title", info.get("title", ""))
+        # system消息必定存在，原来的重组系统消息逻辑现在已经剔除
         return idx, sys_item
 
     def _load_history_to_form(self) -> None:
         self._syncing = True
         _, sys_item = self._get_or_create_system_item()
-        info = sys_item.get("info", {})
-        name = info.get("name", {})
-        avatar = info.get("avatar", {})
+        info:dict    = sys_item.get("info", {})
+        name:dict    = info.get("name", {})
+        avatar:dict  = info.get("avatar", {})
 
         self.sys_content_edit.setPlainText(sys_item.get("content", "") or "")
         self.user_name_edit.setText(name.get("user", "") or "")
@@ -743,6 +707,7 @@ class ChatHistoryEditor(QWidget):
             self.json_edit.setPlainText(text)
             self.json_status_label.setText("JSON 已更新")
             self.json_status_label.setStyleSheet("color: #888;")
+            self._last_applied_json_text = text
         finally:
             self._syncing = False
 
@@ -843,23 +808,7 @@ class ChatHistoryEditor(QWidget):
 
     # ---------- JSON 编辑 ----------
     def _on_json_apply_to_form(self) -> None:
-        text = self.json_edit.toPlainText().strip()
-        if not text:
-            self.json_status_label.setText("JSON 为空")
-            self.json_status_label.setStyleSheet("color: #d9534f;")
-            return
-        try:
-            data = json.loads(text)
-            if not isinstance(data, list):
-                raise ValueError("JSON 根应为列表(list)。")
-            self._history = data
-            self._get_or_create_system_item()
-            self._load_history_to_form()
-            self.json_status_label.setText("JSON 已应用到表单")
-            self.json_status_label.setStyleSheet("color: #5cb85c;")
-        except Exception as e:
-            self.json_status_label.setText(f"JSON 解析失败：{e}")
-            self.json_status_label.setStyleSheet("color: #d9534f;")
+        self._apply_json_editor_to_form_auto()
 
     def _on_json_format(self) -> None:
         try:
@@ -881,15 +830,53 @@ class ChatHistoryEditor(QWidget):
         if not text:
             self.json_status_label.setText("JSON 为空")
             self.json_status_label.setStyleSheet("color: #d9534f;")
+            # 仍然启用定时器（若用户继续输入会重启），也可以选择直接 return
+            self._json_debounce_timer.start()
             return
-        try:
-            json.loads(text)
+
+        # 不立即解析，启动/重启防抖定时器
+        self.json_status_label.setText("正在编辑 JSON ...")
+        self.json_status_label.setStyleSheet("color: #888;")
+        self._json_debounce_timer.start()
+
+    def _apply_json_editor_to_form_auto(self) -> None:
+        if self._syncing:
+            return
+        text = self.json_edit.toPlainText().strip()
+        if not text:
+            self.json_status_label.setText("JSON 为空")
+            self.json_status_label.setStyleSheet("color: #d9534f;")
+            return
+
+        # 避免重复对相同文本应用
+        if text == self._last_applied_json_text:
+            # 仍可在此更新“格式良好”状态（上次已成功）
             self.json_status_label.setText("JSON 格式良好")
             self.json_status_label.setStyleSheet("color: #5cb85c;")
+            return
+
+        try:
+            data = json.loads(text)
+            if not isinstance(data, list):
+                raise ValueError("JSON 根应为列表(list)。")
         except Exception as e:
             self.json_status_label.setText(f"JSON 非法：{e}")
             self.json_status_label.setStyleSheet("color: #d9534f;")
+            return
 
+        # 应用到模型
+        self._history = data
+        self._get_or_create_system_item()
+
+        # 回填表单（_load_history_to_form 内部已设置 _syncing 防止回流）
+        self._load_history_to_form()
+
+        # 状态
+        self.json_status_label.setText("JSON 已应用到表单")
+        self.json_status_label.setStyleSheet("color: #5cb85c;")
+
+        # 记录已应用文本，用于去重
+        self._last_applied_json_text = text
     # ---------- 保存/重置 ----------
     def _on_save_clicked(self) -> None:
         self._apply_form_to_history()
@@ -1450,7 +1437,7 @@ class HistoryListWidget(QListWidget):
             for target_row, fp in enumerate(new_order):
                 data = new_map[fp]
                 if fp in old_map:
-                    item = old_map[fp]
+                    item:QListWidgetItem = old_map[fp]
                     # 文本变化才更新，减少不必要的刷新
                     if item.text() != data['title']:
                         item.setText(data['title'])

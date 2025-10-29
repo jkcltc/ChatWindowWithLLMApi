@@ -1649,8 +1649,8 @@ class FunctionManager(QtWidgets.QWidget):
             return
 
         ret = QtWidgets.QMessageBox.question(self, "确认删除", f"确定删除用户工具文件：\n{fp} ？",
-                                             QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No)
-        if ret != QtWidgets.QMessageBox.Yes:
+                                             QtWidgets.QMessageBox.StandardButton.Yes | QtWidgets.QMessageBox.StandardButton.No)
+        if ret != QtWidgets.QMessageBox.StandardButton.Yes:
             return
 
         try:

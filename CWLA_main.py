@@ -476,7 +476,7 @@ class MainWindow(QMainWindow):
         self.init_chathistory_components()
 
         #从存档载入设置并覆盖
-        ConfigManager.init_settings(self, exclude=['application_path','temp_style','full_response','think_response'])
+        ConfigManager.init_settings(self, exclude=['application_path','temp_style','full_response','think_response','history_path'])
 
         self.init_title_creator()
         self.init_system_prompt_window()
@@ -1619,8 +1619,8 @@ class MainWindow(QMainWindow):
             msg_box.setText('确定连发两条吗？')
             
             # 添加自定义按钮
-            btn_yes = msg_box.addButton('确定', QMessageBox.YesRole)
-            btn_no = msg_box.addButton('取消', QMessageBox.NoRole)
+            btn_yes = msg_box.addButton('确定', QMessageBox.StandardButton.YesRole)
+            btn_no = msg_box.addButton('取消', QMessageBox.StandardButton.NoRole)
             btn_edit = msg_box.addButton('编辑聊天记录', QMessageBox.ActionRole)
             
             # 显示消息框并获取用户的选择
@@ -1640,12 +1640,12 @@ class MainWindow(QMainWindow):
         elif user_input == '':
             # 弹出窗口：确定发送空消息？
             reply = QMessageBox.question(self, '确认操作', '确定发送空消息？',
-                                        QMessageBox.Yes | QMessageBox.No,
-                                        QMessageBox.No)
-            if reply == QMessageBox.Yes:
+                                        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                                        QMessageBox.StandardButton.No)
+            if reply == QMessageBox.StandardButton.Yes:
                 self.user_input_text.setText('_')
                 # 正常继续
-            elif reply == QMessageBox.No:
+            elif reply == QMessageBox.StandardButton.No:
                 # 如果否定：return False
                 return False
         if self.long_chat_improve_var:

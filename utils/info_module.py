@@ -404,7 +404,7 @@ class ToastManager(QtCore.QObject):
             "error": ErrorToast,
         }
 
-        self._toasts = []
+        self._toasts:list[ToastBubble] = []
         self._anchor.installEventFilter(self)
 
     def registerBubbleClass(self, level: str, cls: type):

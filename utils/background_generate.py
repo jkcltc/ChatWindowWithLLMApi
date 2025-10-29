@@ -294,7 +294,7 @@ class SectionWidget(QWidget):
     """分组组件模板，提供标题和分组框样式"""
     def __init__(self, title="", parent=None):
         super().__init__(parent)
-        self.layout = QVBoxLayout(self)
+        self.layout:QVBoxLayout = QVBoxLayout(self)
         self.layout.setContentsMargins(0, 0, 0, 0)
         self.layout.setSpacing(6)
         
@@ -526,7 +526,7 @@ class BackgroundSettingsWidget(QWidget):
         # 添加到主布局右侧
         main_layout.addWidget(preview_panel, 1)
 
-    def initialize_settings(self, settings_dict):
+    def initialize_settings(self, settings_dict:dict):
         """
         使用传入的字典设置初始化所有控件
         settings_dict: 包含所有初始化设置的字典

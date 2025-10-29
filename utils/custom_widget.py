@@ -87,7 +87,7 @@ class GradientLabel(QLabel):
     def paintEvent(self, event):
         """自定义绘制事件，高光从左侧开始"""
         painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         
         # 创建圆角矩形路径
         path = QPainterPath()
@@ -435,18 +435,12 @@ class AspectRatioButton(QPushButton):
         target_width = min(event.size().width(), int(event.size().height() * self.aspect_ratio))
         target_height = int(target_width / self.aspect_ratio)
  
-        # 注意：这里我们不应该再次调用 self.resize()，因为这会导致无限递归。
-        # 相反，我们应该让父类的 resizeEvent 处理实际的尺寸调整。
-        # 我们只需要确保图标在调整大小后得到更新。
- 
         # 更新显示内容
         self.update_icon(self.original_pixmap)
         super().resizeEvent(event)  # 这应该放在最后，以允许父类处理尺寸调整
  
     def sizeHint(self):
         """ 提供合理的默认尺寸 """
-        # 注意：这里返回的尺寸应该基于当前的 aspect_ratio，但不应该在构造函数之外修改它。
-        # 如果需要基于某个默认宽度来计算高度，可以这样做：
         default_width = 200
         default_height = int(default_width / self.aspect_ratio)
         return QSize(default_width, default_height)
@@ -617,18 +611,15 @@ class ChatapiTextBrowser(QTextBrowser):
 
         super().setHtml(html_content)
         # 自动滚动到底部
-        self.moveCursor(QTextCursor.MoveOperation.End)
-        self.ensureCursorVisible()
-        #self.verticalScrollBar().setValue(
-        #    self.verticalScrollBar().maximum()
-        #)
+        # self.moveCursor(QTextCursor.MoveOperation.End)
+        # self.ensureCursorVisible()
 
     @staticmethod
     def _process_markdown_internal(raw_text: str, code_formatter) -> str:
         """Markdown处理核心方法（线程安全）"""
         code_blocks = []
         def code_replacer(match):
-            code = match.group(0)
+            code :str = match.group(0)
             if not code.endswith('```'):
                 code += '```'
             code_blocks.append(code)
@@ -782,7 +773,7 @@ class InfoPopup(QWidget):
             "transparent" in label_style.lower() or 
             "hsla" in label_style
         )
-        
+        container_style=''
         # 如果包含透明元素，设置为字体颜色的反色且不透明
         if is_transparent:
             # 获取默认 label 的字体颜色
@@ -896,7 +887,7 @@ class BubbleControlButtons(QFrame):
         
         # 内部容器用于控制对齐
         self.inner_widget = QFrame()
-        self.layout = QHBoxLayout(self.inner_widget)
+        self.layout:QHBoxLayout = QHBoxLayout(self.inner_widget)
         self.layout.setContentsMargins(0, 0, 0, 0)
         self.layout.setSpacing(0)
         
@@ -1043,7 +1034,7 @@ class ChatBubble(QWidget):
         super().__init__(parent)
         self.id = str(message_data['info']['id'])
         self.role = message_data['role']
-        self.message_data = message_data
+        self.message_data:dict = message_data
         self.setMouseTracking(True)  # 启用鼠标跟踪
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.MinimumExpanding)
         self.setObjectName('chatbubble')
@@ -1160,7 +1151,6 @@ class ChatBubble(QWidget):
         """
         用户和工具直接大写返回，AI提取个模型名称
         """
-        print(self.message_data)
         if self.role=='user':
             if not nickname:
                 return self.role.upper()
@@ -1169,8 +1159,15 @@ class ChatBubble(QWidget):
             return self.role.upper()
         if self.role=='assistant':
             info_data = self.message_data.get('info', {})
-            if not nickname:#要换到小部件里去
-                nickname=info_data['model']
+            if not nickname :
+                if "model" in info_data:
+                    nickname=info_data['model']
+                else:
+                    nickname='AI'
+                    print(
+                        'ChatBubble | _get_patched_name: can not find "model" in message_data:\n',
+                        json.dumps(self.message_data,indent=2)
+                    )
             return nickname
     
     def _setup_avatar(self):
@@ -1283,7 +1280,7 @@ class ChatBubble(QWidget):
         self.avatar_path = new_path
         self._setup_avatar()
     
-    def update_content(self, content_data):
+    def update_content(self, content_data:dict):
         """
         更新内容显示
         :param content_data: 包含 content 和 state 的字典
@@ -1307,7 +1304,7 @@ class ChatBubble(QWidget):
         if not is_streaming:
             self.editor.setPlainText(content)
 
-    def update_reasoning(self, reasoning_data):
+    def update_reasoning(self, reasoning_data:dict):
         """
         更新思考内容
         :param reasoning_data: 包含 reasoning_content
@@ -1596,19 +1593,19 @@ class ChatHistoryWidget(QFrame):
 
     def update_bubble_content(self, msg_id, content_data):
         """更新特定气泡的内容"""
-        bubble = self.bubbles.get(msg_id)
+        bubble:ChatBubble = self.bubbles.get(msg_id)
         if bubble:
             bubble.update_content(content_data)
     
     def update_bubble_reasoning(self, msg_id, reasoning_data):
         """更新特定气泡的思考内容"""
-        bubble = self.bubbles.get(msg_id)
+        bubble:ChatBubble = self.bubbles.get(msg_id)
         if bubble:
             bubble.update_reasoning(reasoning_data)
     
     def update_bubble_info(self, msg_id, info_data):
         """更新气泡的元信息"""
-        bubble = self.bubbles.get(msg_id)
+        bubble:ChatBubble = self.bubbles.get(msg_id)
         if bubble:
             bubble.message_data['info'] = info_data
     
@@ -1719,7 +1716,7 @@ class ChatHistoryWidget(QFrame):
             self.is_scroll_update_active=False
             self.scroll_timer.stop()
     
-    def eventFilter(self, obj, event):
+    def eventFilter(self, obj, event:QEvent):
         """事件过滤器，检测鼠标滚轮事件"""
         if event.type() == QEvent.Type.Wheel:
             self._handle_wheel_event(event)

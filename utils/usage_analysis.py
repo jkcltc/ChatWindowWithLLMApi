@@ -430,7 +430,7 @@ class TokenAnalysisWidget(QWidget):
         self.status_label.setText(f"错误: {error_msg}")
         QMessageBox.critical(self, "分析错误", error_msg)
     
-    def update_summary_results(self, results):
+    def update_summary_results(self, results:dict):
         """更新摘要统计结果，添加content和reasoning_content总字数统计"""
         # 显示摘要
         self.summary_tree.clear()

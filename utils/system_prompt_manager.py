@@ -591,8 +591,8 @@ class SystemPromptManager(QtWidgets.QWidget):
         file_name = items[0].text()
         if QtWidgets.QMessageBox.question(
             self, "确认删除", f"确定删除 '{file_name}' ？",
-            QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No
-        ) != QtWidgets.QMessageBox.Yes:
+            QtWidgets.QMessageBox.StandardButton.Yes | QtWidgets.QMessageBox.StandardButton.No
+        ) != QtWidgets.QMessageBox.StandardButton.Yes:
             return
         path = items[0].data(QtCore.Qt.ItemDataRole.UserRole)
         if not self.store.delete(path):
@@ -738,7 +738,7 @@ class SystemPromptComboBox(QtWidgets.QWidget):
         self._watched_dir = None
         self._watched_file = None
 
-        self._cache = {}  # path -> _Entry
+        self._cache: dict[str, SystemPromptComboBox._Entry] = {}  # path -> _Entry
         self._items_snapshot = []
         self._last_target_data = None
 
@@ -932,7 +932,7 @@ class SystemPromptComboBox(QtWidgets.QWidget):
 
     # 可选帮助
     def select_by_name(self, display_name: str):
-        i = self.combo.findText(display_name, QtCore.Qt.MatchFixedString)
+        i = self.combo.findText(display_name, QtCore.Qt.MatchFlag.MatchFixedString)
         if i >= 0:
             self.combo.setCurrentIndex(i)
 

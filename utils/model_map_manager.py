@@ -715,6 +715,7 @@ class APIConfigWidget(QWidget):
         config=self._validate_and_save(show_message=True)
         self.save_btn_overlay.hide()
         self.save_in_progress = False
+        self.save_btn.setText("保存并关闭")
         self.notificationRequested.emit(
             f'模型列表更新完成。数量:{sum(len(provider['models']) for provider in config.values())}',
             'success'
@@ -757,10 +758,10 @@ class APIConfigWidget(QWidget):
         reply = QMessageBox.question(
             self, "确认删除", 
             f"确定要删除'{api_name}'的配置吗?\n此操作不可恢复。",
-            QMessageBox.Yes | QMessageBox.No
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
         )
         
-        if reply == QMessageBox.Yes:
+        if reply == QMessageBox.StandardButton.Yes:
             try:
                 # 移除标签页
                 widget = self.tab_widget.findChild(QWidget, api_name)

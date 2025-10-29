@@ -1,6 +1,6 @@
-from PyQt5.QtWidgets import *
-from PyQt5.QtCore import *
-from PyQt5.QtGui import *
+from PyQt6.QtWidgets import *
+from PyQt6.QtCore import *
+from PyQt6.QtGui import *
 import json,re
 
 class VariableItemWidget(QWidget):
@@ -35,7 +35,7 @@ class VariableItemWidget(QWidget):
         self.highlight_overlay = QWidget(self)
         self.highlight_overlay.setStyleSheet("background-color: rgba(173, 216, 230, 50);")
         self.highlight_overlay.hide()
-        self.highlight_overlay.setAttribute(Qt.WA_TransparentForMouseEvents)
+        self.highlight_overlay.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         
         # 添加透明度效果
         self.opacity_effect = QGraphicsOpacityEffect(self.highlight_overlay)
@@ -52,21 +52,21 @@ class VariableItemWidget(QWidget):
         # 宽度展开动画
         self.width_animation = QPropertyAnimation(self.highlight_overlay, b"geometry")
         self.width_animation.setDuration(400)
-        self.width_animation.setEasingCurve(QEasingCurve.OutCubic)
+        self.width_animation.setEasingCurve(QEasingCurve.Type.OutCubic)
 
         # 修改后的淡出动画（使用opacity效果）
         self.fade_animation = QPropertyAnimation(self.opacity_effect, b"opacity")
         self.fade_animation.setDuration(450)  # 延长淡出时间
         self.fade_animation.setStartValue(1.0)
         self.fade_animation.setEndValue(0.0)
-        self.fade_animation.setEasingCurve(QEasingCurve.OutQuad)
+        self.fade_animation.setEasingCurve(QEasingCurve.Type.OutQuad)
 
         self.animation_group.addAnimation(self.width_animation)
         self.animation_group.addAnimation(self.fade_animation)
         self.animation_group.finished.connect(self.on_animation_finished)
 
     def toggle_cycle_step(self, state):
-        self.cycle_step_edit.setEnabled(state == Qt.Checked)
+        self.cycle_step_edit.setEnabled(state == Qt.CheckState.Checked)
 
     def perform_cycle_step(self):
         try:
@@ -495,4 +495,4 @@ if __name__ == '__main__':
     test_win._add_variable("ai_humidity", "60%")
     test_win._add_variable("cycle_pressure", "100")
     
-    app.exec_()
+    app.exec()

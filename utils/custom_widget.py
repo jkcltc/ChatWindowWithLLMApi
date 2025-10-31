@@ -144,7 +144,7 @@ class EPDropdownMenu(QWidget):
     
     def __init__(self, parent=None):
         super().__init__(parent, Qt.WindowType.Popup)  # 设置为弹出窗口
-        self.layout = QVBoxLayout(self)
+        self.layout:QVBoxLayout = QVBoxLayout(self)
         self.layout.setSpacing(0)
         self.layout.setContentsMargins(0, 0, 0, 0)
         
@@ -201,12 +201,13 @@ class ExpandableButton(QWidget):
         
         # 右侧下拉按钮
         self.dropdown_button = QPushButton()
-        self.dropdown_button.setFixedWidth(24)
-        self.dropdown_button.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Expanding)
+        self.dropdown_button.setContentsMargins(0, 0, 0, 0)
+        self.dropdown_button.setStyleSheet("padding: 5px 5px;")
+        self.dropdown_button.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Expanding)
 
         # 设置下拉图标
         self.dropdown_button.setText("▼")
-        self.dropdown_button.setFont(QFont("Arial", 10))
+        #self.dropdown_button.setFont(QFont("Arial", 10))
         
         # 创建下拉菜单
         self.dropdown_menu = EPDropdownMenu(self)
@@ -231,21 +232,9 @@ class ExpandableButton(QWidget):
     def _update_button_style(self):
         """更新按钮样式"""
         if self._is_checked:
-            self.left_button.setStyleSheet("""
-                QPushButton {
-                    background-color: green;
-                    color: white;
-                    border: none;
-                }
-            """)
+            self.left_button.setStyleSheet("""background-color: green""")
         else:
-            self.left_button.setStyleSheet("""
-                QPushButton {
-                    background-color: gray;
-                    color: white;
-                    border: none;
-                }
-            """)
+            self.left_button.setStyleSheet("""background-color: gray""")
             
     def _show_dropdown_menu(self):
         """显示下拉菜单"""

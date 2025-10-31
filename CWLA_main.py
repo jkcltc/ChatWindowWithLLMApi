@@ -214,7 +214,7 @@ class MessagePreprocessor:
         message = self._purge_message(message)
         params  = self._build_request_params(message,stream=self.stream,tools=tools)
         params  = self._handle_provider_patch(params)
-        LOGGER.info(f'发送长度: {len(str(message))}')
+        LOGGER.info(f'发送长度: {len(str(message))}，消息数: {len(message)}')
         LOGGER.info(f'消息打包耗时:{(time.perf_counter()-start)*1000:.2f}ms')
         return message, params
 

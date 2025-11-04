@@ -79,7 +79,6 @@ QLineEdit {
     padding: 3px 6px;
     font-size: 14px;
     min-height: 20px;
-    qproperty-toolTip: "点击输入文本";
 }
 
 QLineEdit:focus {
@@ -196,7 +195,6 @@ QTextEdit {
     border: 1px solid #d0d8e0;
     padding: 6px;
     font-size: 18px;
-    qproperty-toolTip: "点击输入文本";
 }
 
 QTextBrowser {
@@ -238,58 +236,158 @@ QListWidget::item:hover {
 
 /* ====== QComboBox 样式 ====== */
 QComboBox {
-    background-color: #f0f4f8;
-    border: 2px solid #d0d8e0;
-    border-radius: 4px;
-    padding: 2px 4px;
-    font-size: 12px;
-    qproperty-toolTip: "点击后展开";
-    color: #333333;
+    background-color: rgba(240, 244, 248, 0.95);  /* 淡蓝色背景 */
+    border: 2px solid #d0d8e0;                   /* 边框颜色 */
+    border-radius: 4px;                          /* 圆角半径 */
+    color: #1a2980;                              /* 文字颜色 */
+    font-weight: bold;                           /* 加粗文字 */
+    padding: 3px 5px;                           /* 内边距 */
+    selection-background-color: #26d0ce;         /* 选择文本背景色 */
+    selection-color: white;                      /* 选择文本颜色 */
 }
 
-QComboBox:editable {
-    background: white;
+/* 悬停状态 */
+QComboBox:hover {
+    border-color: #a6b1e1;                      /* 悬停时的边框颜色 */
+    background-color: rgba(240, 244, 248, 0.85); /* 略透明的背景 */
 }
 
+/* 获得焦点状态 */
 QComboBox:focus {
-    border-color: #26d0ce;
+    border-color: #26d0ce;                      /* 焦点时的边框颜色 */
+    background-color: white;                    /* 白色背景更醒目 */
 }
 
+/* 按下状态（打开下拉列表时） */
+QComboBox:pressed {
+    border-color: #1a2980;                      /* 深蓝色边框 */
+}
+
+/* 禁用状态 */
+QComboBox:disabled {
+    background-color: rgba(240, 240, 240, 0.7); /* 灰色背景 */
+    color: #a0a0a0;                            /* 灰色文字 */
+    border-color: #d0d0d0;                      /* 浅灰色边框 */
+}
+
+/* ====== 下拉箭头按钮 ====== */
 QComboBox::drop-down {
     subcontrol-origin: padding;
     subcontrol-position: top right;
-    width: 10px;
-    border-left: 1px solid #d0d8e0;
-    border-top-right-radius: 4px;
-    border-bottom-right-radius: 4px;
+    border-left: 1px solid #d0d8e0;             /* 左侧分隔线 */
+    border-top-right-radius: 4px;               /* 右上角圆角 */
+    border-bottom-right-radius: 4px;            /* 右下角圆角 */
+    background: rgba(230, 240, 245, 0.85);      /* 半透明背景 */
 }
 
+/* 下拉箭头悬停状态 */
+QComboBox::drop-down:hover {
+    background: qlineargradient(
+        x1:0, y1:0, 
+        x2:0, y2:1, 
+        stop:0 rgba(255, 255, 255, 0.6), 
+        stop:1 rgba(230, 240, 245, 0.85)
+    );
+}
+
+/* 下拉箭头按下状态 */
+QComboBox::drop-down:pressed {
+    background: qlineargradient(
+        x1:0, y1:0, 
+        x2:0, y2:1, 
+        stop:0 #1a2980, 
+        stop:1 #26d0ce
+    );
+}
+
+/* 下拉箭头图标 */
 QComboBox::down-arrow {
-    width: 4px;
-    height: 4px;
+    image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="%231a2980"><path d="M7 10l5 5 5-5z"/></svg>');
+    width: 16px;
+    height: 16px;
 }
 
+/* 下拉箭头禁用状态 */
+QComboBox:disabled::down-arrow {
+    image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="%23a0a0a0"><path d="M7 10l5 5 5-5z"/></svg>');
+}
+
+/* ====== 下拉列表样式 ====== */
 QComboBox QAbstractItemView {
-    background-color: rgba(255, 255, 255, 0.95);
-    border: 2px solid #d0d8e0;
-    border-radius: 4px;
-    padding: 5px;
-    outline: none;
-    selection-background-color: #26d0ce;
-    selection-color: white;
+    background-color: rgba(255, 255, 255, 0.95); /* 半透明白色背景 */
+    border: 1px solid #d0d8e0;                  /* 边框 */
+    border-radius: 4px;                         /* 圆角 */
+    outline: none;                              /* 移除焦点虚线框 */
+    color: #333333;                             /* 文字颜色 */
+    font-weight: normal;                        /* 正常字体粗细 */
+    selection-background-color: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+        stop:0 rgba(26, 41, 128, 0.3), stop:1 rgba(38, 208, 206, 0.3)); /* 选中项背景 */
+    selection-color: #1a2980;                   /* 选中项文字颜色 */
 }
 
+/* 下拉列表项样式 */
 QComboBox QAbstractItemView::item {
-    padding: 2px 4px;
-    border-radius: 3px;
-    margin: 2px;
+    border-bottom: 1px solid transparent;       /* 透明底部边框 */
 }
 
+/* 下拉列表项悬停效果 */
 QComboBox QAbstractItemView::item:hover {
-    background-color: #e0e8f0;
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+        stop:0 rgba(26, 41, 128, 0.2), stop:1 rgba(38, 208, 206, 0.2)); /* 渐变蓝色背景 */
+    color: #1a2980;                            /* 深蓝色文字 */
+    border-bottom: 1px solid #d0d8e0;           /* 底部边框 */
+    border-radius: 3px;                         /* 圆角 */
 }
 
+/* 下拉列表项选中效果 */
+QComboBox QAbstractItemView::item:selected {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+        stop:0 rgba(26, 41, 128, 0.3), stop:1 rgba(38, 208, 206, 0.3)); /* 渐变蓝色背景 */
+    color: #1a2980;                            /* 深蓝色文字 */
+    border-bottom: 1px solid #d0d8e0;           /* 底部边框 */
+    border-radius: 3px;                         /* 圆角 */
+}
 
+/* 下拉列表滚动条样式（与主样式一致） */
+QComboBox QAbstractItemView::verticalScrollBar {
+    background: rgba(240, 244, 248, 0.7);
+    width: 12px;
+    margin: 0;
+    border-radius: 4px;
+}
+
+QComboBox QAbstractItemView::verticalScrollBar::handle {
+    background: rgb(67, 123, 179);
+    border-radius: 4px;
+    min-height: 24px;
+}
+
+/* ====== 可编辑 QComboBox 的编辑框样式 ====== */
+QComboBox:editable {
+    background: white;                          /* 白色背景 */
+}
+
+QComboBox:editable:focus {
+    border-color: #26d0ce;                      /* 焦点边框颜色 */
+    background-color: #f8fcff;                  /* 淡蓝色背景 */
+}
+
+QComboBox:editable:disabled {
+    background-color: #f0f0f0;                  /* 灰色背景 */
+    color: #909090;                            /* 灰色文字 */
+}
+
+/* ====== 只读 QComboBox 样式 ====== */
+QComboBox:!editable {
+    background-color: rgba(240, 244, 248, 0.95); /* 淡蓝色背景 */
+}
+
+/* ====== 打开状态样式 ====== */
+QComboBox:on { /* 当下拉列表打开时 */
+    background-color: white;                    /* 白色背景 */
+    border-bottom-left-radius: 0;               /* 移除左下角圆角 */
+    border-bottom-right-radius: 0;              /* 移除右下角圆角 */
+}
 /* 卡片样式 */
 QGroupBox {
     background-color: rgba(255, 255, 255, 0.95);
@@ -502,9 +600,9 @@ QSpinBox:disabled {
 /* ====== 上下箭头按钮区域 ====== */
 QSpinBox::up-button, QSpinBox::down-button {
     background: rgba(230, 240, 245, 0.85);      /* 半透明背景 */
-    subcontrol-origin: margin;                  /* 按钮定位 */
-    width: 18px;                               /* 宽度 */
-    border-left: 1px solid #d0d8e0;            /* 左侧分隔线 */
+    subcontrol-origin: border;
+    width: 18px;
+    border-left: 1px solid #d0d8e0;
 }
 
 /* 按钮悬停状态 */
@@ -577,7 +675,6 @@ QLineEdit:disabled {
     background-color: #f0f0f0;
     border-color: #e0e0e0;
     color: #909090;
-    qproperty-toolTip: "控件已禁用";
 }
 
 /* ====== 单选/复选框禁用状态 ====== */
@@ -661,12 +758,6 @@ QTextBrowser:disabled {
 
 /* ====== 菜单项禁用状态 ====== */
 QMenu::item:disabled {
-    /* 注意：QSS没有:disabled伪类，使用!enabled属性选择器 */
-    color: #c0c0c0;
-}
-
-QMenu::item:!enabled {
-    /* QSS特殊语法 */
     color: #c0c0c0;
     background: transparent;
 }

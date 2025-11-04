@@ -1,10 +1,11 @@
 #chatapi_tts.py
 import requests,os,sys,re
 from collections import Counter
-from PyQt5.QtCore import *
-from PyQt5.QtWidgets import *
-from PyQt5.QtGui import *
-from PyQt5.QtMultimedia import QMediaPlayer, QMediaContent
+from PyQt6.QtCore import *
+from PyQt6.QtWidgets import *
+from PyQt6.QtGui import *
+from PyQt6.QtMultimedia import QMediaPlayer
+from PyQt6.QtMultimedia import QMediaMetaData
 import threading
 import asyncio
 import random
@@ -28,7 +29,7 @@ class WindowAnimator:
         anim.setDuration(duration)
         anim.setStartValue(start_size)
         anim.setEndValue(end_size)
-        anim.setEasingCurve(QEasingCurve.InOutQuad)  # 平滑过渡
+        anim.setEasingCurve(QEasingCurve.Type.InOutQuad)  # 平滑过渡
         
         # 启动动画
         anim.start()
@@ -219,9 +220,9 @@ class CosyVoiceTTSWindow(QWidget):
                 self,
                 "错误",
                 "无法连接到TTS服务，是否尝试启动服务？",
-                QMessageBox.Yes | QMessageBox.No
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
             )
-            if choice == QMessageBox.Yes:
+            if choice == QMessageBox.StandardButton.Yes:
                 self.prompt_and_start_tts_server()
         except Exception as e:
             QMessageBox.critical(self, "错误", f"未知错误：{str(e)}")
@@ -248,10 +249,10 @@ class EdgeTTSSelectionDialog(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
-        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowStaysOnTopHint)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setWindowTitle("语音角色设置")
-        self.setSizePolicy(QSizePolicy.Expanding,QSizePolicy.Expanding)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding,QSizePolicy.Policy.Expanding)
         self.voice_data = []
         self.voice_id=0
         self.oldPos = None
@@ -283,14 +284,14 @@ class EdgeTTSSelectionDialog(QWidget):
         self.close_btn.setText('X')
         self.close_btn.clicked.connect(self.close)
         self.close_btn.setMinimumSize(QSize(30,30))
-        main_layout.addWidget(self.close_btn,row,pos_right+2,1,1,alignment=Qt.AlignRight | Qt.AlignTop)
+        main_layout.addWidget(self.close_btn,row,pos_right+2,1,1,alignment=Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignTop)
         
         main_label=QLabel("指定音色")
         main_label_font = main_label.font()
         main_label_font.setPointSize(main_label_font.pointSize() + 5)
         main_label_font.setBold(True)
         main_label.setFont(main_label_font)
-        main_label.setAlignment(Qt.AlignCenter)
+        main_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         main_layout.addWidget(main_label,row    ,pos_mlf  ,1,3)
 
         row+=1
@@ -479,7 +480,7 @@ class EdgeTTSSelectionDialog(QWidget):
             item.setToolTip(tooltip)
             
             # 存储完整语音数据
-            item.setData(Qt.UserRole, voice)
+            item.setData(Qt.ItemDataRole.UserRole, voice)
             
             self.voice_list.addItem(item)
             
@@ -493,7 +494,7 @@ class EdgeTTSSelectionDialog(QWidget):
             return
             
         selected_item = self.voice_list.currentItem()
-        voice_info = selected_item.data(Qt.UserRole)
+        voice_info = selected_item.data(Qt.ItemDataRole.UserRole)
         self.preview_requested.emit(voice_info)
 
     def _check_enable_add(self):
@@ -508,7 +509,7 @@ class EdgeTTSSelectionDialog(QWidget):
         role_name = self.name_edit.text()
 
         selected_item = self.voice_list.currentItem()
-        voice_info = selected_item.data(Qt.UserRole)
+        voice_info = selected_item.data(Qt.ItemDataRole.UserRole)
         
         self.voice_selected.emit(role_name, {
             'Name': voice_info['Name'],
@@ -518,16 +519,16 @@ class EdgeTTSSelectionDialog(QWidget):
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
-            self.oldPos = event.globalPos()
+            self.oldPos = event.globalPosition().toPoint()
 
     def mouseMoveEvent(self, event):
         try:
             if self.oldPos is None:
                 return
             if event.buttons() == Qt.LeftButton:
-                delta = QPoint(event.globalPos() - self.oldPos)
+                delta = QPoint(event.globalPosition().toPoint() - self.oldPos)
                 self.move(self.x() + delta.x(), self.y() + delta.y())
-                self.oldPos = event.globalPos()
+                self.oldPos = event.globalPosition().toPoint()
         except Exception as e:
             print('tts selection mouse event',e)
     
@@ -536,14 +537,14 @@ class EdgeTTSSelectionDialog(QWidget):
         super().paintEvent(event)
 
         painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
         # 获取样式表定义的颜色
         palette = self.palette()
-        bg_color = palette.color(QPalette.Window)
+        bg_color = palette.color(QPalette.ColorRole.Window)
 
         if bg_color.alpha() < 255:
-            painter.setCompositionMode(QPainter.CompositionMode_Source)
+            painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_Source)
 
         # 应用圆角裁剪
         path = QPainterPath()
@@ -726,13 +727,12 @@ class AudioPlayer(QObject):
         """播放队列中的下一个文件"""
         if not self.play_queue:
             return
-            
+                
         # 获取并移除队列中的首个文件
         next_path = self.play_queue.pop(0)
-        media_content = QMediaContent(QUrl.fromLocalFile(next_path))
         
-        # 设置媒体内容并开始播放
-        self.player.setMedia(media_content)
+        # 设置媒体源并开始播放 (PyQt6方式)
+        self.player.setSource(QUrl.fromLocalFile(next_path))
         self.player.play()
 
 class VoiceItemWidget(QWidget):
@@ -750,7 +750,7 @@ class VoiceItemWidget(QWidget):
         # 创建控件
         self.name_edit = QLabel()
         self.voice_type_hint = QLabel('音色：')
-        self.voice_type_hint.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Minimum)
+        self.voice_type_hint.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Minimum)
         self.voice_type = QLabel()
 
         self.delete_btn = QPushButton("删除")
@@ -761,7 +761,7 @@ class VoiceItemWidget(QWidget):
         self.delete_btn.setGraphicsEffect(self.btn_opacity_effect)
         
         self.change_btn=QPushButton()
-        self.change_btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.change_btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.change_btn.setStyleSheet('''
 QPushButton {
     background: transparent;
@@ -775,8 +775,8 @@ QPushButton {
 
         # 布局
         layout = QGridLayout()
-        layout.addWidget(self.name_edit,        0,0,1,1, alignment=Qt.AlignVCenter | Qt.AlignHCenter)
-        layout.addWidget(self.voice_type_hint,  0,1,1,1,alignment=Qt.AlignVCenter | Qt.AlignRight)
+        layout.addWidget(self.name_edit,        0,0,1,1, alignment=Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignHCenter)
+        layout.addWidget(self.voice_type_hint,  0,1,1,1,alignment=Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignRight)
         layout.addWidget(self.voice_type,       0,2,1,2)
 
         #作为背景重叠在信息上面
@@ -790,7 +790,7 @@ QPushButton {
         self.highlight_overlay = QWidget(self)
         self.highlight_overlay.setStyleSheet("background-color: rgba(173, 216, 230, 50);")
         self.highlight_overlay.hide()
-        self.highlight_overlay.setAttribute(Qt.WA_TransparentForMouseEvents)
+        self.highlight_overlay.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         
         # 添加透明度效果
         self.opacity_effect = QGraphicsOpacityEffect(self.highlight_overlay)
@@ -809,14 +809,14 @@ QPushButton {
         # 宽度展开动画
         self.width_animation = QPropertyAnimation(self.highlight_overlay, b"geometry")
         self.width_animation.setDuration(400)
-        self.width_animation.setEasingCurve(QEasingCurve.OutCubic)
+        self.width_animation.setEasingCurve(QEasingCurve.Type.OutCubic)
 
         # 修改后的淡出动画（使用opacity效果）
         self.fade_animation = QPropertyAnimation(self.opacity_effect, b"opacity")
         self.fade_animation.setDuration(450)  # 延长淡出时间
         self.fade_animation.setStartValue(1.0)
         self.fade_animation.setEndValue(0.0)
-        self.fade_animation.setEasingCurve(QEasingCurve.OutQuad)
+        self.fade_animation.setEasingCurve(QEasingCurve.Type.OutQuad)
 
         self.animation_group.addAnimation(self.width_animation)
         self.animation_group.addAnimation(self.fade_animation)
@@ -827,14 +827,14 @@ QPushButton {
         # 鼠标进入时的淡入动画
         self.fade_in_animation = QPropertyAnimation(self.btn_opacity_effect, b"opacity")
         self.fade_in_animation.setDuration(100) 
-        self.fade_in_animation.setEasingCurve(QEasingCurve.Linear)
+        self.fade_in_animation.setEasingCurve(QEasingCurve.Type.Linear)
         self.fade_in_animation.setStartValue(0.0)
         self.fade_in_animation.setEndValue(1.0)  # 完全不透明
         
         # 鼠标离开时的淡出动画
         self.fade_out_animation = QPropertyAnimation(self.btn_opacity_effect, b"opacity")
         self.fade_out_animation.setDuration(200)  # 200ms线性过渡
-        self.fade_out_animation.setEasingCurve(QEasingCurve.Linear)
+        self.fade_out_animation.setEasingCurve(QEasingCurve.Type.Linear)
         self.fade_out_animation.setStartValue(1.0)
         self.fade_out_animation.setEndValue(0.0)  # 完全透明
 
@@ -913,26 +913,26 @@ class EdgeTTSMainSettingWindow(QWidget):
         
         # 创建标签："音色绑定列表"
         self.label = QLabel("音色绑定列表")
-        self.grid_layout.addWidget(self.label, 0, 1,1,2,alignment=Qt.AlignVCenter | Qt.AlignHCenter)
+        self.grid_layout.addWidget(self.label, 0, 1,1,2,alignment=Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignHCenter)
         
         # 创建占位符组件（左边）
         self.place_holder2 = QFrame()
-        self.place_holder2.setFrameShape(QFrame.StyledPanel)
-        self.place_holder2.setFrameShadow(QFrame.Raised)
-        self.place_holder2.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
+        self.place_holder2.setFrameShape(QFrame.Shape.StyledPanel)
+        self.place_holder2.setFrameShadow(QFrame.Shadow.Raised)
+        self.place_holder2.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
         self.grid_layout.addWidget(self.place_holder2, 1, 0)
         
         # 创建列表视图
         self.scroll_area = QScrollArea()
         self.scroll_area.setWidgetResizable(True)  # 重要：允许内容部件自动调整大小
-        self.scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOn)  # 始终显示垂直滚动条
-        self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)  # 禁用水平滚动条
+        self.scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)  # 始终显示垂直滚动条
+        self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)  # 禁用水平滚动条
         
         # 创建滚动区域的内容部件
         self.scroll_content = QWidget()
         self.voice_binding_layout = QVBoxLayout(self.scroll_content)
         self.voice_binding_layout.setSizeConstraint(QLayout.SetMinAndMaxSize)  # 确保布局可以收缩到最小
-        self.scroll_content.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)  # 优先竖向最小
+        self.scroll_content.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)  # 优先竖向最小
         
         # 设置滚动区域的内容部件
         self.scroll_area.setWidget(self.scroll_content)
@@ -941,9 +941,9 @@ class EdgeTTSMainSettingWindow(QWidget):
         
         # 创建占位符组件（右边）
         self.place_holder = QFrame()
-        self.place_holder.setFrameShape(QFrame.StyledPanel)
-        self.place_holder.setFrameShadow(QFrame.Raised)
-        self.place_holder.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
+        self.place_holder.setFrameShape(QFrame.Shape.StyledPanel)
+        self.place_holder.setFrameShadow(QFrame.Shadow.Raised)
+        self.place_holder.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
         self.grid_layout.addWidget(self.place_holder, 1, 3, 2, 1)  # 占据2行1列
         
        # 创建添加按钮
@@ -955,7 +955,7 @@ class EdgeTTSMainSettingWindow(QWidget):
         self.grid_layout.addWidget(self.enable_extract_button,2,1)
 
         self.hide_mask=QPushButton()
-        self.hide_mask.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.hide_mask.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.hide_mask.setStyleSheet("""
         QPushButton {
             background:rgba(0,0,0,0.7);
@@ -980,14 +980,14 @@ class EdgeTTSMainSettingWindow(QWidget):
         self.fade_in.setDuration(150)  # 300毫秒动画
         self.fade_in.setStartValue(0.0)
         self.fade_in.setEndValue(0.7)  # 70%不透明
-        self.fade_in.setEasingCurve(QEasingCurve.OutQuad)
+        self.fade_in.setEasingCurve(QEasingCurve.Type.OutQuad)
         
         # 淡出动画
         self.fade_out = QPropertyAnimation(self.mask_opacity, b"opacity")
         self.fade_out.setDuration(50)  # 200毫秒动画
         self.fade_out.setStartValue(0.7)
         self.fade_out.setEndValue(0.0)
-        self.fade_out.setEasingCurve(QEasingCurve.InQuad)
+        self.fade_out.setEasingCurve(QEasingCurve.Type.InQuad)
         
         # 连接按钮信号
         self.add_button.clicked.connect(self.show_mask_animation)
@@ -1411,11 +1411,11 @@ class TTSAgent(QGroupBox):
             self,
             '生成器更换',
             f'生成器将被更换为{name}，旧任务将被抛弃，要继续吗？',
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No
         )
         
-        if reply == QMessageBox.Yes:
+        if reply == QMessageBox.StandardButton.Yes:
             self.set_generator(name)
             self.current_generator = name
             self.tts_state.emit(self.tts_enabled,name)
@@ -1468,4 +1468,4 @@ if __name__ == "__main__":
     app = QApplication(sys.argv)
     window = TTSAgent()
     window.show()
-    sys.exit(app.exec_())
+    sys.exit(app.exec())

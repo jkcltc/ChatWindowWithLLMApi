@@ -1,7 +1,7 @@
 import sys,threading,openai,os,configparser,json,random
-from PyQt5.QtWidgets import *
-from PyQt5.QtCore import *
-from PyQt5.QtGui import *
+from PyQt6.QtWidgets import *
+from PyQt6.QtCore import *
+from PyQt6.QtGui import *
 MODEL_MAP={#临时测试用
   "baidu": [
     "deepseek-r1-distill-qwen-7b",
@@ -85,14 +85,14 @@ class ConvergenceDialogueOptiUI(QWidget):
         title_font.setPointSize(16)
         title_font.setBold(True)
         title_label.setFont(title_font)
-        title_label.setAlignment(Qt.AlignCenter)
+        title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         main_layout.addWidget(title_label)
         
         guide_label = QLabel(
             "工作流说明: 请按顺序使用各层功能。从请求并发层开始，逐层处理数据，最终获得优化结果。\n"
             "↓ 表示流程方向，每层处理后将结果传递给下一层"
         )
-        guide_label.setAlignment(Qt.AlignCenter)
+        guide_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         main_layout.addWidget(guide_label)
         
         # 以下部分保持不变...
@@ -147,7 +147,7 @@ class ConvergenceDialogueOptiUI(QWidget):
         
         for i in range(len(visible_layers) - 1):
             arrow_label = QLabel("↓")  # 使用简单文本箭头
-            arrow_label.setAlignment(Qt.AlignCenter)
+            arrow_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
             arrow_label.setProperty("flow_arrow", True)  # 标记为流程箭头
             
             # 在层和箭头之间添加间距
@@ -178,7 +178,7 @@ class ConvergenceDialogueOptiUI(QWidget):
         models_layout = QHBoxLayout(models_container)
         models_layout.setSpacing(8)
         
-        self.model_groups = []
+        self.model_groups:list[QGroupBox] = []
         
         # 初始模型组
         for i in range(3):
@@ -191,7 +191,7 @@ class ConvergenceDialogueOptiUI(QWidget):
         
         # 添加流程说明
         self.layer1_guide = QLabel("↑ 同时请求多个AI模型，获取不同结果")
-        self.layer1_guide.setAlignment(Qt.AlignRight)
+        self.layer1_guide.setAlignment(Qt.AlignmentFlag.AlignRight)
         layout.addWidget(self.layer1_guide)
         
         self.layer1.setLayout(layout)
@@ -225,7 +225,7 @@ class ConvergenceDialogueOptiUI(QWidget):
         # 响应显示
         response_text = QTextEdit()
         response_text.setReadOnly(True)
-        response_text.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        response_text.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         response_text.setPlaceholderText("模型响应将显示在这里...")
         
         group_layout.addLayout(vendor_layout)
@@ -275,7 +275,7 @@ class ConvergenceDialogueOptiUI(QWidget):
         
         # 添加流程说明
         self.layer2_guide = QLabel("↑ 对多个模型的响应进行质量评价和评分")
-        self.layer2_guide.setAlignment(Qt.AlignRight)
+        self.layer2_guide.setAlignment(Qt.AlignmentFlag.AlignRight)
         layout.addWidget(self.layer2_guide)
         
         self.layer2.setLayout(layout)
@@ -296,7 +296,7 @@ class ConvergenceDialogueOptiUI(QWidget):
         
         # 添加流程说明
         self.layer3_guide = QLabel("↑ 综合多个模型的响应生成最终结果")
-        self.layer3_guide.setAlignment(Qt.AlignRight)
+        self.layer3_guide.setAlignment(Qt.AlignmentFlag.AlignRight)
         layout.addWidget(self.layer3_guide)
         
         self.layer3.setLayout(layout)
@@ -321,7 +321,7 @@ class ConvergenceDialogueOptiUI(QWidget):
         
         # 添加流程说明
         self.layer4_guide = QLabel("↑ 调整最终结果的语气和表达风格")
-        self.layer4_guide.setAlignment(Qt.AlignRight)
+        self.layer4_guide.setAlignment(Qt.AlignmentFlag.AlignRight)
         layout.addWidget(self.layer4_guide)
         
         self.layer4.setLayout(layout)
@@ -342,12 +342,12 @@ class ConvergenceDialogueOptiUI(QWidget):
         
         # 添加最终流程说明
         self.layer5_guide = QLabel("↑ 最终优化和修正，得到最终结果")
-        self.layer5_guide.setAlignment(Qt.AlignRight)
+        self.layer5_guide.setAlignment(Qt.AlignmentFlag.AlignRight)
         layout.addWidget(self.layer5_guide)
         
         # 完成标记
         self.finish_label = QLabel("✓ 流程完成")
-        self.finish_label.setAlignment(Qt.AlignCenter)
+        self.finish_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self.finish_label)
         
         self.layer5.setLayout(layout)
@@ -526,7 +526,7 @@ class ConvergenceSettingsWindow(QWidget):
         
         # 创建左侧的选项卡控件
         self.tab_widget = QTabWidget()
-        self.tab_widget.setTabPosition(QTabWidget.West)  # 选项卡放在左侧
+        self.tab_widget.setTabPosition(QTabWidget.TabPosition.West)  # 选项卡放在左侧
         
         # 为每层创建设置页
         self.create_evaluation_tab()
@@ -538,7 +538,7 @@ class ConvergenceSettingsWindow(QWidget):
         
         # 创建右侧的按钮区域
         button_area = QVBoxLayout()
-        button_area.setAlignment(Qt.AlignTop)
+        button_area.setAlignment(Qt.AlignmentFlag.AlignTop)
         button_area.setSpacing(20)
         
         # 保存按钮
@@ -1870,7 +1870,7 @@ if __name__ == "__22=main__":
     "后端测试，在打分之前重复一下给你发送的内容"
 ]
     sender.run(model_outputs, settings)
-    app.exec_()
+    app.exec()
 
 if __name__ == "__main__":
     app = QApplication([])
@@ -1892,4 +1892,4 @@ if __name__ == "__main__":
     btn.clicked.connect(trigger_requests)
     processor.layout().insertWidget(0, btn)
     
-    app.exec_()
+    app.exec()

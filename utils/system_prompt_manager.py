@@ -1,5 +1,5 @@
 import os
-from PyQt5 import QtCore, QtWidgets,QtGui
+from PyQt6 import QtCore, QtWidgets,QtGui
 from dataclasses import dataclass, field
 from typing import List, Dict, Any
 import json
@@ -177,7 +177,7 @@ class SystemPromptManager(QtWidgets.QWidget):
         self.list_widget = QtWidgets.QListWidget()
         self.list_widget.setAlternatingRowColors(True)
         self.list_widget.setUniformItemSizes(True)
-        self.list_widget.setSelectionMode(QtWidgets.QAbstractItemView.SingleSelection)
+        self.list_widget.setSelectionMode(QtWidgets.QAbstractItemView.SelectionMode.SingleSelection)
         self.list_widget.setMinimumWidth(220)
         self.list_widget.itemSelectionChanged.connect(self._on_file_selected)
         left_grid.addWidget(self.list_widget, 2, 0, 1, 1)
@@ -239,7 +239,7 @@ class SystemPromptManager(QtWidgets.QWidget):
         # 用户头像
         self.avatar_user_preview = QtWidgets.QLabel()
         self.avatar_user_preview.setFixedSize(40, 40)
-        self.avatar_user_preview.setFrameShape(QtWidgets.QFrame.StyledPanel)
+        self.avatar_user_preview.setFrameShape(QtWidgets.QFrame.Shape.StyledPanel)
         avatars_grid.addWidget(self.avatar_user_preview, 0, 0, 1, 1)
         
         self.avatar_user_btn = QtWidgets.QPushButton("选择用户头像")
@@ -249,7 +249,7 @@ class SystemPromptManager(QtWidgets.QWidget):
         # 助手头像
         self.avatar_ai_preview = QtWidgets.QLabel()
         self.avatar_ai_preview.setFixedSize(40, 40)
-        self.avatar_ai_preview.setFrameShape(QtWidgets.QFrame.StyledPanel)
+        self.avatar_ai_preview.setFrameShape(QtWidgets.QFrame.Shape.StyledPanel)
         avatars_grid.addWidget(self.avatar_ai_preview, 1, 0, 1, 1)
         
         self.avatar_ai_btn = QtWidgets.QPushButton("选择AI头像")
@@ -295,7 +295,7 @@ class SystemPromptManager(QtWidgets.QWidget):
         bottom_widget = QtWidgets.QWidget()
         bottom_grid = QtWidgets.QGridLayout(bottom_widget)
         spacer=QtWidgets.QWidget()
-        spacer.setSizePolicy(QtWidgets.QSizePolicy.Expanding,QtWidgets.QSizePolicy.Preferred)
+        spacer.setSizePolicy(QtWidgets.QSizePolicy.Policy.Expanding,QtWidgets.QSizePolicy.Policy.Preferred)
         bottom_grid.addWidget(spacer, 2, 0, 1, 1)
         self.btn_save = QtWidgets.QPushButton("保存更改")
         self.btn_save.clicked.connect(self._save_current_config)
@@ -398,7 +398,7 @@ class SystemPromptManager(QtWidgets.QWidget):
         # 刷新列表并选中当前对话
         self._ignore_selection=True
         self._reload_list()
-        items = self.list_widget.findItems(filename, QtCore.Qt.MatchExactly)
+        items = self.list_widget.findItems(filename, QtCore.Qt.MatchFlag.MatchExactly)
         if items:
             self.list_widget.setCurrentItem(items[0])
         self._ignore_selection=False
@@ -426,7 +426,7 @@ class SystemPromptManager(QtWidgets.QWidget):
         self.list_widget.clear()
         for path, preset in self.store.list_presets():
             item = QtWidgets.QListWidgetItem(os.path.basename(path))
-            item.setData(QtCore.Qt.UserRole, path)
+            item.setData(QtCore.Qt.ItemDataRole.UserRole, path)
             self.list_widget.addItem(item)
             if select_path and path == select_path:
                 self.list_widget.setCurrentItem(item)
@@ -443,7 +443,7 @@ class SystemPromptManager(QtWidgets.QWidget):
         if not path:
             return
         base = os.path.basename(path)
-        matches = self.list_widget.findItems(base, QtCore.Qt.MatchExactly)
+        matches = self.list_widget.findItems(base, QtCore.Qt.MatchFlag.MatchExactly)
         if matches:
             self.list_widget.setCurrentItem(matches[0])
 
@@ -536,7 +536,7 @@ class SystemPromptManager(QtWidgets.QWidget):
         if not items:
             return
 
-        target_path = items[0].data(QtCore.Qt.UserRole)
+        target_path = items[0].data(QtCore.Qt.ItemDataRole.UserRole)
 
         if self.is_modified:
             self._ignore_selection = True
@@ -580,7 +580,7 @@ class SystemPromptManager(QtWidgets.QWidget):
             QtWidgets.QMessageBox.critical(self, "创建失败", "无法创建新配置文件")
             return
         self._reload_list()
-        items = self.list_widget.findItems(os.path.basename(path), QtCore.Qt.MatchExactly)
+        items = self.list_widget.findItems(os.path.basename(path), QtCore.Qt.MatchFlag.MatchExactly)
         if items:
             self.list_widget.setCurrentItem(items[0])
 
@@ -591,10 +591,10 @@ class SystemPromptManager(QtWidgets.QWidget):
         file_name = items[0].text()
         if QtWidgets.QMessageBox.question(
             self, "确认删除", f"确定删除 '{file_name}' ？",
-            QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No
-        ) != QtWidgets.QMessageBox.Yes:
+            QtWidgets.QMessageBox.StandardButton.Yes | QtWidgets.QMessageBox.StandardButton.No
+        ) != QtWidgets.QMessageBox.StandardButton.Yes:
             return
-        path = items[0].data(QtCore.Qt.UserRole)
+        path = items[0].data(QtCore.Qt.ItemDataRole.UserRole)
         if not self.store.delete(path):
             QtWidgets.QMessageBox.critical(self, "删除失败", "无法删除配置文件")
             return
@@ -639,7 +639,7 @@ class SystemPromptManager(QtWidgets.QWidget):
         cur_name = os.path.basename(self.current_file)
         blocker = QtCore.QSignalBlocker(self.list_widget)
         self._reload_list()
-        matches = self.list_widget.findItems(cur_name, QtCore.Qt.MatchExactly)
+        matches = self.list_widget.findItems(cur_name, QtCore.Qt.MatchFlag.MatchExactly)
         if matches:
             self.list_widget.setCurrentItem(matches[0])
 
@@ -677,7 +677,7 @@ class SystemPromptManager(QtWidgets.QWidget):
         if path and os.path.exists(path):
             pix = QtGui.QPixmap(path)
             if not pix.isNull():
-                pix = pix.scaled(label.size(), QtCore.Qt.KeepAspectRatio, QtCore.Qt.SmoothTransformation)
+                pix = pix.scaled(label.size(), QtCore.Qt.AspectRatioMode.KeepAspectRatio, QtCore.Qt.TransformationMode.SmoothTransformation)
                 label.setPixmap(pix)
                 return
         label.setPixmap(QtGui.QPixmap())  # 清空
@@ -711,13 +711,13 @@ class SystemPromptComboBox(QtWidgets.QWidget):
         # UI
         self.combo = QtWidgets.QComboBox()
         self.combo.currentIndexChanged.connect(self._on_index_changed)
-        self.combo.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding)
+        self.combo.setSizePolicy(QtWidgets.QSizePolicy.Policy.Expanding, QtWidgets.QSizePolicy.Policy.Expanding)
 
         self.open_btn = QtWidgets.QToolButton()
         self.open_btn.setText("+")
         self.open_btn.setToolTip("打开完整编辑器")
         self.open_btn.clicked.connect(lambda: self.request_open_editor.emit())
-        self.open_btn.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding)
+        self.open_btn.setSizePolicy(QtWidgets.QSizePolicy.Policy.Expanding, QtWidgets.QSizePolicy.Policy.Expanding)
 
         lay = QtWidgets.QHBoxLayout(self)
         lay.addWidget(self.combo, 1)
@@ -738,7 +738,7 @@ class SystemPromptComboBox(QtWidgets.QWidget):
         self._watched_dir = None
         self._watched_file = None
 
-        self._cache = {}  # path -> _Entry
+        self._cache: dict[str, SystemPromptComboBox._Entry] = {}  # path -> _Entry
         self._items_snapshot = []
         self._last_target_data = None
 
@@ -932,7 +932,7 @@ class SystemPromptComboBox(QtWidgets.QWidget):
 
     # 可选帮助
     def select_by_name(self, display_name: str):
-        i = self.combo.findText(display_name, QtCore.Qt.MatchFixedString)
+        i = self.combo.findText(display_name, QtCore.Qt.MatchFlag.MatchFixedString)
         if i >= 0:
             self.combo.setCurrentIndex(i)
 

@@ -1,5 +1,5 @@
 import sys
-from PyQt5.QtWidgets import QTabWidget, QWidget, QGridLayout, QLabel, QPushButton, QCheckBox, QApplication
+from PyQt6.QtWidgets import QTabWidget, QWidget, QGridLayout, QLabel, QPushButton, QCheckBox, QApplication
 from mods.status_monitor import StatusMonitorWindow, StatusMonitorInstruction
 from mods.story_creator import MainStoryCreaterInstruction
 from utils.custom_widget import GradientLabel

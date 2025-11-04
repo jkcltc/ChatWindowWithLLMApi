@@ -1,13 +1,13 @@
-from PyQt5.QtWidgets import *
-from PyQt5.QtGui import *
-from PyQt5.QtCore import *
+from PyQt6.QtWidgets import *
+from PyQt6.QtGui import *
+from PyQt6.QtCore import *
 #from image_agents import ImageAgent
-from PyQt5.QtWidgets import (
+from PyQt6.QtWidgets import (
     QApplication, QWidget, QGridLayout, QGroupBox, QComboBox, QTextEdit, 
     QFrame, QLabel, QSpinBox, QCheckBox, QPushButton, QSizePolicy, QVBoxLayout
 )
-from PyQt5.QtCore import Qt, QSize
-from PyQt5.QtGui import QFont
+from PyQt6.QtCore import Qt, QSize
+from PyQt6.QtGui import QFont
 
 
 class SingleImageGenerateWindow(QWidget):
@@ -56,7 +56,7 @@ class SingleImageGenerateWindow(QWidget):
         main_layout.addWidget(action_buttons, 3, 4, 2, 1)  # row=3, column=4, rowspan=2
 
         # 右侧占位符 - 使用 QSpacerItem
-        spacer = QSpacerItem(40, 20, QSizePolicy.Expanding, QSizePolicy.Minimum)
+        spacer = QSpacerItem(40, 20, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
         main_layout.addItem(spacer, 4, 3)  # row=4, column=3
         
         # 设置列比例
@@ -128,11 +128,11 @@ class SingleImageGenerateWindow(QWidget):
         
         # 图片尺寸设置
         size_label = QLabel("图片大小")
-        size_label.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Minimum)
+        size_label.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
         layout.addWidget(size_label, 1, 0, 1, 3)
         
         width_label = QLabel("宽")
-        width_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        width_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         layout.addWidget(width_label, 2, 1)
         
         self.image_width_spin = QSpinBox()
@@ -142,7 +142,7 @@ class SingleImageGenerateWindow(QWidget):
         layout.addWidget(self.image_width_spin, 2, 2)
         
         height_label = QLabel("高")
-        height_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        height_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         layout.addWidget(height_label, 3, 1)
         
         self.image_height_spin = QSpinBox()
@@ -185,7 +185,7 @@ class SingleImageGenerateWindow(QWidget):
         layout.addWidget(self.nsfw_checkbox, 9, 0)
         
         # 底部弹簧 - 使用 QSpacerItem
-        layout.addItem(QSpacerItem(2, 4, QSizePolicy.Minimum, QSizePolicy.Expanding), 10, 0, 1, 3)
+        layout.addItem(QSpacerItem(2, 4, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Expanding), 10, 0, 1, 3)
         
         return group_box
 
@@ -196,12 +196,12 @@ class SingleImageGenerateWindow(QWidget):
         
         # 预览标签
         self.preview_label = QLabel("预览图")
-        self.preview_label.setAlignment(Qt.AlignCenter)
+        self.preview_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.preview_label.setMinimumHeight(500)
         layout.addWidget(self.preview_label)
         
         # 在预览图和按钮之间添加弹簧
-        layout.addItem(QSpacerItem(2, 2, QSizePolicy.Minimum, QSizePolicy.Expanding))
+        layout.addItem(QSpacerItem(2, 2, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Expanding))
         
         # 生成按钮
         self.generate_button = QPushButton("生成图像")
@@ -281,16 +281,16 @@ class SingleImageGenerateWindow(QWidget):
     def create_vertical_line(self):
         """创建垂直分隔线"""
         line = QFrame()
-        line.setFrameShape(QFrame.VLine)
-        line.setFrameShadow(QFrame.Sunken)
+        line.setFrameShape(QFrame.Shape.VLine)
+        line.setFrameShadow(QFrame.Shadow.Sunken)
         line.setMaximumWidth(2)
         return line
 
     def create_horizontal_line(self):
         """创建水平分隔线"""
         line = QFrame()
-        line.setFrameShape(QFrame.HLine)
-        line.setFrameShadow(QFrame.Sunken)
+        line.setFrameShape(QFrame.Shape.HLine)
+        line.setFrameShadow(QFrame.Shadow.Sunken)
         line.setMaximumHeight(2)
         return line
 
@@ -302,4 +302,4 @@ if __name__=='__main__':
     app = QApplication([])
     a=SingleImageGenerateWindow()
     a.show()
-    sys.exit(app.exec_())
+    sys.exit(app.exec())

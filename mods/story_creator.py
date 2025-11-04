@@ -1,9 +1,9 @@
 import sys,os
 import json
 from typing import Dict, Any, Optional
-from PyQt5.QtWidgets import *
-from PyQt5.QtCore import *
-from PyQt5.QtGui import *
+from PyQt6.QtWidgets import *
+from PyQt6.QtCore import *
+from PyQt6.QtGui import *
 import threading
 import openai
 
@@ -333,7 +333,7 @@ class AnimatedPushButton(QPushButton):
         self.highlight_overlay = QWidget(self)
         self.highlight_overlay.setStyleSheet("background-color: rgba(100, 200, 255, 100);")
         self.highlight_overlay.hide()
-        self.highlight_overlay.setAttribute(Qt.WA_TransparentForMouseEvents)
+        self.highlight_overlay.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         
         # 添加透明度效果
         self.opacity_effect = QGraphicsOpacityEffect(self.highlight_overlay)
@@ -348,14 +348,14 @@ class AnimatedPushButton(QPushButton):
         # 宽度展开动画
         self.width_animation = QPropertyAnimation(self.highlight_overlay, b"geometry")
         self.width_animation.setDuration(400)
-        self.width_animation.setEasingCurve(QEasingCurve.OutCubic)
+        self.width_animation.setEasingCurve(QEasingCurve.Type.OutCubic)
 
         # 淡出动画
         self.fade_animation = QPropertyAnimation(self.opacity_effect, b"opacity")
         self.fade_animation.setDuration(450)
         self.fade_animation.setStartValue(1.0)
         self.fade_animation.setEndValue(0.0)
-        self.fade_animation.setEasingCurve(QEasingCurve.OutQuad)
+        self.fade_animation.setEasingCurve(QEasingCurve.Type.OutQuad)
 
         self.animation_group.addAnimation(self.width_animation)
         self.animation_group.addAnimation(self.fade_animation)
@@ -907,13 +907,13 @@ class StoryManagerBackend(QWidget):
         tree.setHeaderLabels(["节点ID", "故事内容"])
         
         # 自动调整列宽
-        tree.header().setSectionResizeMode(0, QHeaderView.ResizeToContents)  # ID列自适应
-        tree.header().setSectionResizeMode(1, QHeaderView.Stretch)  # 内容列自动拉伸
+        tree.header().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)  # ID列自适应
+        tree.header().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)  # 内容列自动拉伸
         
         # 创建顶级节点
         root_item = QTreeWidgetItem(tree, ["故事主线", "完整故事节点结构"])
         root_item.setExpanded(True)  # 默认展开根节点
-        root_item.setFont(0, QFont("Arial", 10, QFont.Bold))
+        root_item.setFont(0, QFont("Arial", 10, QFont.Weight.Bold))
         
         # 填充数据
         for node in story_nodes:
@@ -1039,7 +1039,7 @@ class StoryManagerBackend(QWidget):
             with open(save_path, 'w') as f:
                 print('created')
                 pass  # 创建空文件
-        settings = QSettings(save_path, QSettings.IniFormat)
+        settings = QSettings(save_path, QSettings.Format.IniFormat)
         
         # 保存主线创建设置
         settings.setValue("create_provider", self.ui.story_create_api_provider.currentText())
@@ -1076,7 +1076,7 @@ class StoryManagerBackend(QWidget):
         else:
             save_path="config.ini"
         """从 INI 文件加载配置"""
-        settings = QSettings(save_path, QSettings.IniFormat)
+        settings = QSettings(save_path, QSettings.Format.IniFormat)
         
         # 加载主线创建设置
         provider = settings.value("create_provider", "baidu", type=str)
@@ -1187,4 +1187,4 @@ if __name__ == "__main__":
 
     # 显示窗口
     window.show()
-    sys.exit(app.exec_())
+    sys.exit(app.exec())

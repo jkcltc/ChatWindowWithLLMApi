@@ -1,6 +1,6 @@
-from PyQt5.QtCore import *
-from PyQt5.QtWidgets import *
-from PyQt5.QtGui import QPixmap
+from PyQt6.QtCore import *
+from PyQt6.QtWidgets import *
+from PyQt6.QtGui import QPixmap
 from jsonfinder import jsonfinder
 from .chat_history_manager import ChatHistoryTools
 from .preset_data import BackGroundPresetVars,LongChatImprovePersetVars
@@ -284,17 +284,17 @@ class QuickSeparator(QFrame):
     def __init__(self, orientation="h"):
         super().__init__()
         if orientation == "h":
-            self.setFrameShape(QFrame.HLine)
-            self.setFrameShadow(QFrame.Sunken)
+            self.setFrameShape(QFrame.Shape.HLine)
+            self.setFrameShadow(QFrame.Shadow.Sunken)
         else:
-            self.setFrameShape(QFrame.VLine)
-            self.setFrameShadow(QFrame.Sunken)
+            self.setFrameShape(QFrame.Shape.VLine)
+            self.setFrameShadow(QFrame.Shadow.Sunken)
 
 class SectionWidget(QWidget):
     """分组组件模板，提供标题和分组框样式"""
     def __init__(self, title="", parent=None):
         super().__init__(parent)
-        self.layout = QVBoxLayout(self)
+        self.layout:QVBoxLayout = QVBoxLayout(self)
         self.layout.setContentsMargins(0, 0, 0, 0)
         self.layout.setSpacing(6)
         
@@ -363,7 +363,7 @@ class BackgroundSettingsWidget(QWidget):
         interval_layout.setContentsMargins(0, 0, 0, 0)
         
         interval_label = QLabel("更新间隔")
-        self.update_slider = QSlider(Qt.Horizontal)
+        self.update_slider = QSlider(Qt.Orientation.Horizontal)
         self.update_slider.setEnabled(False)
         self.update_slider.setRange(1, 100)
         self.update_slider.setValue(15)
@@ -377,7 +377,7 @@ class BackgroundSettingsWidget(QWidget):
         
         interval_layout.addWidget(interval_label, 0, 0)
         interval_layout.addWidget(self.update_slider, 1, 0)
-        interval_layout.addWidget(self.update_spin, 1, 1, Qt.AlignRight)
+        interval_layout.addWidget(self.update_spin, 1, 1, Qt.AlignmentFlag.AlignRight)
         
         config_section.layout.addWidget(interval_group)
         
@@ -387,7 +387,7 @@ class BackgroundSettingsWidget(QWidget):
         history_layout.setContentsMargins(0, 0, 0, 0)
         
         history_label = QLabel("参考对话长度")
-        self.history_slider = QSlider(Qt.Horizontal)
+        self.history_slider = QSlider(Qt.Orientation.Horizontal)
         self.history_slider.setEnabled(False)
         self.history_slider.setRange(200, 128000)
         self.history_slider.setValue(500)
@@ -401,7 +401,7 @@ class BackgroundSettingsWidget(QWidget):
         
         history_layout.addWidget(history_label, 0, 0)
         history_layout.addWidget(self.history_slider, 1, 0)
-        history_layout.addWidget(self.history_spin, 1, 1, Qt.AlignRight)
+        history_layout.addWidget(self.history_spin, 1, 1, Qt.AlignmentFlag.AlignRight)
         
         config_section.layout.addWidget(history_group)
         
@@ -514,9 +514,9 @@ class BackgroundSettingsWidget(QWidget):
         preview_layout.addWidget(preview_title)
         
         self.preview_area = AspectLabel(text="背景预览区域")
-        self.preview_area.setAlignment(Qt.AlignCenter)
-        self.preview_area.setFrameShape(QFrame.Box)
-        self.preview_area.setSizePolicy(QSizePolicy.Expanding,QSizePolicy.Expanding)
+        self.preview_area.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.preview_area.setFrameShape(QFrame.Shape.Box)
+        self.preview_area.setSizePolicy(QSizePolicy.Policy.Expanding,QSizePolicy.Policy.Expanding)
         preview_layout.addWidget(self.preview_area)
         preview_layout.addStretch()
 
@@ -526,7 +526,7 @@ class BackgroundSettingsWidget(QWidget):
         # 添加到主布局右侧
         main_layout.addWidget(preview_panel, 1)
 
-    def initialize_settings(self, settings_dict):
+    def initialize_settings(self, settings_dict:dict):
         """
         使用传入的字典设置初始化所有控件
         settings_dict: 包含所有初始化设置的字典

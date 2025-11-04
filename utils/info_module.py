@@ -1,7 +1,7 @@
 # Created by GPT-5 & Gemini 2.5 Pro, Doc by Kimi k2
 # Introduced in 0.25.3
 from __future__ import annotations
-from PyQt5 import QtCore, QtGui, QtWidgets
+from PyQt6 import QtCore, QtGui, QtWidgets
 import logging
 import logging.handlers
 from logging import Logger
@@ -13,7 +13,7 @@ from typing import Any, Dict, Optional, Set, Mapping, Union
 class ToastBubble(QtWidgets.QWidget):
     '''
     ===========
-    一个轻量级、非阻塞的 PyQt5 Toast 风格通知组件。
+    一个轻量级、非阻塞的 PyQt6 Toast 风格通知组件。
     功能特性
     --------
     - 无边框、半透明圆角矩形，可自定义颜色与圆角半径。
@@ -88,10 +88,10 @@ class ToastBubble(QtWidgets.QWidget):
         shadow_blur=30,
         shadow_offset=QtCore.QPoint(0, 6),
     ):
-        super().__init__(parent, flags=QtCore.Qt.Tool | QtCore.Qt.FramelessWindowHint)
-        self.setAttribute(QtCore.Qt.WA_ShowWithoutActivating, True)
-        self.setAttribute(QtCore.Qt.WA_TranslucentBackground, True)
-        self.setFocusPolicy(QtCore.Qt.NoFocus)
+        super().__init__(parent, flags=QtCore.Qt.WindowType.Tool | QtCore.Qt.WindowType.FramelessWindowHint)
+        self.setAttribute(QtCore.Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
+        self.setAttribute(QtCore.Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        self.setFocusPolicy(QtCore.Qt.FocusPolicy.NoFocus)
 
         self._bg = QtGui.QColor(bg_color)
         self._text = QtGui.QColor(text_color)
@@ -128,7 +128,7 @@ class ToastBubble(QtWidgets.QWidget):
         if shadow:
             eff = QtWidgets.QGraphicsDropShadowEffect(self._panel)
             eff.setBlurRadius(self._shadow_blur)
-            eff.setOffset(self._shadow_offset)
+            eff.setOffset(QtCore.QPointF(self._shadow_offset))
             eff.setColor(QtGui.QColor(0, 0, 0, 120))
             self._panel.setGraphicsEffect(eff)
 
@@ -139,7 +139,7 @@ class ToastBubble(QtWidgets.QWidget):
 
         self._label = QtWidgets.QLabel(self._panel)
         self._label.setWordWrap(True)
-        self._label.setTextInteractionFlags(QtCore.Qt.NoTextInteraction)
+        self._label.setTextInteractionFlags(QtCore.Qt.TextInteractionFlag.NoTextInteraction)
         self._label.setStyleSheet(
             "color: rgba(%d,%d,%d,%d);" % (self._text.red(), self._text.green(), self._text.blue(), self._text.alpha())
         )
@@ -151,7 +151,7 @@ class ToastBubble(QtWidgets.QWidget):
         # 宽度设置：外层窗口固定宽度，panel 宽度 = 外层 - 阴影左右边距
         self.setFixedWidth(width)
 
-        self.setAttribute(QtCore.Qt.WA_TransparentForMouseEvents, not enable_click_to_close)
+        self.setAttribute(QtCore.Qt.WidgetAttribute.WA_TransparentForMouseEvents, not enable_click_to_close)
         if enable_click_to_close:
             self.mousePressEvent = lambda e: self.fade_out()
 
@@ -180,7 +180,7 @@ class ToastBubble(QtWidgets.QWidget):
         lh = self._label.heightForWidth(lw)
         if lh < 0:
             fm = self._label.fontMetrics()
-            br = fm.boundingRect(0, 0, lw, 10_000, QtCore.Qt.TextWordWrap, self._label.text() or "")
+            br = fm.boundingRect(QtCore.QRect(0, 0, lw, 10_000), QtCore.Qt.TextFlag.TextWordWrap, self._label.text() or "")
             lh = br.height()
 
         l, t, r, b = self._padding
@@ -239,10 +239,10 @@ class ToastBubble(QtWidgets.QWidget):
         anim_op.setDuration(220)
         anim_op.setStartValue(0.0)
         anim_op.setEndValue(1.0)
-        anim_op.setEasingCurve(QtCore.QEasingCurve.OutCubic)
+        anim_op.setEasingCurve(QtCore.QEasingCurve.Type.OutCubic)
 
         self._in_anim = anim_op
-        anim_op.start(QtCore.QAbstractAnimation.DeleteWhenStopped)
+        anim_op.start(QtCore.QAbstractAnimation.DeletionPolicy.DeleteWhenStopped)
 
         QtCore.QTimer.singleShot(int(duration_ms), self.fade_out)
 
@@ -256,7 +256,7 @@ class ToastBubble(QtWidgets.QWidget):
 
         if not self._move_anim:
             self._move_anim = QtCore.QPropertyAnimation(self, b"pos", self)
-            self._move_anim.setEasingCurve(QtCore.QEasingCurve.OutCubic)
+            self._move_anim.setEasingCurve(QtCore.QEasingCurve.Type.OutCubic)
 
         self._move_anim.stop()
         self._move_anim.setDuration(duration)
@@ -278,14 +278,14 @@ class ToastBubble(QtWidgets.QWidget):
         anim_pos.setDuration(260)
         anim_pos.setStartValue(self.pos())
         anim_pos.setEndValue(self.pos() - QtCore.QPoint(0, 10))
-        anim_pos.setEasingCurve(QtCore.QEasingCurve.OutCubic)
+        anim_pos.setEasingCurve(QtCore.QEasingCurve.Type.OutCubic)
 
         group = QtCore.QParallelAnimationGroup(self)
         group.addAnimation(anim_op)
         group.addAnimation(anim_pos)
         self._out_anim = group
         group.finished.connect(self._on_closed)
-        group.start(QtCore.QAbstractAnimation.DeleteWhenStopped)
+        group.start(QtCore.QAbstractAnimation.DeletionPolicy.DeleteWhenStopped)
 
     def _on_closed(self):
         try:
@@ -404,7 +404,7 @@ class ToastManager(QtCore.QObject):
             "error": ErrorToast,
         }
 
-        self._toasts = []
+        self._toasts:list[ToastBubble] = []
         self._anchor.installEventFilter(self)
 
     def registerBubbleClass(self, level: str, cls: type):
@@ -426,7 +426,7 @@ class ToastManager(QtCore.QObject):
         bubble_cls = self._bubble_classes.get(level, self._bubble_classes["info"])
 
         # 不在此处传入 duration；popup() 会用传入的或类默认值。
-        bubble = bubble_cls(parent=self._anchor, width=self._width)
+        bubble:ToastBubble = bubble_cls(parent=self._anchor, width=self._width)
         bubble.setText(text)
         bubble.closed.connect(self._on_bubble_closed)
 
@@ -454,10 +454,10 @@ class ToastManager(QtCore.QObject):
 
     def eventFilter(self, obj, event):
         if obj is self._anchor and event.type() in (
-            QtCore.QEvent.Move,
-            QtCore.QEvent.Resize,
-            QtCore.QEvent.Show,
-            QtCore.QEvent.WindowStateChange,
+            QtCore.QEvent.Type.Move,
+            QtCore.QEvent.Type.Resize,
+            QtCore.QEvent.Type.Show,
+            QtCore.QEvent.Type.WindowStateChange,
         ):
             self._reflow(animated=False)
         return super().eventFilter(obj, event)

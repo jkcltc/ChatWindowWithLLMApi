@@ -23,10 +23,10 @@ print(f'CWLA iner import finished, time cost:{time.time()-start_time_stamp:.2f}s
 install_packages()
 
 #第三方类初始化
-from PyQt5.QtWidgets import *
-from PyQt5.QtCore import *
-from PyQt5.QtGui import *
-from PyQt5.QtSvg import *
+from PyQt6.QtWidgets import *
+from PyQt6.QtCore import *
+from PyQt6.QtGui import *
+from PyQt6.QtSvg import *
 import openai
 
 print(f'CWLA 3rd party lib import finished, time cost:{time.time()-start_time_stamp:.2f}s')
@@ -214,7 +214,7 @@ class MessagePreprocessor:
         message = self._purge_message(message)
         params  = self._build_request_params(message,stream=self.stream,tools=tools)
         params  = self._handle_provider_patch(params)
-        LOGGER.info(f'发送长度: {len(str(message))}')
+        LOGGER.info(f'发送长度: {len(str(message))}，消息数: {len(message)}')
         LOGGER.info(f'消息打包耗时:{(time.perf_counter()-start)*1000:.2f}ms')
         return message, params
 
@@ -476,7 +476,7 @@ class MainWindow(QMainWindow):
         self.init_chathistory_components()
 
         #从存档载入设置并覆盖
-        ConfigManager.init_settings(self, exclude=['application_path','temp_style','full_response','think_response'])
+        ConfigManager.init_settings(self, exclude=['application_path','temp_style','full_response','think_response','history_path'])
 
         self.init_title_creator()
         self.init_system_prompt_window()
@@ -554,7 +554,7 @@ class MainWindow(QMainWindow):
         self.opti_frame.hide()
 
         self.stat_tab_widget = QTabWidget()
-        self.stat_tab_widget.setSizePolicy(QSizePolicy.Preferred,QSizePolicy.Minimum)
+        self.stat_tab_widget.setSizePolicy(QSizePolicy.Policy.Preferred,QSizePolicy.Policy.Minimum)
         api_page = QWidget()
         api_page_layout = QGridLayout(api_page)
 
@@ -663,8 +663,8 @@ class MainWindow(QMainWindow):
 
         separators = [QFrame() for _ in range(3)]
         for sep in separators:
-            sep.setFrameShape(QFrame.VLine)
-            sep.setFrameShadow(QFrame.Sunken)
+            sep.setFrameShape(QFrame.Shape.VLine)
+            sep.setFrameShadow(QFrame.Shadow.Sunken)
         self.control_frame_layout.addWidget(self.send_button,           0, 0, 1, 15)
         self.control_frame_layout.addWidget(self.pause_button,          1, 0, 1, 2)
         self.control_frame_layout.addWidget(self.clear_button,          1, 2, 1, 2)
@@ -720,9 +720,9 @@ class MainWindow(QMainWindow):
         self.past_chat_frame.setLayout(self.past_chat_frame_layout)
 
         self.past_chat_list = HistoryListWidget()
-        self.past_chat_list.setSelectionMode(QAbstractItemView.SingleSelection)  # 强制单选模式
+        self.past_chat_list.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)  # 强制单选模式
         self.past_chat_list.itemClicked.connect(self.load_from_past)
-        self.past_chat_list.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.past_chat_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.past_chat_list.customContextMenuRequested.connect(self.past_chats_menu)
         
         self.reload_chat_list=QPushButton("🗘")
@@ -1226,7 +1226,7 @@ class MainWindow(QMainWindow):
         
         for size in sizes:
             pixmap = QPixmap(size, size)
-            pixmap.fill(Qt.transparent)
+            pixmap.fill(Qt.GlobalColor.transparent)
             
             painter = QPainter(pixmap)
             svg_renderer.render(painter)
@@ -1306,14 +1306,14 @@ class MainWindow(QMainWindow):
             parent_name = item["上级名称"]
             parent_item = parent_nodes[parent_name]
             child_item = QTreeWidgetItem([item["提示语"]])
-            child_item.setData(0, Qt.UserRole, item["执行函数"])  # 将执行函数存储在用户数据中
+            child_item.setData(0, Qt.ItemDataRole.UserRole, item["执行函数"])  # 将执行函数存储在用户数据中
             parent_item.addChild(child_item)
         self.tree_view.expandAll()
 
     #设置界面：响应点击
     def on_tree_item_clicked(self, item, column):
         # 获取用户数据（执行函数名）
-        function_name = item.data(column, Qt.UserRole)
+        function_name = item.data(column, Qt.ItemDataRole.UserRole)
         if function_name:
             # 动态调用对应的函数
             func = getattr(self, function_name.split('.')[-1])
@@ -1328,7 +1328,7 @@ class MainWindow(QMainWindow):
             self.past_chat_frame.show()
             self.past_chat_frame_animation = QPropertyAnimation(self.past_chat_frame, b"geometry")
             self.past_chat_frame_animation.setDuration(300)
-            self.past_chat_frame_animation.setEasingCurve(QEasingCurve.InOutQuad)
+            self.past_chat_frame_animation.setEasingCurve(QEasingCurve.Type.InOutQuad)
             self.past_chat_frame_animation.setStartValue(QRect(self.width(), 0, self.past_chat_frame.width(), self.height()))
             self.past_chat_frame_animation.setEndValue(QRect(self.width()-self.past_chat_frame.width(), 0, self.past_chat_frame.width(), self.height()))
             self.past_chat_frame.raise_()
@@ -1341,14 +1341,14 @@ class MainWindow(QMainWindow):
             # 创建 TreeView 的动画
             self.tree_animation = QPropertyAnimation(self.tree_view, b"geometry")
             self.tree_animation.setDuration(300)
-            self.tree_animation.setEasingCurve(QEasingCurve.InOutQuad)
+            self.tree_animation.setEasingCurve(QEasingCurve.Type.InOutQuad)
             self.tree_animation.setStartValue(QRect(-self.tree_view.width(), 0, self.tree_view.width(), self.height()))
             self.tree_animation.setEndValue(QRect(0, 0, self.tree_view.width(), self.height()))
 
             # 创建 toggle_tree_button 的动画
             self.button_animation = QPropertyAnimation(self.toggle_tree_button, b"geometry")
             self.button_animation.setDuration(300)
-            self.button_animation.setEasingCurve(QEasingCurve.InOutQuad)
+            self.button_animation.setEasingCurve(QEasingCurve.Type.InOutQuad)
             self.button_animation.setStartValue(self.toggle_tree_button.geometry())
             self.button_animation.setEndValue(QRect(self.tree_view.width(), self.toggle_tree_button.y(), self.toggle_tree_button.width(), self.toggle_tree_button.height()))
 
@@ -1360,7 +1360,7 @@ class MainWindow(QMainWindow):
         else:
             self.past_chat_frame_animation = QPropertyAnimation(self.past_chat_frame, b"geometry")
             self.past_chat_frame_animation.setDuration(300)
-            self.past_chat_frame_animation.setEasingCurve(QEasingCurve.InOutQuad)
+            self.past_chat_frame_animation.setEasingCurve(QEasingCurve.Type.InOutQuad)
             self.past_chat_frame_animation.setStartValue(QRect(self.width()-self.past_chat_frame.width(), 0, self.past_chat_frame.width(), self.height()))
             self.past_chat_frame_animation.setEndValue(QRect(self.width(), 0, self.past_chat_frame.width(), self.height()))
             self.past_chat_frame_animation.finished.connect(self.past_chat_frame.hide)
@@ -1368,7 +1368,7 @@ class MainWindow(QMainWindow):
             # 隐藏 TreeView
             self.tree_animation = QPropertyAnimation(self.tree_view, b"geometry")
             self.tree_animation.setDuration(300)
-            self.tree_animation.setEasingCurve(QEasingCurve.InOutQuad)
+            self.tree_animation.setEasingCurve(QEasingCurve.Type.InOutQuad)
             self.tree_animation.setStartValue(QRect(0, 0, self.tree_view.width(), self.height()))
             self.tree_animation.setEndValue(QRect(-self.tree_view.width(), 0, self.tree_view.width(), self.height()))
             self.tree_animation.finished.connect(self.tree_view.hide)
@@ -1376,7 +1376,7 @@ class MainWindow(QMainWindow):
             # 创建 toggle_tree_button 的动画
             self.button_animation = QPropertyAnimation(self.toggle_tree_button, b"geometry")
             self.button_animation.setDuration(300)
-            self.button_animation.setEasingCurve(QEasingCurve.InOutQuad)
+            self.button_animation.setEasingCurve(QEasingCurve.Type.InOutQuad)
             self.button_animation.setStartValue(self.toggle_tree_button.geometry())
             self.button_animation.setEndValue(QRect(0, self.toggle_tree_button.y(), self.toggle_tree_button.width(), self.toggle_tree_button.height()))
 
@@ -1387,10 +1387,10 @@ class MainWindow(QMainWindow):
 
     #设置界面：点击外部收起
     def eventFilter(self, obj, event):
-      if event.type() == QEvent.MouseButtonPress:
+      if event.type() == QEvent.Type.MouseButtonPress:
           if self.tree_view.isVisible():
               # 将全局坐标转换为树视图的局部坐标
-              local_pos = self.tree_view.mapFromGlobal(event.globalPos())
+              local_pos = self.tree_view.mapFromGlobal(event.globalPosition().toPoint())
               if not self.tree_view.rect().contains(local_pos):
                   self.toggle_tree_view()
       return super().eventFilter(obj, event)
@@ -1619,12 +1619,12 @@ class MainWindow(QMainWindow):
             msg_box.setText('确定连发两条吗？')
             
             # 添加自定义按钮
-            btn_yes = msg_box.addButton('确定', QMessageBox.YesRole)
-            btn_no = msg_box.addButton('取消', QMessageBox.NoRole)
+            btn_yes = msg_box.addButton('确定', QMessageBox.StandardButton.YesRole)
+            btn_no = msg_box.addButton('取消', QMessageBox.StandardButton.NoRole)
             btn_edit = msg_box.addButton('编辑聊天记录', QMessageBox.ActionRole)
             
             # 显示消息框并获取用户的选择
-            msg_box.exec_()
+            msg_box.exec()
             
             # 根据用户点击的按钮执行操作
             if msg_box.clickedButton() == btn_yes:
@@ -1640,12 +1640,12 @@ class MainWindow(QMainWindow):
         elif user_input == '':
             # 弹出窗口：确定发送空消息？
             reply = QMessageBox.question(self, '确认操作', '确定发送空消息？',
-                                        QMessageBox.Yes | QMessageBox.No,
-                                        QMessageBox.No)
-            if reply == QMessageBox.Yes:
+                                        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                                        QMessageBox.StandardButton.No)
+            if reply == QMessageBox.StandardButton.Yes:
                 self.user_input_text.setText('_')
                 # 正常继续
-            elif reply == QMessageBox.No:
+            elif reply == QMessageBox.StandardButton.No:
                 # 如果否定：return False
                 return False
         if self.long_chat_improve_var:
@@ -1661,21 +1661,20 @@ class MainWindow(QMainWindow):
                     ''.join(
                         [
                             '长对话优化日志：',
-                            '\n当前对话次数:',len(self.chathistory)-1,
-                            '\n当前对话长度（包含system prompt）:',full_chat_lenth,
-                            '\n当前新对话轮次:',self.new_chat_rounds,'/',self.max_message_rounds,
-                            '\n新对话长度:',len(str(self.chathistory[-self.new_chat_rounds:])),
+                            '\n当前对话次数:', str(len(self.chathistory)-1),
+                            '\n当前对话长度（包含system prompt）:', str(full_chat_lenth),
+                            '\n当前新对话轮次:', str(self.new_chat_rounds), '/', str(self.max_message_rounds),
+                            '\n新对话长度:', str(len(str(self.chathistory[-self.new_chat_rounds:]))),
                             '\n触发条件:',
                             '\n总对话轮数达标:'
-                            '\n对话长度达达到',self.max_total_length,":", message_lenth_bool,
-                            '\n新对话轮次超过限制:', newchat_rounds_bool,
-                            '\n新对话长度超过限制:', newchat_lenth_bool,
-                            '\n触发长对话优化:',long_chat_improve_bool
-                            ]
-                        ),
-                        level='info'
-                    )
-                
+                            '\n对话长度达达到', str(self.max_total_length), ":", str(message_lenth_bool),
+                            '\n新对话轮次超过限制:', str(newchat_rounds_bool),
+                            '\n新对话长度超过限制:', str(newchat_lenth_bool),
+                            '\n触发长对话优化:', str(long_chat_improve_bool)
+                        ]
+                    ),
+                    level='info'
+                )
                 if long_chat_improve_bool:
                     self.new_chat_rounds=0
                     self.info_manager.notify('条件达到,长文本优化已触发','info')
@@ -1689,18 +1688,16 @@ class MainWindow(QMainWindow):
                 message_lenth_bool=(len(self.chathistory)>self.max_background_rounds or full_chat_lenth>self.max_backgound_lenth)
                 newchat_rounds_bool=self.new_background_rounds>self.max_background_rounds
                 long_chat_improve_bool=message_lenth_bool and newchat_rounds_bool
-                self.info_manager.log(''.join(
-                        ['背景更新日志：',
-                    '\n当前对话次数:',len(self.chathistory)-1,
-                    '\n当前对话长度（包含system prompt）:',full_chat_lenth,
-                    '\n当前新对话轮次:',self.new_background_rounds,'/',self.max_background_rounds,
-                    '\n新对话长度:',(len(str(self.chathistory[-self.new_background_rounds:]))-len(str(self.chathistory[0]))),
-                    '\n触发条件:',
-                    '\n总对话轮数达标:',
-                    '\n对话长度达达到',self.max_backgound_lenth,":", message_lenth_bool,
-                    '\n新对话轮次超过限制:', newchat_rounds_bool,
-                    '\n触发背景更新:',long_chat_improve_bool]
-                    ),
+                self.info_manager.log(f"""背景更新日志：
+当前对话次数: {len(self.chathistory)-1}
+当前对话长度（包含system prompt）: {full_chat_lenth}
+当前新对话轮次: {self.new_background_rounds}/{self.max_background_rounds}
+新对话长度: {len(str(self.chathistory[-self.new_background_rounds:]))-len(str(self.chathistory[0]))}
+触发条件:
+总对话轮数达标:
+对话长度达到 {self.max_backgound_lenth}: {message_lenth_bool}
+新对话轮次超过限制: {newchat_rounds_bool}
+触发背景更新: {long_chat_improve_bool}""",
                     level='info')
                 if long_chat_improve_bool:
                     self.new_background_rounds=0
@@ -1708,8 +1705,6 @@ class MainWindow(QMainWindow):
                     self.info_manager.notify('条件达到,背景更新已触发')
                     self.call_background_update()
                 
-            except Exception as e:
-                LOGGER.error(f"long chat improvement failed, Error code:{e}")
             except Exception as e:
                 LOGGER.error(f"long chat improvement failed, Error code:{e}")
         if self.enforce_lower_repeat_var:
@@ -1873,7 +1868,7 @@ class MainWindow(QMainWindow):
             self.settings_window.close()
 
         confirm_bu.clicked.connect(confirm_settings)
-        self.settings_window.exec_()
+        self.settings_window.exec()
 
     #绑定快捷键
     def bind_enter_key(self):
@@ -1907,44 +1902,37 @@ class MainWindow(QMainWindow):
             lambda: self.showFullScreen() if not self.isFullScreen() else self.showNormal()
         )
 
-        QShortcut(QKeySequence(Qt.CTRL + Qt.Key_N), self).activated.connect(self.clear_history)
-
-        QShortcut(QKeySequence(Qt.CTRL + Qt.Key_O), self).activated.connect(self.load_chathistory)
-
-        QShortcut(QKeySequence(Qt.CTRL + Qt.Key_S), self).activated.connect(lambda :self.chathistory_file_manager.save_chathistory(self.chathistory))
-
-        QShortcut(QKeySequence(Qt.CTRL + Qt.Key_M), self).activated.connect(self.show_mod_configer)
-
-        QShortcut(QKeySequence(Qt.CTRL + Qt.Key_T), self).activated.connect(self.show_theme_settings)
-
-        QShortcut(QKeySequence(Qt.CTRL + Qt.Key_D), self).activated.connect(self.open_max_send_lenth_window)
-
-        QShortcut(QKeySequence(Qt.CTRL + Qt.Key_B), self).activated.connect(self.background_settings_window)
+        QShortcut(QKeySequence("Ctrl+N"), self).activated.connect(self.clear_history)
+        QShortcut(QKeySequence("Ctrl+O"), self).activated.connect(self.load_chathistory)
+        QShortcut(QKeySequence("Ctrl+S"), self).activated.connect(lambda: self.chathistory_file_manager.save_chathistory(self.chathistory))
+        QShortcut(QKeySequence("Ctrl+M"), self).activated.connect(self.show_mod_configer)
+        QShortcut(QKeySequence("Ctrl+T"), self).activated.connect(self.show_theme_settings)
+        QShortcut(QKeySequence("Ctrl+D"), self).activated.connect(self.open_max_send_lenth_window)
+        QShortcut(QKeySequence("Ctrl+B"), self).activated.connect(self.background_settings_window)
 
         if self.send_message_var:
-            self.send_message_shortcut=QShortcut(QKeySequence(), self)
-            self.send_message_shortcut.setKey(QKeySequence(Qt.CTRL + Qt.Key_Return))
+            self.send_message_shortcut = QShortcut(QKeySequence(), self)
+            self.send_message_shortcut.setKey(QKeySequence("Ctrl+Return"))
             self.send_message_shortcut.activated.connect(self.send_message)
-            self.send_message_var=True
+            self.send_message_var = True
         elif self.send_message_shortcut:
             self.send_message_shortcut.setKey(QKeySequence())
-        
+            
         if self.autoslide_var:
             self.shortcut1 = QShortcut(QKeySequence(), self)
-            self.shortcut1.setKey(QKeySequence(Qt.Key_Tab))
+            self.shortcut1.setKey(QKeySequence(Qt.Key.Key_Tab))  # 修复
             self.shortcut1.activated.connect(self.toggle_tree_view)
             self.shortcut2 = QShortcut(QKeySequence(), self)
-            self.shortcut2.setKey(QKeySequence(Qt.CTRL+Qt.Key_Q))
+            self.shortcut2.setKey(QKeySequence("Ctrl+Q"))  # 使用字符串格式
             self.shortcut2.activated.connect(self.toggle_tree_view)
             self.autoslide_var=True
         elif self.shortcut1:
             self.shortcut1.setKey(QKeySequence())
             self.shortcut2.setKey(QKeySequence())
 
-        
         if self.hotkey_sysrule_var:
-            self.hotkey_sysrule= QShortcut(QKeySequence(), self)
-            self.hotkey_sysrule.setKey(QKeySequence(Qt.CTRL+Qt.Key_E))
+            self.hotkey_sysrule = QShortcut(QKeySequence(), self)
+            self.hotkey_sysrule.setKey(QKeySequence("Ctrl+E"))  # 使用字符串格式
             self.hotkey_sysrule.activated.connect(self.open_system_prompt)
             self.hotkey_sysrule_var=True
         elif self.hotkey_sysrule:
@@ -2432,7 +2420,7 @@ class MainWindow(QMainWindow):
             lambda: self.analysis_past_chat()
         )
 
-        context_menu.exec_(self.past_chat_list.viewport().mapToGlobal(position))
+        context_menu.exec(self.past_chat_list.viewport().mapToGlobal(position))
 
     #删除记录
     def delete_selected_history(self):
@@ -2632,7 +2620,7 @@ class MainWindow(QMainWindow):
         self.anim_out.setDuration(300)
         self.anim_out.setStartValue(0.5)
         self.anim_out.setEndValue(0.0)
-        self.anim_out.setEasingCurve(QEasingCurve.InOutQuad)
+        self.anim_out.setEasingCurve(QEasingCurve.Type.InOutQuad)
         self.anim_out.finished.connect(lambda: self._apply_image(new_pixmap))
         self.anim_out.start()
     def _apply_image(self, pixmap):
@@ -2641,7 +2629,7 @@ class MainWindow(QMainWindow):
         self.anim_in.setDuration(300)
         self.anim_in.setStartValue(0.0)
         self.anim_in.setEndValue(0.5)
-        self.anim_in.setEasingCurve(QEasingCurve.InOutQuad)
+        self.anim_in.setEasingCurve(QEasingCurve.Type.InOutQuad)
         self.anim_in.finished.connect(self.back_animation_finished.emit)
         self.anim_in.start()
  
@@ -2962,7 +2950,7 @@ def start():
     window = MainWindow()
     window.show()
     LOGGER.log(f'CWLA shown on desktop, time cost:{time.time()-start_time_stamp:.2f}s',level='debug')
-    sys.exit(app.exec_())
+    sys.exit(app.exec())
 
 if __name__=="__main__":
     start()

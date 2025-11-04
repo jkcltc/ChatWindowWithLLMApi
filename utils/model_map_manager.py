@@ -7,9 +7,9 @@ import requests, urllib
 import configparser
 import threading
 from typing import Optional, Dict, List, Tuple, Any
-from PyQt5.QtWidgets import *
-from PyQt5.QtCore import *
-from PyQt5.QtGui import *
+from PyQt6.QtWidgets import *
+from PyQt6.QtCore import *
+from PyQt6.QtGui import *
 
 class ModelMapManager:
     _DEFAULT_FILE_PATH = Path("utils/global_presets/MODEL_MAP.json")
@@ -303,14 +303,14 @@ class APIConfigWidget(QWidget):
         title_font.setPointSize(16)
         title_font.setBold(True)
         title_label.setFont(title_font)
-        title_label.setAlignment(Qt.AlignCenter)
+        title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         main_layout.addWidget(title_label)
         
         # 标签页容器（左侧显示标签，用于切换不同API供应商）
         self.tab_widget = QTabWidget()
-        self.tab_widget.setTabPosition(QTabWidget.West)  # 标签在左侧
+        self.tab_widget.setTabPosition(QTabWidget.TabPosition.West)  # 标签在左侧
         self.tab_widget.setDocumentMode(True)  # 启用文档模式（视觉优化）
-        self.tab_widget.setElideMode(Qt.ElideNone)  # 不省略标签文本
+        self.tab_widget.setElideMode(Qt.TextElideMode.ElideNone)  # 不省略标签文本
         main_layout.addWidget(self.tab_widget, 1)  # 占主要空间
         
         # 底部按钮布局
@@ -340,7 +340,7 @@ class APIConfigWidget(QWidget):
         
         # 状态提示标签（显示保存结果、更新状态等）
         self.status_label = QLabel()
-        self.status_label.setAlignment(Qt.AlignCenter)
+        self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.status_label.setWordWrap(True)
         main_layout.addWidget(self.status_label)
 
@@ -380,7 +380,7 @@ class APIConfigWidget(QWidget):
         # 密钥输入框（密码模式，带清除按钮）
         key_entry = QLineEdit()
         key_entry.setPlaceholderText("请输入认证密钥...")
-        key_entry.setEchoMode(QLineEdit.Password)  # 隐藏输入内容
+        key_entry.setEchoMode(QLineEdit.EchoMode.Password)  # 隐藏输入内容
         key_entry.setClearButtonEnabled(True)
         
         # 输入变化时触发配置更新（延迟保存）
@@ -422,7 +422,7 @@ class APIConfigWidget(QWidget):
         
         # 模型列表（支持多选）
         model_list_widget = QListWidget()
-        model_list_widget.setSelectionMode(QListWidget.MultiSelection)  # 允许多选
+        model_list_widget.setSelectionMode(QListWidget.SelectionMode.MultiSelection)  # 允许多选
         model_list_widget.setAlternatingRowColors(True)  # 交替行颜色（视觉优化）
         model_layout.addWidget(model_list_widget)
         
@@ -529,7 +529,7 @@ class APIConfigWidget(QWidget):
         self.update_btn_overlay = QWidget(self.update_btn)
         self.update_btn_overlay.setStyleSheet("background-color: rgba(173, 216, 230, 80);")  # 浅蓝色半透明
         self.update_btn_overlay.hide()
-        self.update_btn_overlay.setAttribute(Qt.WA_TransparentForMouseEvents)  # 不响应鼠标事件
+        self.update_btn_overlay.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)  # 不响应鼠标事件
         
         # 透明度效果（用于淡出动画）
         self.opacity_effect = QGraphicsOpacityEffect(self.update_btn_overlay)
@@ -543,14 +543,14 @@ class APIConfigWidget(QWidget):
         # 宽度动画（从0到按钮宽度，显示进度感）
         self.width_animation = QPropertyAnimation(self.update_btn_overlay, b"geometry")
         self.width_animation.setDuration(1500)  # 1.5秒
-        self.width_animation.setEasingCurve(QEasingCurve.OutCubic)  # 缓动曲线
+        self.width_animation.setEasingCurve(QEasingCurve.Type.OutCubic)  # 缓动曲线
         
         # 淡出动画（透明度从1到0）
         self.fade_animation = QPropertyAnimation(self.opacity_effect, b"opacity")
         self.fade_animation.setDuration(600)  # 0.6秒
         self.fade_animation.setStartValue(1.0)
         self.fade_animation.setEndValue(0.0)
-        self.fade_animation.setEasingCurve(QEasingCurve.OutQuad)
+        self.fade_animation.setEasingCurve(QEasingCurve.Type.OutQuad)
         
         # 重置动画（恢复初始状态，准备下一次循环）
         self.reset_animation = QSequentialAnimationGroup()
@@ -576,7 +576,7 @@ class APIConfigWidget(QWidget):
         self.save_btn_overlay = QWidget(self.save_btn)
         self.save_btn_overlay.setStyleSheet("background-color: rgba(143, 188, 143, 80);")  # 浅绿色半透明
         self.save_btn_overlay.hide()
-        self.save_btn_overlay.setAttribute(Qt.WA_TransparentForMouseEvents)
+        self.save_btn_overlay.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         
         # 透明度效果
         self.save_opacity_effect = QGraphicsOpacityEffect(self.save_btn_overlay)
@@ -590,14 +590,14 @@ class APIConfigWidget(QWidget):
         # 宽度动画
         self.save_width_animation = QPropertyAnimation(self.save_btn_overlay, b"geometry")
         self.save_width_animation.setDuration(1500)
-        self.save_width_animation.setEasingCurve(QEasingCurve.OutCubic)
+        self.save_width_animation.setEasingCurve(QEasingCurve.Type.OutCubic)
         
         # 淡出动画
         self.save_fade_animation = QPropertyAnimation(self.save_opacity_effect, b"opacity")
         self.save_fade_animation.setDuration(600)
         self.save_fade_animation.setStartValue(1.0)
         self.save_fade_animation.setEndValue(0.0)
-        self.save_fade_animation.setEasingCurve(QEasingCurve.OutQuad)
+        self.save_fade_animation.setEasingCurve(QEasingCurve.Type.OutQuad)
         
         # 动画完成后关闭窗口
         self.save_animation_group.finished.connect(self._on_save_animation_finished)
@@ -622,7 +622,7 @@ class APIConfigWidget(QWidget):
     def stop_update_animation(self):
         """停止更新按钮动画（更新完成/出错时）"""
         self.update_btn.setEnabled(True)  # 恢复按钮可用
-        if self.animation_group and self.animation_group.state() == QAbstractAnimation.Running:
+        if self.animation_group and self.animation_group.state() == QAbstractAnimation.State.Running:
             self.animation_group.stop()
         if self.update_btn_overlay:
             self.update_btn_overlay.hide()
@@ -647,7 +647,7 @@ class APIConfigWidget(QWidget):
         """停止保存按钮动画（取消保存时）"""
         self.save_in_progress = False
         self.save_btn.setText("保存并关闭")  # 恢复文本
-        if self.save_animation_group and self.save_animation_group.state() == QAbstractAnimation.Running:
+        if self.save_animation_group and self.save_animation_group.state() == QAbstractAnimation.State.Running:
             self.save_animation_group.stop()
         if self.save_btn_overlay:
             self.save_btn_overlay.hide()
@@ -715,6 +715,7 @@ class APIConfigWidget(QWidget):
         config=self._validate_and_save(show_message=True)
         self.save_btn_overlay.hide()
         self.save_in_progress = False
+        self.save_btn.setText("保存并关闭")
         self.notificationRequested.emit(
             f'模型列表更新完成。数量:{sum(len(provider['models']) for provider in config.values())}',
             'success'
@@ -757,10 +758,10 @@ class APIConfigWidget(QWidget):
         reply = QMessageBox.question(
             self, "确认删除", 
             f"确定要删除'{api_name}'的配置吗?\n此操作不可恢复。",
-            QMessageBox.Yes | QMessageBox.No
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
         )
         
-        if reply == QMessageBox.Yes:
+        if reply == QMessageBox.StandardButton.Yes:
             try:
                 # 移除标签页
                 widget = self.tab_widget.findChild(QWidget, api_name)
@@ -1047,7 +1048,7 @@ class Ui_random_model_selecter(object):
         self.gridLayout_5 = QGridLayout(random_model_selecter)
         self.gridLayout_5.setObjectName("gridLayout_5")
         self.groupBox = QGroupBox(random_model_selecter)
-        sizePolicy = QSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
+        sizePolicy = QSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
         sizePolicy.setHorizontalStretch(1)
         sizePolicy.setVerticalStretch(0)
         sizePolicy.setHeightForWidth(self.groupBox.sizePolicy().hasHeightForWidth())
@@ -1060,7 +1061,7 @@ class Ui_random_model_selecter(object):
         self.order_radio.setObjectName("order_radio")
         self.gridLayout_4.addWidget(self.order_radio, 0, 0, 1, 1)
         self.random_radio = QRadioButton(self.groupBox)
-        sizePolicy = QSizePolicy(QSizePolicy.Minimum, QSizePolicy.Fixed)
+        sizePolicy = QSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed)
         sizePolicy.setHorizontalStretch(0)
         sizePolicy.setVerticalStretch(1)
         sizePolicy.setHeightForWidth(self.random_radio.sizePolicy().hasHeightForWidth())
@@ -1069,7 +1070,7 @@ class Ui_random_model_selecter(object):
         self.gridLayout_4.addWidget(self.random_radio, 1, 0, 1, 1)
         self.gridLayout_5.addWidget(self.groupBox, 1, 0, 1, 1)
         self.groupBox_add_model = QGroupBox(random_model_selecter)
-        sizePolicy = QSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
+        sizePolicy = QSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
         sizePolicy.setHorizontalStretch(1)
         sizePolicy.setVerticalStretch(0)
         sizePolicy.setHeightForWidth(self.groupBox_add_model.sizePolicy().hasHeightForWidth())
@@ -1103,7 +1104,7 @@ class Ui_random_model_selecter(object):
         self.label.setObjectName("label")
         self.gridLayout_5.addWidget(self.label, 3, 1, 1, 1)
         self.confirm_button = QPushButton(random_model_selecter)
-        sizePolicy = QSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        sizePolicy = QSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         sizePolicy.setHorizontalStretch(0)
         sizePolicy.setVerticalStretch(0)
         sizePolicy.setHeightForWidth(self.confirm_button.sizePolicy().hasHeightForWidth())
@@ -1111,7 +1112,7 @@ class Ui_random_model_selecter(object):
         self.confirm_button.setObjectName("confirm_button")
         self.gridLayout_5.addWidget(self.confirm_button, 3, 2, 1, 1)
         self.groupBox_view_model = QGroupBox(random_model_selecter)
-        sizePolicy = QSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
+        sizePolicy = QSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
         sizePolicy.setHorizontalStretch(2)
         sizePolicy.setVerticalStretch(1)
         sizePolicy.setHeightForWidth(self.groupBox_view_model.sizePolicy().hasHeightForWidth())
@@ -1184,7 +1185,7 @@ class RandomModelSelecter(QWidget):
         """初始化列表视图模型"""
         self.list_model = QStandardItemModel()
         self.ui.random_model_list_viewer.setModel(self.list_model)
-        self.ui.random_model_list_viewer.setSelectionMode(QListView.SingleSelection)
+        self.ui.random_model_list_viewer.setSelectionMode(QListView.SelectionMode.SingleSelection)
 
     def update_model_names(self):
         """更新模型名称下拉框"""
@@ -1248,11 +1249,12 @@ class RandomModelSelecter(QWidget):
 
 if __name__ == "__main__":
     import sys
-    from PyQt5.QtWidgets import QApplication
+    from PyQt6.QtWidgets import QApplication
     app = QApplication(sys.argv)
     window = APIConfigWidget(application_path=r"C:\Users\kcji\Desktop\te\ChatWindowWithLLMApi")
     window.configUpdated.connect(print)
     with open(r'C:\Users\kcji\Desktop\te\ChatWindowWithLLMApi\theme\ds-r1-0528.qss',encoding='utf-8')as e:
         window.setStyleSheet(e.read())
-    window.show()
-    sys.exit(app.exec_())
+    #window=RandomModelSelecter(model_map=ModelMapManager().get_model_map())
+    #window.show()
+    sys.exit(app.exec())

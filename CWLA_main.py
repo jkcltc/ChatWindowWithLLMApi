@@ -240,7 +240,7 @@ class MessagePreprocessor:
 
     def _purge_message(self,messages):
         new_message=[]
-        not_needed=['info','reasoning_content']
+        not_needed=['info']#,'reasoning_content']
         for item in messages:
             temp_dict={}
             for key,value in item.items():

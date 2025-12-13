@@ -5,7 +5,7 @@ from PyQt6.QtCore import *
 from PyQt6.QtWidgets import *
 from PyQt6.QtGui import *
 from PyQt6.QtMultimedia import QMediaPlayer
-from PyQt6.QtMultimedia import QMediaMetaData
+from PyQt6.QtMultimedia import QAudioOutput
 import threading
 import asyncio
 import random
@@ -249,7 +249,7 @@ class EdgeTTSSelectionDialog(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowStaysOnTopHint)
+        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setWindowTitle("语音角色设置")
         self.setSizePolicy(QSizePolicy.Policy.Expanding,QSizePolicy.Policy.Expanding)
@@ -518,19 +518,20 @@ class EdgeTTSSelectionDialog(QWidget):
         self.close()
 
     def mousePressEvent(self, event):
-        if event.button() == Qt.LeftButton:
+        if event.button() == Qt.MouseButton.LeftButton:
             self.oldPos = event.globalPosition().toPoint()
 
     def mouseMoveEvent(self, event):
         try:
             if self.oldPos is None:
                 return
-            if event.buttons() == Qt.LeftButton:
-                delta = QPoint(event.globalPosition().toPoint() - self.oldPos)
+            if event.buttons() == Qt.MouseButton.LeftButton:
+                current_pos = event.globalPosition().toPoint()
+                delta = current_pos - self.oldPos
                 self.move(self.x() + delta.x(), self.y() + delta.y())
-                self.oldPos = event.globalPosition().toPoint()
+                self.oldPos = current_pos
         except Exception as e:
-            print('tts selection mouse event',e)
+            print('tts selection mouse event', e)
     
     def paintEvent(self, event):
         # 调用父类的绘制方法（确保基础样式被应用）
@@ -700,11 +701,16 @@ class AudioPlayer(QObject):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.player = QMediaPlayer()
+        
+        # PyQt6中必须创建和设置QAudioOutput
+        self.audio_output = QAudioOutput()
+        self.player.setAudioOutput(self.audio_output)
+        
         self.play_queue = []        # 存储待播放文件路径
         
         # 连接媒体状态变化信号
         self.player.mediaStatusChanged.connect(self.handle_media_status)
-        
+    
     def add_play_task(self, mp3_path):
         """
         将MP3文件加入播放队列，自动按顺序播放
@@ -714,13 +720,13 @@ class AudioPlayer(QObject):
         self.play_queue.append(mp3_path)
         
         # 如果没有正在播放的项目，立即开始播放
-        if self.player.state() != QMediaPlayer.PlayingState:
+        if self.player.playbackState() != QMediaPlayer.PlaybackState.PlayingState:
             self._play_next()
-
+    
     def handle_media_status(self, status):
         """处理媒体状态变化事件"""
         # 当前媒体播放完成且队列中有待播文件
-        if status == QMediaPlayer.EndOfMedia and self.play_queue:
+        if status == QMediaPlayer.MediaStatus.EndOfMedia and self.play_queue:
             self._play_next()
     
     def _play_next(self):
@@ -731,8 +737,13 @@ class AudioPlayer(QObject):
         # 获取并移除队列中的首个文件
         next_path = self.play_queue.pop(0)
         
-        # 设置媒体源并开始播放 (PyQt6方式)
+        # 设置媒体源并开始播放
         self.player.setSource(QUrl.fromLocalFile(next_path))
+        
+        # 设置适当的音量（0-1之间）
+        self.audio_output.setVolume(1)
+        
+        # 开始播放
         self.player.play()
 
 class VoiceItemWidget(QWidget):
@@ -842,11 +853,11 @@ QPushButton {
         """鼠标进入控件时切换到第二页并启动淡入动画"""
         
         # 停止任何正在进行的淡出动画
-        if self.fade_out_animation.state() == QPropertyAnimation.Running:
+        if self.fade_out_animation.state() == QPropertyAnimation.State.Running:
             self.fade_out_animation.stop()
         
         # 如果淡入动画没有运行，则启动它
-        if self.fade_in_animation.state() != QPropertyAnimation.Running:
+        if self.fade_in_animation.state() != QPropertyAnimation.State.Running:
             self.fade_in_animation.start()
         
         super().enterEvent(event)
@@ -854,7 +865,7 @@ QPushButton {
     def leaveEvent(self, event):
         """鼠标离开控件时切换到第一页并启动淡出动画"""
         # 停止任何正在进行的淡入动画
-        if self.fade_in_animation.state() == QPropertyAnimation.Running:
+        if self.fade_in_animation.state() == QPropertyAnimation.State.Running:
             self.fade_in_animation.stop()
         
         # 启动淡出动画
@@ -931,7 +942,7 @@ class EdgeTTSMainSettingWindow(QWidget):
         # 创建滚动区域的内容部件
         self.scroll_content = QWidget()
         self.voice_binding_layout = QVBoxLayout(self.scroll_content)
-        self.voice_binding_layout.setSizeConstraint(QLayout.SetMinAndMaxSize)  # 确保布局可以收缩到最小
+        self.voice_binding_layout.setSizeConstraint(QLayout.SizeConstraint.SetMinAndMaxSize)
         self.scroll_content.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)  # 优先竖向最小
         
         # 设置滚动区域的内容部件

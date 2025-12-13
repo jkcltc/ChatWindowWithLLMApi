@@ -389,6 +389,11 @@ class MessagePreprocessor:
                 }
         if self.god.reasoning_effort and 'openrouter' in url:
             effort_map={1: "low", 2: "medium", 3: "high"}
+            if 'reasoning' not in params:
+                params["reasoning"]={
+                    "exclude": False,
+                    "enabled": True
+                }
             params["reasoning"]["effort"]=effort_map[self.god.reasoning_effort] #will raise error if not 1,2,3
 
         # 使用者

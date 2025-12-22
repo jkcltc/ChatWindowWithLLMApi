@@ -497,6 +497,12 @@ Request payload :
                 tool_call_index = function_call.index
                 tool_call_id = function_call.id
                 
+                if not tool_call_index in self.chatting_tool_call:
+                    self.chatting_tool_call[tool_call_index] = {
+                        "id": tool_call_id,
+                        "type": "function",
+                        "function": {"name": "", "arguments": ""}
+                }
                 if tool_call_id:
                     self.chatting_tool_call[tool_call_index]['id'] = tool_call_id
                 
@@ -509,10 +515,11 @@ Request payload :
 
                 if returned_arguments:
                     self.chatting_tool_call[tool_call_index]["function"]["arguments"] += returned_arguments
-                    self.think_response += returned_arguments
-                    self.think_response_signal.emit(self.request_id, self.think_response)
+                    #self.think_response += returned_arguments
+                    #self.think_response_signal.emit(self.request_id, self.think_response)
+                    # 准备只用tool_response转发
                     self.tool_response += returned_arguments
-                    self.tool_response_signal.emit(self.request_id, self.tool_response)
+                    self.tool_response_signal.emit(tool_call_id, self.tool_response)
 
     def _handle_tool_call(self, chathistory):
         """处理工具调用"""

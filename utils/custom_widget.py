@@ -1127,7 +1127,18 @@ class ChatBubble(QWidget):
         # 检查是否有思考内容数据
         reasoning_content = message_data.get("reasoning_content", "")
         if reasoning_content:
-            self.reasoning_display.setMarkdown(reasoning_content)
+            # tool 角色的内容是 JSON 格式，需要特殊处理
+            if self.role == 'tool':
+                try:
+                    reasoning_json = json.loads(message_data['reasoning_content'])
+                    formatted_json = json.dumps(reasoning_json, indent=2, ensure_ascii=False)
+                    readable_json = formatted_json.replace('\\n', '\n').replace('\\t', '\t')
+                    reasoning_display_text = f"```json\n{readable_json}\n```"  
+                except ValueError as e:
+                    reasoning_display_text = f"```json\n{reasoning_content}\n```"
+                self.reasoning_display.setMarkdown(reasoning_display_text)
+            else:
+                self.reasoning_display.setMarkdown(reasoning_content)
             self.buttons.set_has_reasoning(True)
 
         if not message_data['content']:
@@ -1145,6 +1156,9 @@ class ChatBubble(QWidget):
                 return self.role.upper()
             return nickname
         if self.role=='tool':
+            info = self.message_data.get('info', {})
+            if 'function' in info:
+                return info['function']['name'].upper()
             return self.role.upper()
         if self.role=='assistant':
             info_data = self.message_data.get('info', {})
@@ -1552,13 +1566,22 @@ class ChatHistoryWidget(QFrame):
             del self.bubbles[msg_id]
             self.bubble_list = [b for b in self.bubble_list if b.msg_id != msg_id]
 
-    def add_message(self, message_data,streaming=False):
+    def add_message(self, message_data:dict,streaming=False):
         """添加单条消息到聊天历史"""
         role = message_data['role']
         if role not in ['user', 'assistant','tool']:  # 跳过系统消息
             return
         msg_id = message_data['info']['id']
         
+        # 把tool call 参数作为reasoning_content植入tool消息
+        reasoning_content=message_data.get('reasoning_content', '')
+        if message_data['role'] == 'tool':
+            if 'function' in message_data.get('info', {}):
+                reasoning_content=message_data['info']['function']['arguments']
+
+        if reasoning_content:
+            message_data['reasoning_content']=reasoning_content
+
         # 创建气泡控件
         bubble = ChatBubble(
             message_data,
@@ -1598,7 +1621,7 @@ class ChatHistoryWidget(QFrame):
         if bubble:
             bubble.message_data['info'] = info_data
     
-    def update_bubble(self,message='',msg_id=0, content='', reasoning_content='',info='',streaming='streaming',model=''):
+    def update_bubble(self,message='',msg_id=0, content='', reasoning_content='',info='',streaming='streaming',model='',role='assistant'):
         #处理输入方式为message
         #输入方式为message，未初始化
 
@@ -1621,7 +1644,7 @@ class ChatHistoryWidget(QFrame):
         #输入方式不是message，未初始化
         if not message and not msg_id in self.bubbles.keys():
             build_message = {
-                'role': 'assistant',  # 默认为assistant
+                'role': role,  # 默认为assistant
                 'content': content,
                 'reasoning_content': reasoning_content,
                 'info': {

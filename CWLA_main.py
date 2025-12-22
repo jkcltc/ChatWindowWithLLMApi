@@ -950,6 +950,7 @@ class MainWindow(QMainWindow):
         #对话储存点
         self.think_response=''
         self.full_response=''
+        self.tool_response=''
         self.finish_reason_raw     =''
         self.finish_reason_readable=''
 
@@ -981,6 +982,11 @@ class MainWindow(QMainWindow):
         self.think_update_timer = QTimer()
         self.think_update_timer.setSingleShot(True)
 
+        # 工具调用响应更新控制
+        self.tool_last_update_time = 0
+        self.tool_update_timer = QTimer()
+        self.tool_update_timer.setSingleShot(True)
+
         self.last_chat_info={}
 
     def init_mod_configer_page(self):
@@ -1006,6 +1012,14 @@ class MainWindow(QMainWindow):
             setattr(self,'think_response',content)
         )
         self.requester.think_response_signal.connect(self.update_think_response_text)
+
+        self.requester.tool_response_signal.connect(
+            lambda id,content:
+            setattr(self,'request_id',id) 
+            or 
+            setattr(self,'tool_response',content)
+        )
+        self.requester.tool_response_signal.connect(self.update_tool_response_text)
 
         # 对话生成失败
         self.requester.completion_failed.connect(
@@ -1479,6 +1493,18 @@ class MainWindow(QMainWindow):
             request_id=request_id
         )
 
+    def update_tool_response_text(self,request_id,content):
+        self._handle_update(
+            response_length=len(self.tool_response),
+            timer=self.tool_update_timer,
+            update_method=self.perform_tool_actual_update,
+            last_update_attr='tool_last_update_time',
+            delay_threshold=5000,
+            delays=(300, 600),
+            request_id=request_id
+        )
+
+
     #更新AI辅助函数
     def _handle_update(self, response_length, timer, update_method, last_update_attr, delay_threshold, delays,request_id):
         current_time = QDateTime.currentDateTime().toMSecsSinceEpoch()
@@ -1519,7 +1545,7 @@ class MainWindow(QMainWindow):
 
         # 更新时间戳
         self.ai_last_update_time = QDateTime.currentDateTime().toMSecsSinceEpoch()
-        self.message_status.process_input(self.think_response+self.full_response)
+        self.message_status.process_input(self.think_response+self.full_response+self.tool_response)
 
     def perform_think_actual_update(self,request_id):
         #0.25.1 气泡思考栏
@@ -1528,10 +1554,23 @@ class MainWindow(QMainWindow):
         
         # 更新时间戳
         self.think_last_update_time = QDateTime.currentDateTime().toMSecsSinceEpoch()
-        self.message_status.process_input(self.think_response+self.full_response)
+        self.message_status.process_input(self.think_response+self.full_response+self.tool_response)
         self.ai_response_text.setMarkdown(
             self.get_status_str()
         )
+
+    def perform_tool_actual_update(self,request_id):
+        #0.25.1 气泡工具栏
+        self.chat_history_bubbles.streaming_scroll(True)
+        self.chat_history_bubbles.update_bubble(msg_id=request_id,reasoning_content=self.tool_response,streaming='streaming',model=self.message_status.model,role='tool')
+        
+        # 更新时间戳
+        self.tool_last_update_time = QDateTime.currentDateTime().toMSecsSinceEpoch()
+        self.message_status.process_input(self.think_response+self.full_response+self.tool_response)
+        self.ai_response_text.setMarkdown(
+            self.get_status_str()
+        )
+
 
     #打包一个从返回信息中做re替换的方法
     def _replace_for_receive_message(self,message):
@@ -1567,6 +1606,7 @@ class MainWindow(QMainWindow):
     def send_request(self,create_thread=True):
         self.full_response=''
         self.think_response=''
+        self.tool_response=''
         def target():
             preprocessor = MessagePreprocessor(self)  # 创建预处理器实例
             preprocessor.stream=self.stream_receive
@@ -2885,6 +2925,9 @@ class MainWindow(QMainWindow):
         # 思维链 (CoT) 字数
         if self.think_response:
             rows.append(f"| **思维链字数**  | `{len(self.think_response)}` 字")
+        
+        if self.tool_response:
+            rows.append(f"| **工具调用字数**| `{len(self.tool_response)}` 字")
 
         # 回复 (CoN) 字数或状态
         if self.full_response:

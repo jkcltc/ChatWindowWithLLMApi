@@ -1686,9 +1686,9 @@ class MainWindow(QMainWindow):
             msg_box.setText('确定连发两条吗？')
             
             # 添加自定义按钮
-            btn_yes = msg_box.addButton('确定', QMessageBox.StandardButton.YesRole)
-            btn_no = msg_box.addButton('取消', QMessageBox.StandardButton.NoRole)
-            btn_edit = msg_box.addButton('编辑聊天记录', QMessageBox.ActionRole)
+            btn_yes = msg_box.addButton('确定', QMessageBox.ButtonRole.YesRole)
+            btn_no = msg_box.addButton('取消', QMessageBox.ButtonRole.NoRole)
+            btn_edit = msg_box.addButton('编辑聊天记录', QMessageBox.ButtonRole.ActionRole)
             
             # 显示消息框并获取用户的选择
             msg_box.exec()
@@ -1821,10 +1821,7 @@ class MainWindow(QMainWindow):
         self.ai_response_text.setText("已发送，等待回复...")
         user_input = self.user_input_text.toPlainText()
         multimodal_input=self.user_input_text.get_multimodal_content()
-        
-        if user_input == "/bye":
-            self.close()
-            return
+
         new_message={
                 'role': 'user', 
                 'content': user_input,
@@ -2111,11 +2108,13 @@ class MainWindow(QMainWindow):
         self.handel_call_back_to_lci_bgu()
         if self.chathistory[-1]["role"]=="user":
             self.user_input_text.setText(self.chathistory[-1]["content"])
+            self.user_input_text.setAttachments(self.chathistory[-1].get('info',{}).get('multimodal',[]))
             self.chathistory.pop()
         elif self.chathistory[-1]["role"]=="assistant" or self.chathistory[-1]["role"]=="tool":#处理工具调用时被用户截断
             while self.chathistory[-1]["role"]!="user":
                 self.chathistory.pop()
             self.user_input_text.setText(self.chathistory[-1]["content"])
+            self.user_input_text.setAttachments(self.chathistory[-1].get('info',{}).get('multimodal',[]))
             self.chathistory.pop()
         else:
             QMessageBox.warning(self,'重传无效','至少需要发送过一次消息')
@@ -2126,26 +2125,29 @@ class MainWindow(QMainWindow):
         self.resend_message()
     
     def resend_message(self,request_id=''):
+        if not self.send_button.isEnabled():
+            return
+
         self.handel_call_back_to_lci_bgu()
         if request_id:
             index=ChatHistoryTools.locate_chat_index(self.chathistory,request_id)
-            self.chathistory=self.chathistory[:index+1]
-
-        if self.chathistory[-1]["role"]=="user":
-            self.user_input_text.setText(self.chathistory[-1]["content"])
-            self.chathistory.pop()
-        elif self.chathistory[-1]["role"]=="assistant" or self.chathistory[-1]["role"]=="tool":
-            while self.chathistory[-1]["role"]!="user":
-                self.chathistory.pop()
-            self.user_input_text.setText(self.chathistory[-1]["content"])
-            self.chathistory.pop()
-        elif not self.user_input_text.toPlainText():
-            QMessageBox.warning(self,'重传无效','空信息')
-            return
+            chathistory=self.chathistory[:index+1]
         else:
+            chathistory=self.chathistory.copy()
+
+        if chathistory[-1]["role"]=="assistant" or chathistory[-1]["role"]=="tool":
+            while len(chathistory)>1 and chathistory[-1]["role"]!="user":
+                chathistory.pop()
+
+        if len(chathistory)==1 or chathistory[-1]["role"]!="user":
             QMessageBox.warning(self,'重传无效','至少需要发送过一次消息')
             return
-        self.send_message()
+        
+        self.chathistory=chathistory
+        self.control_frame_to_state('sending')
+        self.ai_response_text.setText("正在重传，等待回复...")
+        self.update_chat_history()
+        self.send_request(create_thread= not self.use_concurrent_model.isChecked())
 
     #重写关闭事件，添加自动保存聊天记录和设置
     def closeEvent(self, event):

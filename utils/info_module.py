@@ -202,7 +202,7 @@ class ToastBubble(QtWidgets.QWidget):
     # ---------------- 公共 API ----------------
 
     def setText(self, text: str):
-        self._label.setText(text)
+        self._label.setText(text[:500])
         # 文本变更后按当前宽度同步几何
         self._sync_size()
 

@@ -3,6 +3,8 @@ from __future__ import annotations
 import sys
 import base64
 from pathlib import Path
+import tempfile
+import urllib.parse
 
 from PyQt6.QtCore import (
     Qt,
@@ -112,6 +114,73 @@ def _file_to_b64(path: str) -> str | None:
         return None
     return base64.b64encode(data).decode("ascii")
 
+def _parse_data_url(url: str) -> tuple[str, bytes] | None:
+    """
+    支持：
+      data:image/png;base64,....
+      data:text/plain,....   (非 base64，走 url-encoded)
+    返回 (mime, raw_bytes)
+    """
+    if not isinstance(url, str) or not url.startswith("data:"):
+        return None
+
+    payload = url[5:]
+    header, sep, data_part = payload.partition(",")
+    if not sep:
+        return None
+
+    header_parts = header.split(";") if header else []
+    mime = header_parts[0] if header_parts and header_parts[0] else "application/octet-stream"
+    is_base64 = any(p.strip().lower() == "base64" for p in header_parts[1:])
+
+    try:
+        if is_base64:
+            raw = base64.b64decode(data_part)
+        else:
+            raw = urllib.parse.unquote_to_bytes(data_part)
+    except Exception:
+        return None
+
+    return mime.lower(), raw
+
+
+def _ext_from_mime(mime: str, default: str = "") -> str:
+    mime = (mime or "").lower().strip()
+
+    mapping = {
+        # images
+        "image/png": "png",
+        "image/jpeg": "jpg",
+        "image/jpg": "jpg",
+        "image/webp": "webp",
+        "image/gif": "gif",
+        "image/bmp": "bmp",
+        # audio
+        "audio/wav": "wav",
+        "audio/x-wav": "wav",
+        "audio/mpeg": "mp3",
+        "audio/mp3": "mp3",
+        "audio/aiff": "aiff",
+        "audio/x-aiff": "aiff",
+        "audio/aac": "aac",
+        "audio/ogg": "ogg",
+        "audio/flac": "flac",
+        # video
+        "video/mp4": "mp4",
+        "video/mpeg": "mpeg",
+        "video/quicktime": "mov",
+        "video/webm": "webm",
+    }
+    if mime in mapping:
+        return mapping[mime]
+
+    # 兜底：image/xxx -> xxx（但要注意是否在支持列表里）
+    if "/" in mime:
+        subtype = mime.split("/", 1)[1]
+        subtype = subtype.split("+", 1)[0]  # e.g. image/svg+xml -> svg
+        return subtype or default
+
+    return default
 
 # --------------------- 附件数据结构 ---------------------
 
@@ -452,6 +521,7 @@ class MultiModalTextEdit(QWidget):
 
         self._background_pixmap: QPixmap | None = None
         self._placeholder_text: str = ""
+        self._temp_attachment_paths: list[Path] = []
 
         # 创建布局
         self.root_layout = QHBoxLayout(self)
@@ -475,6 +545,19 @@ class MultiModalTextEdit(QWidget):
         self.text_edit = InterceptingTextEdit(self)
         self.text_edit.setPlaceholderText(self._placeholder_text)
         self.root_layout.insertWidget(0, self.text_edit, 1)
+
+    def _clear_only_attachments(self):
+        # 清理临时文件（音频/视频通过 setAttachment 落盘的）
+        for p in self._temp_attachment_paths:
+            try:
+                p.unlink(missing_ok=True)
+            except Exception:
+                pass
+        self._temp_attachment_paths.clear()
+
+        self.attachment_container.clear()
+        self._background_pixmap = None
+        self.update()
 
     def _recreate_text_edit(self):
         """
@@ -592,7 +675,140 @@ class MultiModalTextEdit(QWidget):
         self.attachment_container.clear()
         self._background_pixmap = None
         self.update()
+    
+    def setAttachments(self, parts: list[dict], *, append: bool = False):
+        """
+        输入格式与 get_multimodal_content() 输出一致：
+        [
+            {"type":"image_url","image_url":{"url":"data:image/png;base64,...."}},
+            {"type":"audio_url","audio_url":{"url":"data:audio/mpeg;base64,...."}},
+            {"type":"video_url","video_url":{"url":"data:video/mp4;base64,...."}},
+        ]
+        append=False 时会先清空当前附件（不清文本）。
+        """
+        if not append:
+            self._clear_only_attachments()
 
+        if not parts:
+            return
+
+        # 批量添加时，避免触发 N 次 _recreate_text_edit
+        self.attachment_container.blockSignals(True)
+        try:
+            for part in parts:
+                if not isinstance(part, dict):
+                    continue
+
+                ptype = part.get("type")
+                if ptype == "image_url":
+                    info = part.get("image_url") or {}
+                    url = info.get("url", "")
+                    self._add_image_from_part_url(url)
+
+                elif ptype == "audio_url":
+                    info = part.get("audio_url") or {}
+                    url = info.get("url", "")
+                    self._add_av_from_part_url(url, kind="audio")
+
+                elif ptype == "video_url":
+                    info = part.get("video_url") or {}
+                    url = info.get("url", "")
+                    self._add_av_from_part_url(url, kind="video")
+
+                # 其他类型先忽略（保持兼容）
+        finally:
+            self.attachment_container.blockSignals(False)
+
+        # 批量结束后统一刷新背景 + 重建一次 TextEdit
+        self._update_background_from_first_image()
+        QTimer.singleShot(0, self._recreate_text_edit)
+        
+    def setAttachment(self, part_or_parts: dict | list[dict], *, append: bool = False):
+        """
+        既支持单个 part(dict)，也支持 parts(list[dict])。
+        """
+        if isinstance(part_or_parts, list):
+            self.setAttachments(part_or_parts, append=append)
+        elif isinstance(part_or_parts, dict):
+            self.setAttachments([part_or_parts], append=append)
+        else:
+            # 非法输入直接忽略
+            return
+
+
+    def _add_image_from_part_url(self, url: str) -> bool:
+        # 1) data:... 优先
+        parsed = _parse_data_url(url)
+        if parsed is not None:
+            mime, raw = parsed
+            ext = _ext_from_mime(mime, default="png")
+            if ext not in IMAGE_EXTS:
+                ext = "png"
+
+            img = QImage()
+            fmt = guess_qimage_format(ext)  # "PNG"/"JPEG"/...
+            ok = img.loadFromData(raw, fmt.encode("ascii"))
+            if not ok:
+                ok = img.loadFromData(raw)  # 让 Qt 自己猜
+            if ok and not img.isNull():
+                self.attachment_container.add_image(img, ext=ext)
+                return True
+            return False
+
+        # 2) file://... 或直接本地路径
+        if isinstance(url, str) and url.startswith("file:"):
+            local = QUrl(url).toLocalFile()
+            if local:
+                return self.handle_dropped_path(local)
+
+        if isinstance(url, str) and url:
+            # 直接当成本地路径试一下
+            if Path(url).exists():
+                return self.handle_dropped_path(url)
+
+        return False
+
+
+    def _add_av_from_part_url(self, url: str, *, kind: str) -> bool:
+        """
+        由于你现有 Attachment 对音/视频只支持 path，这里将 data:... 解码后写入临时文件再 add_file。
+        kind: "audio" | "video"
+        """
+        parsed = _parse_data_url(url)
+        if parsed is None:
+            # 也支持 file:// 或本地路径
+            if isinstance(url, str) and url.startswith("file:"):
+                local = QUrl(url).toLocalFile()
+                if local:
+                    return self.handle_dropped_path(local)
+            if isinstance(url, str) and url and Path(url).exists():
+                return self.handle_dropped_path(url)
+            return False
+
+        mime, raw = parsed
+        ext = _ext_from_mime(mime, default=("wav" if kind == "audio" else "mp4"))
+
+        # 确保落到你支持的扩展名集合里
+        if kind == "audio" and ext not in AUDIO_EXTS:
+            ext = "wav"
+        if kind == "video" and ext not in VIDEO_EXTS:
+            ext = "mp4"
+
+        try:
+            f = tempfile.NamedTemporaryFile(delete=False, suffix=f".{ext}")
+            try:
+                f.write(raw)
+                f.flush()
+            finally:
+                f.close()
+            tmp_path = Path(f.name)
+            self._temp_attachment_paths.append(tmp_path)
+        except Exception:
+            return False
+
+        # 用现有逻辑加入（显示图标）
+        added = self.attachment_container.add_file(str(tmp_path))
+        return added is not None
     # ---- multimodal 导出 ----
 
     def get_multimodal_content(self) -> list[dict]:

@@ -637,10 +637,6 @@ class MultiModalTextEdit(QWidget):
                     {"type": "video_url", "video_url": {"url": f"data:{mime};base64,{b64}"}}
                 )
 
-        text = self.toPlainText().strip()
-        if text:
-            parts.append({"type": "text", "text": text})
-
         return parts
 
     # ---- 背景绘制 ----

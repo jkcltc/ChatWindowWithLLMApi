@@ -225,7 +225,8 @@ class MessagePreprocessor:
         params = self._build_request_params(messages, stream=self.stream, tools=tools)
         params = self._handle_provider_patch(params)
 
-        print(params)
+        b=json.dumps(params,ensure_ascii=False,indent=4)
+        LOGGER.log(b)
         
         LOGGER.info(f'发送长度: {len(str(messages))}，消息数: {len(messages)}')
         LOGGER.info(f'消息打包耗时:{(time.perf_counter()-start)*1000:.2f}ms')
@@ -1824,17 +1825,18 @@ class MainWindow(QMainWindow):
         if user_input == "/bye":
             self.close()
             return
-        self.chathistory.append(
-            {
+        new_message={
                 'role': 'user', 
                 'content': user_input,
                 'info':{
                     "id":str(int(time.time())),
-                    'time':time.strftime("%Y-%m-%d %H:%M:%S"),
-                    'multimodal':multimodal_input
+                    'time':time.strftime("%Y-%m-%d %H:%M:%S")
                     }
             }
-        )
+        
+        if multimodal_input:
+            new_message['info']['multimodal']=multimodal_input
+        self.chathistory.append(new_message)
         self.user_input_text.clear()
         self.create_chat_title_when_empty(self.chathistory)
         self.update_chat_history()

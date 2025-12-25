@@ -18,6 +18,9 @@ from pygments import highlight
 from pygments.lexers import get_lexer_by_name
 from pygments.formatters import HtmlFormatter
 import markdown,re
+
+from utils.assets.user_input import MultiModalTextEdit
+
 #窗口大小过渡器
 class WindowAnimator:
     @staticmethod

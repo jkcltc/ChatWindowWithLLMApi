@@ -198,25 +198,45 @@ class RepeatProcessor:
 class MessagePreprocessor:
     def __init__(self, god_class):
         self.god = god_class  # 保存对原类的引用
-        self.stream=True
+        self.stream = True
 
-    def prepare_message(self,tools=False):
+    def prepare_message(self, tools=False):
         """预处理消息并构建API参数"""
-        start=time.perf_counter()
+        start = time.perf_counter()
+        
+        # 1. 在最开始获取原始数据并深复制一次
         better_round = self._calculate_better_round()
-        better_message = self._handle_system_messages(better_round)
-        message = self._fix_chat_history(better_message)
-        message = self._handle_web_search_results(message)
-        message = self._process_special_styles(message)
-        message = self._handle_long_chat_placement(message)
-        message = self._handle_user_and_char(message)
-        message = self._handle_mod_functions(message)
-        message = self._purge_message(message)
-        params  = self._build_request_params(message,stream=self.stream,tools=tools)
-        params  = self._handle_provider_patch(params)
-        LOGGER.info(f'发送长度: {len(str(message))}，消息数: {len(message)}')
+        raw_messages = self._get_raw_messages(better_round)
+        
+        # 2. 深复制原始消息，之后所有操作都在副本上进行
+        messages = copy.deepcopy(raw_messages)
+
+        # 3. 按顺序应用所有处理，都操作深复制后的 messages
+        messages = self._fix_chat_history(messages)
+        messages = self._handle_web_search_results(messages)
+        messages = self._process_special_styles(messages)
+        messages = self._handle_long_chat_placement(messages)
+        messages = self._handle_user_and_char(messages)
+        messages = self._handle_multimodal_format(messages)
+        messages = self._handle_mod_functions(messages)
+        messages = self._purge_message(messages)
+        
+        # 4. 构建请求参数
+        params = self._build_request_params(messages, stream=self.stream, tools=tools)
+        params = self._handle_provider_patch(params)
+
+        print(params)
+        
+        LOGGER.info(f'发送长度: {len(str(messages))}，消息数: {len(messages)}')
         LOGGER.info(f'消息打包耗时:{(time.perf_counter()-start)*1000:.2f}ms')
-        return message, params
+        return messages, params
+
+    def _get_raw_messages(self, better_round):
+        """获取原始消息（不进行深复制）"""
+        history = self.god.chathistory
+        if history[-(better_round-1):][0]["role"] == "system":
+            better_round += 1
+        return [history[0]] + history[-(better_round-1):]
 
     def _calculate_better_round(self):
         """计算合适的消息轮数"""
@@ -227,184 +247,175 @@ class MessagePreprocessor:
 
     def _fix_max_rounds(self, max_round_bool=True, max_round=None):
         if max_round_bool:
-            return min(self.god.max_message_rounds,len(self.god.chathistory))
+            return min(self.god.max_message_rounds, len(self.god.chathistory))
         else:
-            return min(max_round,len(self.god.chathistory))
+            return min(max_round, len(self.god.chathistory))
 
-    def _handle_system_messages(self, better_round):
-        """处理系统消息"""
-        history = self.god.chathistory
-        if history[-(better_round-1):][0]["role"] == "system":
-            better_round += 1
-        return [history[0]] + history[-(better_round-1):]
-
-    def _purge_message(self,messages):
-        new_message=[]
-        not_needed=['info']#,'reasoning_content']
+    def _purge_message(self, messages):
+        """清理不需要的字段（操作深复制后的消息）"""
+        new_messages = []
+        not_needed = ['info']  # 'reasoning_content'
+        
         for item in messages:
-            temp_dict={}
-            for key,value in item.items():
-                if not key in not_needed:
-                    temp_dict[key]=value
-            new_message+=[temp_dict]
-        return new_message
+            temp_dict = {}
+            for key, value in item.items():
+                if key not in not_needed:
+                    temp_dict[key] = value
+            new_messages.append(temp_dict)
+        return new_messages
 
-    def _process_special_styles(self, better_message):
-        """处理特殊样式文本"""
+    def _process_special_styles(self, messages):
+        """处理特殊样式文本（操作深复制后的消息）"""
         if (self.god.chathistory[-1]["role"] == "user" and self.god.temp_style != '') \
             or self.god.enforce_lower_repeat_text != '':
-            message = [copy.deepcopy(msg) for msg in better_message]
             append_text = f'【{self.god.temp_style}{self.god.enforce_lower_repeat_text}】'
-            message[-1]["content"] = append_text + message[-1]["content"]
-        else:
-            message = better_message
-        return message
+            messages[-1]["content"] = append_text + messages[-1]["content"]
+        return messages
 
-    def _handle_web_search_results(self, message):
-        """处理网络搜索结果"""
-        #self.god.init_web_searcher()
+    def _handle_web_search_results(self, messages):
+        """处理网络搜索结果（操作深复制后的消息）"""
         if self.god.web_search_enabled:
             self.god.web_searcher.wait_for_search_completion()
-            message = [copy.deepcopy(msg) for msg in message]
             if self.god.web_searcher.rag_checkbox.isChecked():
                 results = self.god.web_searcher.rag_result
             else:
                 results = self.god.web_searcher.tool.format_results()
-            message[-1]["content"] += "\n[system]搜索引擎提供的结果:\n" + results
-        return message
-   
-    def _fix_chat_history(self, message):
+            messages[-1]["content"] += "\n[system]搜索引擎提供的结果:\n" + results
+        return messages
+
+    def _fix_chat_history(self, messages:list):
         """
         修复被截断的聊天记录，保证工具调用的完整性
+        （注意：这个方法会插入消息，插入时需要深复制）
         """
         # 仅当第二条消息不是用户时触发修复（第一条是system）
-        if len(message) > 1 and message[1]['role'] != 'user':  
+        if len(messages) > 1 and messages[1]['role'] != 'user':  
             full_history = self.god.chathistory
-            current_length = len(message)
+            current_length = len(messages)
             cutten_len = len(full_history) - current_length
             
             if cutten_len > 0:
-                # 反向遍历缺失的消息
+                # 反向遍历缺失的消息，插入时需要深复制
                 for item in reversed(full_history[:cutten_len+1]):
                     if item['role'] != 'user':
-                        message.insert(1, item)
+                        messages.insert(1, copy.deepcopy(item))
                     if item['role'] == 'user':
-                        message.insert(1, item)
+                        messages.insert(1, copy.deepcopy(item))
                         break
-        return message
+        return messages
 
-    def _clean_consecutive_messages(self, message):
-        """清理连续的同角色消息"""
-        cleaned = []
-        for msg in message:
-            if cleaned and msg['role'] == cleaned[-1]['role']:
-                cleaned[-1]['content'] += "\n" + msg['content']
-            else:
-                cleaned.append(msg)
-        return cleaned
+    #def _clean_consecutive_messages(self, messages):
+    #    """清理连续的同角色消息"""
+    #    cleaned = []
+    #    for msg in messages:
+    #        if cleaned and msg['role'] == cleaned[-1]['role']:
+    #            cleaned[-1]['content'] += "\n" + msg['content']
+    #        else:
+    #            cleaned.append(msg)
+    #    return cleaned
 
-    def _handle_long_chat_placement(self, message):
+    def _handle_long_chat_placement(self, messages):
         """处理长对话位置"""
         if self.god.long_chat_placement == "对话第一位":
-            if len(message) >= 2 and "**已发生事件和当前人物形象**" in message[0]["content"]:
+            if len(messages) >= 2 and "**已发生事件和当前人物形象**" in messages[0]["content"]:
                 try:
-                    header, history_part = message[0]["content"].split(
+                    header, history_part = messages[0]["content"].split(
                         "**已发生事件和当前人物形象**", 1)
-                    message = [copy.deepcopy(msg) for msg in message]
-                    message[0]["content"] = header.strip()
+                    messages[0]["content"] = header.strip()
                     if history_part.strip():
-                        message[1]["content"] = f"{message[1]['content']}\n{history_part.strip()}"
+                        messages[1]["content"] = f"{messages[1]['content']}\n{history_part.strip()}"
                 except ValueError:
                     pass
-        return message
+        return messages
 
-    def _handle_user_and_char(self,message):
-        message_copy = [dict(item) for item in message]
+    def _handle_user_and_char(self, messages):
+        """处理用户和角色名称"""
         if not self.god.name_ai:
-            ai_name=self.god.model_combobox.currentText()
+            ai_name = self.god.model_combobox.currentText()
         else:
-            ai_name=self.god.name_ai
+            ai_name = self.god.name_ai
+            
         if not self.god.name_user:
-            user_name='user'
+            user_name = 'user'
         else:
-            user_name=self.god.name_user
-        item=message_copy[0]
-        if item['role']=='system':
+            user_name = self.god.name_user
+            
+        item = messages[0]
+        if item['role'] == 'system':
             if '{{user}}' in item['content']:
-                item['content']=item['content'].replace('{{user}}',user_name)
+                item['content'] = item['content'].replace('{{user}}', user_name)
             if '{{char}}' in item["content"]:
-                item['content']=item['content'].replace('{{char}}',ai_name)
+                item['content'] = item['content'].replace('{{char}}', ai_name)
             if '{{model}}' in item['content']:
-                item['content']=item['content'].replace('{{model}}',self.god.model_combobox.currentText())
+                item['content'] = item['content'].replace('{{model}}', self.god.model_combobox.currentText())
             if '{{time}}' in item["content"]:
-                item['content']=item['content'].replace('{{time}}',time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()))
-        return message_copy
+                item['content'] = item['content'].replace('{{time}}', time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()))
+        return messages
 
-    def _handle_mod_functions(self,message):
-        message=self._handle_status_manager(message)
-        message=self._handle_story_creator(message)
-        return message
+    def _handle_mod_functions(self, messages):
+        """处理模块功能"""
+        messages = self._handle_status_manager(messages)
+        messages = self._handle_story_creator(messages)
+        return messages
     
-    #mod functions
-    def _handle_status_manager(self, message):
+    # mod functions
+    def _handle_status_manager(self, messages):
+        """处理状态管理器"""
         if not "mods.status_monitor" in sys.modules:
-            return message
+            return messages
         if not self.god.mod_configer.status_monitor_enable_box.isChecked():
-            return message
+            return messages
         
-        message_copy = [dict(item) for item in message]
-        
-        text = message_copy[-1]['content']
+        text = messages[-1]['content']
         status_text = self.god.mod_configer.status_monitor.get_simplified_variables()
         use_ai_func = self.god.mod_configer.status_monitor.get_ai_variables(use_str=True)
         text = status_text + use_ai_func + text
-        message_copy[-1]['content'] = text
-        return message_copy
+        messages[-1]['content'] = text
+        return messages
     
-    def _handle_story_creator(self,message):
+    def _handle_story_creator(self, messages):
+        """处理故事创建器"""
         if not "mods.story_creator" in sys.modules:
             LOGGER.info('no mods.story_creator')
-            return message
+            return messages
         if not self.god.mod_configer.enable_story_insert.isChecked():
-            return message
-        message_copy=self.god.mod_configer.story_creator.process_income_chat_history(message)
-        return message_copy
+            return messages
+        return self.god.mod_configer.story_creator.process_income_chat_history(messages)
 
-    # 0.25.4 enable_thinking
-    def _handle_provider_patch(self,params):
+    # 0.25.3 enable_thinking
+    def _handle_provider_patch(self, params):
         # url作为判断供应商的标识
-        url=self.god.api[self.god.api_var.currentText()][0]
+        url = self.god.api[self.god.api_var.currentText()][0]
         
         # 动态CoT
         if 'enable_thinking' in params:
-            enable_thinking=params['enable_thinking']
+            enable_thinking = params['enable_thinking']
             if 'silicon' in url:
                 pass
-            #openrouter
+            # openrouter
             if 'openrouter' in url:
                 del params['enable_thinking']
-                params["reasoning"]= {
+                params["reasoning"] = {
                     "exclude": False,
                     "enabled": enable_thinking
                 }
         if self.god.reasoning_effort and 'openrouter' in url:
-            effort_map={1: "low", 2: "medium", 3: "high"}
+            effort_map = {1: "low", 2: "medium", 3: "high"}
             if 'reasoning' in params:
-                params["reasoning"]["effort"]=effort_map[self.god.reasoning_effort] #will raise error if not 1,2,3
-
+                params["reasoning"]["effort"] = effort_map[self.god.reasoning_effort]
         # 使用者
         if 'openrouter' in url:
-            params['extra_headers']={
+            params['extra_headers'] = {
                 "HTTP-Referer": "https://github.com/jkcltc/ChatWindowWithLLMApi/",
                 "X-Title": "ChatWindowWithLLMApi-CWLA",
             } 
         return params
 
-    def _build_request_params(self, message, stream=True,tools=False):
+    def _build_request_params(self, messages, stream=True, tools=False):
         """构建请求参数（含Function Call支持）"""
         params = {
             'model': self.god.model_combobox.currentText(),
-            'messages': message,
+            'messages': messages,
             'stream': stream
         }
         
@@ -418,7 +429,7 @@ class MessagePreprocessor:
         
         # 打开思考功能
         if self.god.thinking_enabled:
-            params['enable_thinking']=True
+            params['enable_thinking'] = True
 
         function_definitions = []
         manager = self.god.function_manager
@@ -427,6 +438,20 @@ class MessagePreprocessor:
             params['tools'] = function_definitions
         return params
 
+    # 0.25.4 multimodal
+    def _handle_multimodal_format(self, messages):
+        """处理多模态格式"""
+        for single_message in messages:
+            if 'multimodal' in single_message['info']:
+                text_message = [
+                        {
+                            "type": "text",
+                            "text": single_message['content']
+                        }
+                    ]
+                multimodal_message = single_message['info']['multimodal']
+                single_message['content'] = text_message + multimodal_message
+        return messages
 #主类
 class MainWindow(QMainWindow):
     ai_response_signal= pyqtSignal(str,str)
@@ -585,7 +610,7 @@ class MainWindow(QMainWindow):
         temp_style_edit.setPlaceholderText("指定临时风格")
         temp_style_edit.textChanged.connect(lambda text: setattr(self, 'temp_style', text or ''))
 
-        self.user_input_text = QTextEdit()
+        self.user_input_text = MultiModalTextEdit()
         self.main_layout.addWidget(temp_style_edit,2,1,1,1)
         self.main_layout.addWidget(user_input_label, 2, 0, 1, 1)
         self.main_layout.addWidget(self.user_input_text, 3, 0, 1, 2)
@@ -1794,7 +1819,8 @@ class MainWindow(QMainWindow):
         self.control_frame_to_state('sending')
         self.ai_response_text.setText("已发送，等待回复...")
         user_input = self.user_input_text.toPlainText()
-        self.user_input_text.clear()
+        multimodal_input=self.user_input_text.get_multimodal_content()
+        
         if user_input == "/bye":
             self.close()
             return
@@ -1804,10 +1830,12 @@ class MainWindow(QMainWindow):
                 'content': user_input,
                 'info':{
                     "id":str(int(time.time())),
-                    'time':time.strftime("%Y-%m-%d %H:%M:%S")
+                    'time':time.strftime("%Y-%m-%d %H:%M:%S"),
+                    'multimodal':multimodal_input
                     }
             }
         )
+        self.user_input_text.clear()
         self.create_chat_title_when_empty(self.chathistory)
         self.update_chat_history()
         self.send_request(create_thread= not self.use_concurrent_model.isChecked())

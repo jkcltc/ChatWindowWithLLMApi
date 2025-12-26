@@ -525,7 +525,7 @@ class MultiModalTextEdit(QWidget):
 
         # 创建布局
         self.root_layout = QHBoxLayout(self)
-        self.root_layout.setContentsMargins(4, 4, 4, 4)
+        self.root_layout.setContentsMargins(0, 0, 0, 0)
         self.root_layout.setSpacing(6)
 
         # 创建 TextEdit

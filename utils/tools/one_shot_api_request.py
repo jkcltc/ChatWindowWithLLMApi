@@ -560,13 +560,17 @@ Request payload :
                         "arguments": parsed_args
                     }
                 }
-                exec_result = self.function_manager.call_from_openai(call_for_exec)
-                self.log_signal.emit(f"工具调用结果: {exec_result}")
-                if  exec_result['ok']:
-                    tool_result = exec_result['result']
-                else:
-                    tool_result = f"工具执行出错: {exec_result['message']}"
-                    self.warning_signal.emit(tool_result)
+                try:
+                    exec_result = self.function_manager.call_from_openai(call_for_exec)
+                    self.log_signal.emit(f"工具调用结果: {exec_result}")
+                    if  exec_result['ok']:
+                        tool_result = exec_result['result']
+                    else:
+                        tool_result = f"工具执行出错: {exec_result['message']}"
+                        self.warning_signal.emit(tool_result)
+
+                except Exception as e:
+                    tool_result= f"工具解析出错: {e}"
 
                 if not isinstance(tool_result, str):
                     tool_result = json.dumps(tool_result, ensure_ascii=False)

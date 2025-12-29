@@ -225,8 +225,8 @@ class MessagePreprocessor:
         params = self._build_request_params(messages, stream=self.stream, tools=tools)
         params = self._handle_provider_patch(params)
 
-        b=json.dumps(params,ensure_ascii=False,indent=4)
-        LOGGER.log(b)
+        # b=json.dumps(params,ensure_ascii=False,indent=4)
+        # LOGGER.log(b)
         
         LOGGER.info(f'发送长度: {len(str(messages))}，消息数: {len(messages)}')
         LOGGER.info(f'消息打包耗时:{(time.perf_counter()-start)*1000:.2f}ms')

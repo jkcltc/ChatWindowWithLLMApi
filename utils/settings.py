@@ -653,7 +653,7 @@ class ConfigManager:
         :param filename: 配置文件路径
         :param exclude: 需要排除的属性名列表（不导入这些属性）
         """
-        config = configparser.ConfigParser()
+        config = configparser.ConfigParser(interpolation=None)
         exclude_set = set(exclude) if exclude is not None else set()
 
         if os.path.exists(filename):
@@ -687,7 +687,7 @@ class ConfigManager:
         :param filename: 配置文件路径
         :param section: 配置项分组名称
         """
-        config = configparser.ConfigParser()
+        config = configparser.ConfigParser(interpolation=None)
         config[section] = {}
 
         for key, value in vars(obj).items():

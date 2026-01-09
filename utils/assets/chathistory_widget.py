@@ -15,6 +15,7 @@ from PyQt6.QtWidgets import (
     QPlainTextEdit, QFormLayout
 )
 from utils.assets.markdown_browser import MarkdownTextBrowser
+ChatapiTextBrowser=MarkdownTextBrowser
 
 def _clear_layout(layout) -> None:
     """安全清空布局：递归删除 widget / 子布局 / spacer，避免残留。"""

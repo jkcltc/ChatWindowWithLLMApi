@@ -2996,6 +2996,7 @@ class MainWindow(QMainWindow):
     #0.25.3 info_manager + api request基础重构
     def resend_message_by_tool(self):
         self._receive_message([])
+        self.control_frame_to_state("sending")
         self.send_request()
     
     def create_chat_title_when_empty(self,chathistory):
@@ -3020,9 +3021,6 @@ LOGGER.log(f'CWLA Class import finished, time cost:{time.time()-start_time_stamp
 
 def start():
     app = QApplication(sys.argv)
-    if sys.platform == 'win32':
-        appid = 'CWLA 0.25.4'
-        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(appid)
     window = MainWindow()
     window.show()
     LOGGER.log(f'CWLA shown on desktop, time cost:{time.time()-start_time_stamp:.2f}s',level='debug')

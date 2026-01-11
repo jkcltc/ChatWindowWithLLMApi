@@ -1438,6 +1438,7 @@ class MainWindow(QMainWindow):
 
     def show_function_call_window(self):
         self.function_manager.show()
+        self.function_manager.raise_()
 
     #api来源：更改提供商
     def update_model_combobox(self, selected_api):
@@ -1977,6 +1978,7 @@ class MainWindow(QMainWindow):
         QShortcut(QKeySequence("Ctrl+T"), self).activated.connect(self.show_theme_settings)
         QShortcut(QKeySequence("Ctrl+D"), self).activated.connect(self.open_max_send_lenth_window)
         QShortcut(QKeySequence("Ctrl+B"), self).activated.connect(self.background_settings_window)
+        QShortcut(QKeySequence("Ctrl+F"), self).activated.connect(self.show_function_call_window)
 
         if self.send_message_var:
             self.send_message_shortcut = QShortcut(QKeySequence(), self)
@@ -2031,6 +2033,7 @@ class MainWindow(QMainWindow):
     def load_chathistory(self,file_path=None):
         load_start_time=time.perf_counter()
         chathistory=self.chathistory_file_manager.load_chathistory(file_path)
+        chathistory : dict
         if chathistory:
             self.chathistory=ChatHistoryTools.patch_history_0_25_1(
                     chathistory,
@@ -2049,6 +2052,8 @@ class MainWindow(QMainWindow):
             self.update_opti_bar()
             self._update_preset_to_ui_by_system_message()
             self.update_chat_history()  # 更新聊天历史显示
+            tool_list=chathistory[0].get('info',{}).get('tools',[])
+            self.function_manager.set_active_tools(tool_list)
             self.info_manager.notify(
                 f'''聊天记录已导入，当前聊天记录：{file_path}
 对话长度 {len(self.chathistory)},

@@ -514,7 +514,7 @@ class ChatBubble(QWidget):
                 try:
                     reasoning_json = json.loads(message_data['reasoning_content'])
                     formatted_json = json.dumps(reasoning_json, indent=2, ensure_ascii=False)
-                    readable_json = formatted_json.replace('\\n', '\n').replace('\\t', '\t')
+                    readable_json = formatted_json.replace('\\n', '\n').replace('\\t', '\t').replace('\\\\', '\\').replace(r'\"', '"')
                     reasoning_display_text = f"```json\n{readable_json}\n```"  
                 except ValueError as e:
                     reasoning_display_text = f"```json\n{reasoning_content}\n```"

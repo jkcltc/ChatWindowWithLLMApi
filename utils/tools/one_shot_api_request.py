@@ -322,11 +322,11 @@ class FullFunctionRequestHandler(QObject):
 Error code :
 ```json
 {e}
-```
-Request payload :
-```json
-{json.dumps(request_data, indent=2, ensure_ascii=False)}
 ```'''
+#Request payload :
+#```json
+#{json.dumps(request_data, indent=2, ensure_ascii=False)}
+#```'''
             )
 
     def _handle_non_stream_request(self, request_data, headers):

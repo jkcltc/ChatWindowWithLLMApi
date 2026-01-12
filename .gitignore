@@ -5,12 +5,11 @@ utils/global_presets/**/*.json
 config.ini
 /pics
 /utils/config.ini
-/utils/config.ini
 *.json
 /background.jpg
 /audio
 utils/system_prompt_presets/当前对话.json
 background.jpg
-utils/config.ini
+utils/funcitons
 /utils/system_prompt_presets
 *.log

@@ -1,8 +1,8 @@
 import re
 
+MEDIA_TYPES = {'image_url', 'image', 'input_audio', 'audio', 'video'}
 #字符串处理工具
 class StrTools:
-
     def _for_replace(text, replace_from, replace_to):
         """批量替换字符串，处理长度不匹配的情况"""
         replace_from_list = replace_from.split(';')
@@ -145,3 +145,38 @@ class StrTools:
             actual_response = StrTools.remove_var(actual_response)
         return actual_response
 
+
+    @staticmethod
+    def get_chat_content_length(messages):
+        target_types_set = MEDIA_TYPES
+        _len = len
+        _str = str
+
+        total = 0
+
+        for message in messages:
+            content = message.get('content')
+            if not content:
+                continue
+
+            # 快速类型检查
+            if type(content) is str:
+                total += _len(content)
+                continue
+
+            for item in content:
+                try:
+                    item_type = item['type']
+
+                    if item_type == 'text':
+                        total += _len(item['text'])
+
+                    elif item_type in target_types_set:
+                        total += 1000
+
+                    else:
+                        total += _len(_str(item))
+                except KeyError:
+                    total += _len(_str(item))
+
+        return total

@@ -2,6 +2,7 @@
 # Introduced in 0.25.3
 from __future__ import annotations
 from PyQt6 import QtCore, QtGui, QtWidgets
+import os
 import logging
 import logging.handlers
 from logging import Logger
@@ -1099,3 +1100,13 @@ class InfoManager:
         """关闭日志队列监听/handler。"""
         if self._log is not None:
             self._log.close()
+
+LOGMANAGER=LogManager(
+            name='CWLA',
+            file_path=os.path.join(
+                os.path.dirname(
+                    os.path.abspath(__file__)
+                    ),
+                'cwla_run_time.log'
+            )
+        )

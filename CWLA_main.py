@@ -32,6 +32,10 @@ import openai
 print(f'CWLA 3rd party lib import finished, time cost:{time.time()-start_time_stamp:.2f}s')
 
 #自定义类初始化
+
+from utils.info_module import InfoManager,LOGMANAGER
+LOGGER=LOGMANAGER
+
 from utils.custom_widget import *
 from utils.system_prompt_manager import SystemPromptManager,SystemPromptComboBox
 from utils.settings import *
@@ -47,12 +51,9 @@ from utils.background_generate import BackgroundAgent
 from utils.tools.one_shot_api_request import FullFunctionRequestHandler,APIRequestHandler
 from utils.status_analysis import StatusAnalyzer
 from utils.tools.str_tools import StrTools
+from utils.tools.patch_manager import GlobalPatcher
 
-
-#UI组件初始化
-from utils.info_module import InfoManager,LogManager
-
-print(f'CWLA custom lib import finished, time cost:{time.time()-start_time_stamp:.2f}s')
+LOGGER.log(f'CWLA custom lib import finished, time cost:{time.time()-start_time_stamp:.2f}s')
 
 #TTS初始化
 from mods.chatapi_tts import TTSAgent
@@ -60,7 +61,7 @@ from mods.chatapi_tts import TTSAgent
 #小功能初始化
 from mods.mod_manager import ModConfiger
 
-print(f'CWLA mod lib import finished, time cost:{time.time()-start_time_stamp:.2f}s')
+LOGGER.log(f'CWLA mod lib import finished, time cost:{time.time()-start_time_stamp:.2f}s')
 
 #路径初始化
 if getattr(sys, 'frozen', False):
@@ -70,11 +71,6 @@ if getattr(sys, 'frozen', False):
 else:
     # 普通 Python 脚本
     application_path = os.path.dirname(os.path.abspath(__file__))
-
-LOGGER= LogManager(
-            name='CWLA',
-            file_path=os.path.join(application_path,'cwla_run_time.log')
-        )
 
 # 常量定义
 MODEL_MAP = ModelMapManager().get_model_map()
@@ -227,8 +223,7 @@ class MessagePreprocessor:
 
         # b=json.dumps(params,ensure_ascii=False,indent=4)
         # LOGGER.log(b)
-        
-        LOGGER.info(f'发送长度: {len(str(messages))}，消息数: {len(messages)}')
+        LOGGER.info(f'发送长度: {StrTools.get_chat_content_length(messages)}，消息数: {len(messages)}')
         LOGGER.info(f'消息打包耗时:{(time.perf_counter()-start)*1000:.2f}ms')
         return messages, params
 
@@ -386,31 +381,15 @@ class MessagePreprocessor:
     # 0.25.3 enable_thinking
     def _handle_provider_patch(self, params):
         # url作为判断供应商的标识
-        url = self.god.api[self.god.api_var.currentText()][0]
-        
-        # 动态CoT
-        if 'enable_thinking' in params:
-            enable_thinking = params['enable_thinking']
-            if 'silicon' in url:
-                pass
-            # openrouter
-            if 'openrouter' in url:
-                del params['enable_thinking']
-                params["reasoning"] = {
-                    "exclude": False,
-                    "enabled": enable_thinking
-                }
-        if self.god.reasoning_effort and 'openrouter' in url:
-            effort_map = {1: "low", 2: "medium", 3: "high"}
-            if 'reasoning' in params:
-                params["reasoning"]["effort"] = effort_map[self.god.reasoning_effort]
-        # 使用者
-        if 'openrouter' in url:
-            params['extra_headers'] = {
-                "HTTP-Referer": "https://github.com/jkcltc/ChatWindowWithLLMApi/",
-                "X-Title": "ChatWindowWithLLMApi-CWLA",
-            } 
-        return params
+        url_text = self.god.api_var.currentText()
+        provider_url = self.god.api[url_text][0]
+
+        patcher = GlobalPatcher()
+        config_context = {
+            "reasoning_effort": self.god.reasoning_effort,
+        }
+        new_params = patcher.patch(params, provider_url, config_context)
+        return new_params
 
     def _build_request_params(self, messages, stream=True, tools=False):
         """构建请求参数（含Function Call支持）"""

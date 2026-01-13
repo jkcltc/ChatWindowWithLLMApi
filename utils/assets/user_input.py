@@ -86,7 +86,7 @@ def _mime_for_audio_ext(ext: str) -> str:
     ext = (ext or "").lower()
     mapping = {
         "wav": "audio/wav",
-        "mp3": "audio/mpeg",
+        "mp3": "audio/mp3",
         "aiff": "audio/aiff",
         "aac": "audio/aac",
         "ogg": "audio/ogg",
@@ -158,7 +158,7 @@ def _ext_from_mime(mime: str, default: str = "") -> str:
         # audio
         "audio/wav": "wav",
         "audio/x-wav": "wav",
-        "audio/mpeg": "mp3",
+        #"audio/mpeg": "mp3",
         "audio/mp3": "mp3",
         "audio/aiff": "aiff",
         "audio/x-aiff": "aiff",
@@ -681,7 +681,7 @@ class MultiModalTextEdit(QWidget):
         输入格式与 get_multimodal_content() 输出一致：
         [
             {"type":"image_url","image_url":{"url":"data:image/png;base64,...."}},
-            {"type":"audio_url","audio_url":{"url":"data:audio/mpeg;base64,...."}},
+            {"type":"audio_url","audio_url":{"url":"data:audio/mp3;base64,...."}},
             {"type":"video_url","video_url":{"url":"data:video/mp4;base64,...."}},
         ]
         append=False 时会先清空当前附件（不清文本）。

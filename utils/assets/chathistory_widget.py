@@ -871,7 +871,7 @@ class ChatHistoryWidget(QFrame):
 
             msg_id=history[-1]['info']['id']
             self.content_layout.update()
-            
+            self.update_all_nicknames()
             QTimer.singleShot(300, self.scroll_to_bottom)
         except Exception as e:
             with open('chat_history_error_h1.json', 'w', encoding='utf-8') as f:

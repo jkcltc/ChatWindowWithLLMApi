@@ -1,6 +1,6 @@
 import sys,ctypes
 if sys.platform == 'win32':
-    appid = 'CWLA 0.25.4'
+    appid = 'CWLA 0.26.1'
     ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(appid)
 else:
     # 孩子们 鼠鼠不想跑linux和mac测试

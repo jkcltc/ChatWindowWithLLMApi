@@ -1,5 +1,6 @@
 import time
 from collections import deque
+from utils.tools.str_tools import StrTools
 #tps处理
 class StatusAnalyzer:
     def __init__(self):
@@ -76,8 +77,5 @@ class StatusAnalyzer:
         return len(history)
     
     def get_chat_length(self,history):
-        total_length=0
-        for item in history:
-            total_length+=len(item['content'])
-        return total_length
+        return StrTools.get_chat_content_length(history)
 

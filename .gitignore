@@ -10,6 +10,6 @@ config.ini
 /audio
 /utils/system_prompt_presets/当前对话.json
 background.jpg
-/utils/funcitons
+/utils/functions
 /utils/system_prompt_presets
 *.log

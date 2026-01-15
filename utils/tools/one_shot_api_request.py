@@ -181,6 +181,10 @@ class FullFunctionRequestHandler(QObject):
         """
         # 生成报错和供应商崩溃时用的临时ID
         self.request_id = 'CWLA_local_' + str(int(time.time()) + 1)
+        self.last_chat_info = {
+            "id": self.request_id,
+            'time': time.strftime("%Y-%m-%d %H:%M:%S")
+        }
 
         # 清空旧数据
         self.full_response = ""
@@ -253,7 +257,7 @@ class FullFunctionRequestHandler(QObject):
                 json=request_data, 
                 headers=headers, 
                 stream=True,
-                timeout=60
+                timeout=180
             )
             if response.status_code != 200:
                 raise Exception(json.dumps(response.json(), indent=2, ensure_ascii=False))
@@ -293,9 +297,10 @@ class FullFunctionRequestHandler(QObject):
                         event = json.loads(data)
                         if not flag_id_received_from_completion and 'id' in event:
                             self.request_id = event['id']
+                            self.last_chat_info['id']=self.request_id
                             flag_id_received_from_completion = True
                         if 'choices' not in event or not event['choices']:
-                            return
+                            continue
 
                         choice = event['choices'][0]
 
@@ -308,6 +313,7 @@ class FullFunctionRequestHandler(QObject):
                         self._handle_response(content, temp_response)
 
                     except json.JSONDecodeError:
+                        self.log_signal(f'FFR streaming-JSONDecodeError,id:{self.request_id}')
                         continue
 
             # 获取最后一个有效事件用于检查完成原因
@@ -629,30 +635,41 @@ Error code :
         try:
             # 处理不同的事件类型（字典或对象）
             if isinstance(event, dict):
-                usage_data = event.get('usage', {})
+                usage_data = event.get('usage')
                 model = event.get('model', '')
             else:
-                usage_data = getattr(event, 'usage', {})
+                usage_data = getattr(event, 'usage', None)
                 model = getattr(event, 'model', '')
 
-            usage_dict = self._to_serializable(usage_data)
-            if not isinstance(usage_dict, dict):
-                usage_dict = {'usage_data': usage_dict}
-
+            # 构建基础信息（始终更新）
             self.last_chat_info = {
-                **usage_dict,
-                "model": model,
                 "id": self.request_id,
-                'time': time.strftime("%Y-%m-%d %H:%M:%S")
+                "model": model,
+                "time": time.strftime("%Y-%m-%d %H:%M:%S")
+            }
+
+            # 只有当 usage_data 存在且有效时才添加 usage 信息
+            if usage_data:
+                usage_dict = self._to_serializable(usage_data)
+                if isinstance(usage_dict, dict):
+                    # 将 usage 信息合并到 last_chat_info
+                    self.last_chat_info.update(usage_dict)
+                elif usage_dict:
+                    # 如果不是字典但有值，作为单独字段存储
+                    self.last_chat_info['usage_data'] = usage_dict
+
+            return self.last_chat_info
+
+        except Exception as e:
+            self.completion_failed.emit(self.request_id, 'failed info update:' + str(e))
+            # 即使出错也确保基础信息存在
+            self.last_chat_info = {
+                "id": self.request_id,
+                "time": time.strftime("%Y-%m-%d %H:%M:%S"),
+                "error": str(e)
             }
             return self.last_chat_info
-        except Exception as e:
-            print('failed info update', str(e))
-            self.completion_failed.emit(self.request_id, 'failed info update:' + str(e))
-            return {
-                "id": self.request_id + ' failed info update ' + str(e),
-                'time': time.strftime("%Y-%m-%d %H:%M:%S")
-            }
+
 
     def _get_api_info(self, provider):
         """获取API信息（需要根据实际情况实现）"""

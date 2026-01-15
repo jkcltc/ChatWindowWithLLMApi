@@ -234,7 +234,7 @@ class APIConfigWidget(QWidget):
     支持预设API供应商、自定义API添加/删除、模型库更新、配置保存等功能。
     """
     # 配置更新时发射，携带最新配置数据（dict格式）
-    configUpdated = pyqtSignal(dict)
+    configUpdated = pyqtSignal()
     # 初始化完成时发射，携带可用模型数据（dict格式）
     initializationCompleted = pyqtSignal(dict)
     # 告知主窗口保存完成
@@ -668,34 +668,39 @@ class APIConfigWidget(QWidget):
         # 启动线程执行更新
         self.update_thread.start()
         self.start_update_animation()  # 显示更新动画
-
+    
     def _on_models_updated(self, available_models: Dict[str, List[str]]) -> None:
-        """
-        模型库更新完成后的回调，合并手动添加的模型并更新UI
-        
-        参数:
-            available_models: 新获取的可用模型列表
-        """
+        """模型库更新完成后的回调"""
+        from utils.setting import APP_SETTINGS
+
         self.stop_update_animation()
-        
-        # 保留手动添加的模型（不在新更新列表中的模型）
+
+        # 合并手动添加的模型
         for api_name, models in self.available_models.items():
             if api_name in available_models:
-                for model in models:
-                    if model not in available_models[api_name]:
-                        available_models[api_name].append(model)
-                available_models[api_name] = sorted(list(set(available_models[api_name])))  # 去重排序
+                existing = set(available_models[api_name])
+                existing.update(models)
+                available_models[api_name] = sorted(list(existing))
             else:
-                available_models[api_name] = models  # 保留整个API的模型
-        
-        # 更新可用模型并刷新UI
+                available_models[api_name] = models
+
         self.available_models = available_models
-        selected_models_map = self.model_map_manager.get_model_map()
-        self._populate_model_ui(available_models, selected_models_map)
-        
-        # 显示更新结果
-        total_models = sum(len(models) for models in available_models.values())
-        self.status_label.setText(f"模型库更新完成！共加载 {total_models} 个可用模型")
+
+        # 同步到 providers
+        for api_name, models in available_models.items():
+            if api_name in APP_SETTINGS.api.providers:
+                APP_SETTINGS.api.providers[api_name].models = models  # 对象属性赋值
+            else:
+                APP_SETTINGS.api.providers[api_name] = {
+                    "url": "",
+                    "key": "",
+                    "models": models
+                }
+
+        self._populate_model_ui(available_models, available_models)
+
+        total = sum(len(m) for m in available_models.values())
+        self.status_label.setText(f"模型库更新完成！共 {total} 个模型")
 
     def on_save_and_close(self):
         """处理保存并关闭逻辑（支持取消保存）"""
@@ -797,56 +802,33 @@ class APIConfigWidget(QWidget):
                 QMessageBox.critical(self, "删除错误", f"删除时发生错误: {str(e)}")
 
     def load_config(self) -> None:
-        """从配置文件加载API配置（URL、密钥）和模型选择状态"""
-        selected_models_map = self.model_map_manager.get_model_map()
-        config_path = os.path.join(self.application_path, "api_config.ini")
-        
-        # 配置文件不存在时，用模型映射初始化
-        if not os.path.exists(config_path):
-            self.available_models = selected_models_map
-            self._populate_model_ui(selected_models_map)
-            return
-            
-        config = configparser.ConfigParser()
-        try:
-            config.read(config_path, encoding='utf-8')
-            
-            # 加载预设API配置
-            for section in config.sections():
-                if section in self.preset_apis and section in self.api_widgets:
-                    url_entry, key_entry, _, search_edit = self.api_widgets[section]
-                    # 阻塞信号（避免加载时触发保存）
-                    url_entry.blockSignals(True)
-                    key_entry.blockSignals(True)
-                    search_edit.blockSignals(True)
-                    url_entry.setText(config.get(section, "url", fallback=""))
-                    key_entry.setText(config.get(section, "key", fallback=""))
-                    # 恢复信号
-                    url_entry.blockSignals(False)
-                    key_entry.blockSignals(False)
-                    search_edit.blockSignals(False)
-                
-                # 加载自定义API配置（自动创建标签页）
-                elif section not in self.preset_apis and section not in self.api_widgets:
-                    self._create_api_tab(section, is_custom=True)
-                    if section in self.api_widgets:
-                        url_entry, key_entry, _, search_edit = self.api_widgets[section]
-                        url_entry.blockSignals(True)
-                        key_entry.blockSignals(True)
-                        search_edit.blockSignals(True)
-                        url_entry.setText(config.get(section, "url", fallback=""))
-                        key_entry.setText(config.get(section, "key", fallback=""))
-                        url_entry.blockSignals(False)
-                        key_entry.blockSignals(False)
-                        search_edit.blockSignals(False)
-            
-            # 初始化可用模型并更新UI
-            if not self.available_models:
-                self.available_models = selected_models_map
-            self._populate_model_ui(self.available_models, selected_models_map)
+        """从 APP_SETTINGS 加载API配置"""
+        from utils.setting import APP_SETTINGS
 
-        except configparser.Error as e:
-            QMessageBox.warning(self, "配置加载错误", f"配置文件格式错误:\n{str(e)}")
+        providers = APP_SETTINGS.api.providers
+
+        for api_name, config in providers.items():
+            if api_name not in self.preset_apis and api_name not in self.api_widgets:
+                self._create_api_tab(api_name, is_custom=True)
+
+            if api_name in self.api_widgets:
+                url_entry, key_entry, _, search_edit = self.api_widgets[api_name]
+
+                url_entry.blockSignals(True)
+                key_entry.blockSignals(True)
+                search_edit.blockSignals(True)
+
+                url_entry.setText(config.url)  # 对象属性访问
+                key_entry.setText(config.key)
+
+                url_entry.blockSignals(False)
+                key_entry.blockSignals(False)
+                search_edit.blockSignals(False)
+
+            self.available_models[api_name] = list(config.models)  # 复制一份
+
+        self._populate_model_ui(self.available_models, self.available_models)
+
 
     def _populate_model_ui(self, available_models: Dict[str, List[str]], selected_models_map: Dict[str, List[str]] = None):
         """
@@ -895,68 +877,41 @@ class APIConfigWidget(QWidget):
             if item and item.text() in model_names:
                 item.setSelected(True)
 
-    def _validate_and_save(self, show_message: bool = True) -> bool:
-        """
-        验证并保存当前配置（URL、密钥、模型选择）到文件
-        
-        参数:
-            show_message: 是否显示保存结果提示
-            
-        返回:
-            bool: 保存成功返回True，失败返回False
-        """
-        config = configparser.ConfigParser()
-        config_data = {}  # 用于发射信号的配置数据
-        selected_models_map = {}  # 模型选择状态（用于保存）
-        
-        # 收集各API的配置
+    def _validate_and_save(self, show_message: bool = True) -> dict:
+        """验证并保存配置到 APP_SETTINGS"""
+        from utils.setting import APP_SETTINGS, ConfigManager
+
+        providers = {}
+        config_data = {}
+
         for api_name, widgets in self.api_widgets.items():
             url_entry, key_entry, list_widget, _ = widgets
             url = url_entry.text().strip()
             key = key_entry.text().strip()
-            selected_models = [item.text() for item in list_widget.selectedItems()]
-            
-            # 保存到配置文件
-            if not config.has_section(api_name):
-                config.add_section(api_name)
-            config.set(api_name, "url", url)
-            config.set(api_name, "key", key)
-            
-            # 整理配置数据
-            config_data[api_name] = {
+            models = [item.text() for item in list_widget.selectedItems()]
+
+            # 直接用 dict，Pydantic 会自动转成 ProviderConfig
+            providers[api_name] = {
                 "url": url,
                 "key": key,
-                "models": selected_models
+                "models": models
             }
-            
-            # 记录选中的模型
-            if selected_models:
-                selected_models_map[api_name] = selected_models
+            config_data[api_name] = providers[api_name]
 
         try:
-            # 保存配置文件
-            config_path = os.path.join(self.application_path, "api_config.ini")
-            with open(config_path, "w", encoding='utf-8') as f:
-                config.write(f)
-                
-            # 保存模型选择状态
-            self.model_map_manager.save_model_map(selected_models_map)
-            
-            # 显示提示（初始化阶段不显示）
+            APP_SETTINGS.api.providers = providers
+            ConfigManager.save_settings(APP_SETTINGS)
+
             if not self.initializing and show_message:
-                self.status_label.setText("配置已成功保存")
-                QTimer.singleShot(3000, lambda: self.status_label.setText(""))  # 3秒后清空
-                
-            # 发射配置更新信号
-            self.configUpdated.emit(config_data)
+                self.status_label.setText("配置已保存")
+                QTimer.singleShot(3000, lambda: self.status_label.setText(""))
+
+            self.configUpdated.emit()
             return config_data
-            
-        except IOError as e:
-            QMessageBox.critical(self, "保存失败", f"文件写入失败:\n{str(e)}")
-            return False
+
         except Exception as e:
-            QMessageBox.critical(self, "未知错误", f"保存时发生意外错误:\n{str(e)}")
-            return False
+            QMessageBox.critical(self, "保存失败", f"保存时出错:\n{str(e)}")
+            return {}
 
     def filter_models(self, api_name: str, search_text: str) -> None:
         """

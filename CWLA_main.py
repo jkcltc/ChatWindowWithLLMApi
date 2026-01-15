@@ -38,7 +38,12 @@ LOGGER=LOGMANAGER
 
 from utils.custom_widget import *
 from utils.system_prompt_manager import SystemPromptManager,SystemPromptComboBox
-from utils.settings import *
+#from utils.settings import *
+# 先patch
+from utils.settings import ConfigManager as ConfigManagerOld
+
+from utils.setting import APP_SETTINGS,MainSettingWindow,APP_RUNTIME,ConfigManager,MODEL_MAP
+
 from utils.model_map_manager import ModelMapManager,APIConfigWidget,RandomModelSelecter
 from utils.theme_manager import ThemeSelector
 from utils.tool_core import FunctionManager,get_functions_events
@@ -72,15 +77,14 @@ else:
     # 普通 Python 脚本
     application_path = os.path.dirname(os.path.abspath(__file__))
 
-# 常量定义
-MODEL_MAP = ModelMapManager().get_model_map()
-
 #缩进图片
 if not os.path.exists('background.jpg'):
     with open('background.jpg', 'wb') as f:
         f.write(think_img)
-# 全局变量
-api = api_init()
+
+# 全局设置库初始化
+ConfigManager.load_settings(APP_SETTINGS)
+
 
 #强制降重
 class RepeatProcessor:
@@ -482,13 +486,13 @@ class MainWindow(QMainWindow):
         self.init_chathistory_components()
 
         #从存档载入设置并覆盖
-        ConfigManager.init_settings(self, exclude=['application_path','temp_style','full_response','think_response','history_path'])
+        ConfigManagerOld.init_settings(self, exclude=['application_path','temp_style','full_response','think_response','history_path'])
 
         self.init_title_creator()
         self.init_system_prompt_window()
         
         # 模型轮询器
-        self.ordered_model=RandomModelSelecter(model_map=MODEL_MAP,logger=self.info_manager)
+        self.ordered_model=RandomModelSelecter(model_map=APP_SETTINGS.api.model_map,logger=self.info_manager)
 
         # 创建主布局
         self.main_layout = QGridLayout()
@@ -499,18 +503,17 @@ class MainWindow(QMainWindow):
         #背景
         self.init_back_ground_label(self.background_image_path)
 
-        model_label = QLabel("选择模型:")
-        self.model_combobox = QComboBox()
-        self.model_combobox.addItems(MODEL_MAP.keys())
-        self.model_combobox.setCurrentIndex(0)  # 默认值
-
         api_label = QLabel("API 提供商:")
         self.api_var = QComboBox()
-        self.api_var.addItems(MODEL_MAP.keys())
+        self.api_var.addItems(APP_SETTINGS.api.providers.keys())
         self.api_var.currentTextChanged.connect(self.update_model_combobox)
-        self.api_var.setCurrentText(next(iter(api.keys())))
-        initial_api = self.api_var.currentText()
-        self.update_model_combobox(initial_api)
+
+        model_label = QLabel("选择模型:")
+        self.model_combobox = QComboBox()
+
+        # 手动触发一次，初始化模型列表
+        if self.api_var.currentText():
+            self.update_model_combobox(self.api_var.currentText())
 
         #轮换模型
         self.use_muti_model=QCheckBox("使用轮换模型")
@@ -886,7 +889,6 @@ class MainWindow(QMainWindow):
 
         # 状态控制标志
         self.stream_receive = True
-        self.firstrun_do_not_load = True
         self.long_chat_improve_var = True
         self.enable_lci_system_prompt=True
         self.hotkey_sysrule_var = True
@@ -1182,10 +1184,13 @@ class MainWindow(QMainWindow):
         self.title_generator.title_generated.connect(self.update_chat_title)
 
     def init_web_searcher(self):
-        '懒导入，不常用模块，加速启动'
+        """懒导入，不常用模块，加速启动"""
         if not hasattr(self, 'web_searcher'):
             from utils.online_rag import WebSearchSettingWindows
-            self.web_searcher=WebSearchSettingWindows(MODEL_MAP,DEFAULT_APIS)
+            self.web_searcher = WebSearchSettingWindows(
+                APP_SETTINGS.api.model_map,
+                APP_SETTINGS.api.endpoints
+            )
     
     def create_one_time_use_title_creator(self):
         api_requester=APIRequestHandler(api_config=self.api)
@@ -1421,12 +1426,11 @@ class MainWindow(QMainWindow):
 
     #api来源：更改提供商
     def update_model_combobox(self, selected_api):
+        """更改提供商时更新模型下拉框"""
         self.model_combobox.clear()
-        
-        # 获取对应API的模型列表
-        available_models = MODEL_MAP.get(selected_api, [])
-        
-        # 添加模型并设置默认选项
+
+        available_models = APP_SETTINGS.api.model_map.get(selected_api, [])
+
         if available_models:
             self.model_combobox.addItems(available_models)
             self.model_combobox.setCurrentIndex(0)
@@ -1828,27 +1832,30 @@ class MainWindow(QMainWindow):
         self.api_window.show()
         self.api_window.raise_()
 
-    def _handle_api_update(self, config_data: dict={}) -> None:
-        """处理配置更新信号"""
-        global MODEL_MAP
-        if not config_data=={}:
-            self.api = {
-                name: (data["url"], data["key"])
-                for name, data in config_data.items()
-            }
-        for key,value in config_data.items():
-            if value['models']:
-                MODEL_MAP[key]=value['models']
-        pervious_api_var=self.api_var.currentText()
-        pervious_model=self.model_combobox.currentText()
-        self.api_var.clear()
-        self.api_var.addItems(MODEL_MAP.keys())
-        self.model_combobox.clear()
-        self.model_combobox.addItems(MODEL_MAP[self.api_var.currentText()])
-        if pervious_api_var in MODEL_MAP.keys():
-            self.api_var.setCurrentText(pervious_api_var)
-        if pervious_model in MODEL_MAP[self.api_var.currentText()]:
-            self.model_combobox.setCurrentText(pervious_model)
+    def _handle_api_update(self) -> None:
+        """处理API配置更新信号"""
+        self.api = APP_SETTINGS.api.endpoints
+        model_map = APP_SETTINGS.api.model_map
+
+        # 保存当前选择
+        previous_api = self.api_var.currentText()
+        previous_model = self.model_combobox.currentText()
+
+        # 刷新供应商下拉框
+        self.api_var.clear() 
+        self.api_var.addItems(model_map.keys())
+
+        # 恢复之前选的供应商
+        if previous_api in model_map:
+            self.api_var.setCurrentText(previous_api)
+
+        # 刷新模型下拉框
+        current_api = self.api_var.currentText()
+        self.model_combobox.clear() 
+        if current_api in model_map:
+            self.model_combobox.addItems(model_map[current_api])
+            if previous_model in model_map[current_api]:
+                self.model_combobox.setCurrentText(previous_model)
 
     #清除聊天记录
     def clear_history(self):
@@ -2145,7 +2152,7 @@ class MainWindow(QMainWindow):
         except Exception as e:
             LOGGER.error(f"save_hotkey_config fail: {e}")
         try:
-            ConfigManager.config_save(self)
+            ConfigManagerOld.config_save(self)
         except Exception as e:
             LOGGER.error(f"config_save fail: {e}")
         ModelMapManager().save_model_map(MODEL_MAP)

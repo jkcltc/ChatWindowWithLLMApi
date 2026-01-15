@@ -26,7 +26,7 @@ class BaseSettings(BaseModel):
             return
 
         for key, value in data.items():
-            if key not in self.model_fields:
+            if key not in type(self).model_fields:
                 continue
 
             # 获取当前属性值
@@ -47,30 +47,6 @@ class BaseSettings(BaseModel):
 
 
 # ==================== 分类子配置 (Settings) ====================
-
-
-class BackgroundSettings(BaseSettings):
-    """模型与风格选择"""
-    background_style: str = '现实'
-    back_ground_summary_model: str = 'deepseek-reasoner'
-    back_ground_summary_provider: str = 'deepseek'
-    back_ground_image_provider: str = 'novita'
-    back_ground_image_model: str = 'foddaxlPhotorealism_v45_122788.safetensors'
-
-    back_ground_update_var: bool = True
-    """启用自动背景生成"""
-
-    lock_background: bool = False
-    """锁定背景：生成背景，但不更新到UI"""
-
-    max_background_rounds: int = 15    
-    """自动背景生成的对话轮数"""
-
-    max_backgound_lenth: int = 2000 
-    """用于提交自动背景生成的对话文本长度"""  
-
-    background_image_path: str = 'background.jpg' 
-
 
 class BackgroundSettings(BaseSettings):
     """背景图自动生成设置"""
@@ -192,13 +168,23 @@ class TTSSettings(BaseSettings):
     tts_enabled: bool = False
     tts_provider: str = '不使用TTS'
 
-class TitleSettings(BaseSettings): 
+class TitleSettings(BaseSettings):
     """自动标题配置"""
-    enable_title_creator_system_prompt: bool = True
-    title_creator_use_local: bool = True
-    title_creator_max_length: int = 20
-    title_creator_provider: str = 'siliconflow'
-    title_creator_model: str = 'deepseek-ai/DeepSeek-R1-0528-Qwen3-8B'
+
+    enabled: bool = True
+    """启用系统提示词生成"""  # enable_title_creator_system_prompt
+
+    use_local: bool = True
+    """是否使用本地生成"""  # title_creator_use_local
+
+    max_length: int = 20
+    """生成的标题最大长度"""  # title_creator_max_length
+
+    provider: str = 'siliconflow'
+    """模型提供商"""  # title_creator_provider
+
+    model: str = 'deepseek-ai/DeepSeek-R1-0528-Qwen3-8B'
+    """模型名称"""  # title_creator_model
 
 class AutoReplaceSettings(BaseSettings): 
     """文本自动替换配置"""
@@ -257,18 +243,59 @@ class HotkeySettings(BaseSettings):
         default_factory=lambda: HotkeySingle(key="Ctrl+E", enabled=True)
     )
 
-class FilePaths(BaseSettings):
-    """运行时计算的路径"""
-    application_path: str = ''
-    setting_img: str = ''
-    think_img: str = '' 
-    returned_file_path: str = '' 
+class ProviderConfig(BaseSettings):
+    """单个供应商的配置结构"""
+    url: str = ""
+    key: str = ""
+    models: List[str] = Field(default_factory=list)
+
+class ApiConfig(BaseSettings):
+    """API配置"""
+
+    providers: Dict[str, ProviderConfig] = Field(default_factory=lambda: {
+        "baidu": ProviderConfig(
+            url="https://qianfan.baidubce.com/v2",
+            key="",
+            models=["ernie-5.0-thinking-exp", "deepseek-v3.2"]
+        ),
+        "deepseek": ProviderConfig(
+            url="https://api.deepseek.com/v1",
+            key="",
+            models=["deepseek-chat", "deepseek-reasoner"]
+        ),
+        "siliconflow": ProviderConfig(
+            url="https://api.siliconflow.cn/v1",
+            key="",
+            models=["deepseek-ai/DeepSeek-V3.2", "Pro/deepseek-ai/DeepSeek-V3.2"]
+        ),
+        "tencent": ProviderConfig(
+            url="https://api.lkeap.cloud.tencent.com/v1",
+            key="",
+            models=["deepseek-v3.2", "deepseek-v3"]
+        ),
+        "novita": ProviderConfig(
+            url="https://api.novita.ai/v3",
+            key="",
+            models=[]
+        )
+    })
 
     @property
-    def history_path(self) -> str:
-        """这个属性动态计算，不参与序列化"""
-        return os.path.join(self.application_path, 'history')
+    def model_map(self) -> Dict[str, List[str]]:
+        """便捷访问：{provider: [models]}"""
+        return {
+            name: list(config.models)
+            for name, config in self.providers.items()
+            if config.models  # 过滤掉空的
+        }
 
+    @property
+    def endpoints(self) -> Dict[str, tuple]:
+        """便捷访问：{provider: (url, key)}"""
+        return {
+            name: (config.url, config.key)
+            for name, config in self.providers.items()
+        }
 
 # >>> 用户配置总入口 <<<
 class AppSettings(BaseSettings):
@@ -289,6 +316,9 @@ class AppSettings(BaseSettings):
 
     force_repeat: ForceRepeatSettings = Field(default_factory=ForceRepeatSettings)
     """强制降重"""
+
+    api: ApiConfig = Field(default_factory=ApiConfig)
+    """api"""
 
 # 初始化单例
 APP_SETTINGS = AppSettings()
@@ -318,3 +348,5 @@ class AppPaths(BaseSettings):
 
 class AppRuntime(BaseSettings):
     paths: AppPaths = Field(default_factory=AppPaths)
+
+APP_RUNTIME=AppRuntime()

@@ -19,6 +19,8 @@ if __name__=='__main__':
 else:
     from .preset_data import WebRagPresetVars
 
+from utils.setting import APP_SETTINGS
+
 #爬虫组件
 class bing_search:
     def __init__(self):
@@ -430,28 +432,35 @@ class WebSearchTool:
 
 # 搜索组件
 class WebSearchSettingWindows:
-    def __init__(self,model_map,default_apis):
+    def __init__(self):
+        
+
         self.search_engine = "baidu"
-        self.results_num=10
+        self.results_num = 10
 
         self.search_queue = queue.Queue()
-        
-        # 初始化UI组件
+
         self.search_settings_widget = QWidget()
         self.search_settings_widget.setWindowTitle("搜索设置")
         self.search_results_widget = QWidget()
-        #self.search_results_widget.setWindowTitle("搜索结果")
-        
-        # 初始化工具和结果
+
         self.tool = None
         self.result = None
-        self.finished= False
+        self.finished = False
         self.search_complete_event = threading.Event()
-        self.model_map=model_map
-        self.default_apis=default_apis
 
         self.create_search_settings()
         self.create_search_results()
+
+    @property
+    def model_map(self):
+        """实时获取"""
+        return APP_SETTINGS.api.model_map
+
+    @property
+    def endpoints(self):
+        """实时获取"""
+        return APP_SETTINGS.api.endpoints
 
     def create_search_settings(self):
         layout = QVBoxLayout(self.search_settings_widget)

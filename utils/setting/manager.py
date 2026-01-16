@@ -44,7 +44,7 @@ class ConfigManager:
                 json_data = singleton_obj.model_dump(mode='json', exclude_none=False)
                 json.dump(json_data, f, ensure_ascii=False, indent=4)
 
-            LOGMANAGER.success(f"Configuration saved to '{filename}'.")
+            #LOGMANAGER.success(f"Configuration saved to '{filename}'.")
 
         except Exception as e:
             LOGMANAGER.error(f"Critical Error saving config: {e}")

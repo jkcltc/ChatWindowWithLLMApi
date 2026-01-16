@@ -4,12 +4,15 @@ from pathlib import Path
 import random
 
 import requests, urllib
+import urllib.parse
 import configparser
 import threading
 from typing import Optional, Dict, List, Tuple, Any
 from PyQt6.QtWidgets import *
 from PyQt6.QtCore import *
 from PyQt6.QtGui import *
+from utils.setting import APP_RUNTIME,APP_SETTINGS, ConfigManager
+
 
 class ModelMapManager:
     _DEFAULT_FILE_PATH = Path("utils/global_presets/MODEL_MAP.json")
@@ -66,39 +69,13 @@ class ModelListUpdater:
     _lock = threading.Lock()
 
     @staticmethod
-    def _read_api_config(application_path=''):
-        if application_path:
-            config_path = os.path.join(application_path, "api_config.ini")
-        else:
-            script_dir = os.path.dirname(os.path.abspath(__file__))
-            config_path = os.path.join(script_dir, "api_config.ini")
-        
-        if not os.path.exists(config_path):
-            print(f"配置文件不存在: {config_path}")
-            return {}
-
-        config = configparser.ConfigParser()
-        config.read(config_path, encoding='utf-8')
-        
-        api_configs = {}
-        for section in config.sections():
-            try:
-                url = config.get(section, "url").strip()
-                key = config.get(section, "key").strip()
-                api_configs[section] = {"url": url, "key": key}
-            except (configparser.NoOptionError, configparser.NoSectionError) as e:
-                print(f"配置解析错误[{section}]: {str(e)}")
-        
-        return api_configs
-    
-    @staticmethod
     def _correct_url(url: str) -> str:
         parsed = urllib.parse.urlparse(url)
         path = parsed.path.rstrip('/')
-        
+
         if not path.endswith('/models') and not path.endswith('/api/tags'):
             path += '/models'
-        
+
         return urllib.parse.urlunparse((
             parsed.scheme or 'https',
             parsed.netloc,
@@ -108,20 +85,6 @@ class ModelListUpdater:
             parsed.fragment
         ))
 
-    @staticmethod
-    def _update_platform_models(platform: str, platform_config: dict) -> List[str]:
-        try:
-            models = ModelListUpdater.get_model_list(platform_config)
-            if models:
-                models.sort()
-                print(f"[{platform}] 获取到 {len(models)} 个模型")
-                return models
-            else:
-                print(f"[{platform}] 响应数据为空")
-                return []
-        except Exception as e:
-            print(f"[{platform}] 更新失败: {str(e)}")
-            return []
 
     @staticmethod
     def is_ollama_alive(url='http://localhost:11434/'):
@@ -131,102 +94,120 @@ class ModelListUpdater:
             return response.status_code == 200
         except requests.exceptions.RequestException:
             return False
-    
+
+
     @staticmethod
-    def get_model_list(platform):
+    def get_model_list(platform_config: dict) -> List[str]:
+        """
+        platform_config: {"url": "...", "key": "..."}
+        """
         headers = {
             'Content-Type': 'application/json',
-            'Authorization': f'Bearer {platform["key"]}'
+            'Authorization': f'Bearer {platform_config["key"]}'
         }
-        
+
         try:
-            response = requests.get(platform["url"], headers=headers)
+            response = requests.get(platform_config["url"], headers=headers)
             response.raise_for_status()
-            
+
             data = response.json()
-            
+
             if 'data' in data:
                 return [model['id'] for model in data['data']]
             else:
                 print(f"返回数据中缺少'data'字段: {data}")
                 return []
-                
+
         except requests.exceptions.RequestException as e:
             print(f"请求失败: {e}")
             return []
-        except json.JSONDecodeError:
+        except Exception:
             print("返回的不是有效JSON格式")
             return []
 
-    @staticmethod
-    def update(application_path='') -> Dict[str, List[str]]:
-        ollama_alive = ModelListUpdater.is_ollama_alive()
-        print(f"Ollama服务状态: {'存活' if ollama_alive else '未启动'}")
-        return ModelListUpdater.update_model_map(
-            update_ollama=ollama_alive,
-            application_path=application_path
-        )
 
     @staticmethod
-    def update_model_map(update_ollama=False, application_path='') -> Dict[str, List[str]]:
-        available_models = {}  
-        
-        api_configs = ModelListUpdater._read_api_config(application_path)
-        if not api_configs:
+    def update() -> Dict[str, List[str]]:
+        ollama_alive = ModelListUpdater.is_ollama_alive()
+        print(f"Ollama服务状态: {'存活' if ollama_alive else '未启动'}")
+        return ModelListUpdater.update_model_map(update_ollama=ollama_alive)
+
+
+    @staticmethod
+    def update_model_map(update_ollama=False) -> Dict[str, List[str]]:
+        available_models = {}
+
+        # >>> 直接从 APP_SETTINGS 拿配置 <<<
+        providers = APP_SETTINGS.api.providers
+        if not providers:
             print("无有效API配置，跳过更新")
             return available_models
-        
+
+        # 构建 api_configs: {name: {"url": ..., "key": ...}}
+        api_configs = {}
+        for name, config in providers.items():
+            if config.key:
+                api_configs[name] = {
+                    "url": config.url,
+                    "key": config.key
+                }
+
         if not update_ollama and "ollama" in api_configs:
             del api_configs["ollama"]
             print("跳过ollama更新")
 
         threads = []
         results = []
-        
+        results_lock = threading.Lock()  # 加个锁，别让多线程打架
+
         for platform, config in api_configs.items():
             corrected_config = {
                 "url": ModelListUpdater._correct_url(config["url"]),
                 "key": config["key"]
             }
-            
+
             def thread_func(plat, cfg):
                 try:
                     models = ModelListUpdater.get_model_list(cfg)
                     if models:
                         models.sort()
-                        results.append((plat, models))
+                        with results_lock:
+                            results.append((plat, models))
+                        print(f"[{plat}] 获取到 {len(models)} 个模型")
                 except Exception as e:
                     print(f"[{plat}] 更新失败: {str(e)}")
-            
+
             thread = threading.Thread(target=thread_func, args=(platform, corrected_config))
             thread.start()
             threads.append(thread)
-        
+
         for thread in threads:
             thread.join()
-        
+
         for plat, models in results:
             available_models[plat] = models
-            
-        return available_models
 
+        return available_models
 
 class APIConfigDialogUpdateModelThread(QThread):
     started_signal = pyqtSignal()
     finished_signal = pyqtSignal(dict)
     error_signal = pyqtSignal(str)
-    def __init__(self,application_path):
+
+    def __init__(self):
         super().__init__()
-        self.application_path=application_path
         self.finished_signal.connect(self.deleteLater)
+
 
     def run(self) -> None:
         try:
             self.started_signal.emit()
-            available_models = ModelListUpdater.update(self.application_path)
+            # >>> 直接用全局单例 <<<
+            available_models = ModelListUpdater.update()
             self.finished_signal.emit(available_models)
         except Exception as e:
             self.error_signal.emit(str(e))
+
 
 class APIConfigWidget(QWidget):
     """
@@ -240,45 +221,29 @@ class APIConfigWidget(QWidget):
     # 告知主窗口保存完成
     notificationRequested=pyqtSignal(str,str) #message,level
 
-    def __init__(self, parent: Optional[QWidget] = None, application_path=''):
+    def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
-        # 预设API供应商列表（无需手动添加的内置供应商）
         self.preset_apis = ["baidu", "deepseek", "siliconflow", "tencent", "novita", "ollama"]
-        # 自定义API供应商列表（用户手动添加的供应商）
         self.custom_apis = []
-        # 应用程序路径（用于加载/保存配置文件）
-        self.application_path = application_path
-        # 存储各API对应的UI组件：(URL输入框, 密钥输入框, 模型列表, 搜索框)
+
+        self.application_path = APP_RUNTIME.paths.application_path
+
         self.api_widgets: Dict[str, Tuple[QLineEdit, QLineEdit, QListWidget, QLineEdit]] = {}
-        # 存储各API可用模型列表：{api_name: [model1, model2, ...]}
         self.available_models: Dict[str, List[str]] = {}
-        # 用于延迟保存配置的定时器（避免频繁触发保存）
         self.api_timers = {}
-        # 更新按钮动画相关组件
         self.update_btn_overlay = None
         self.animation_group = None
-        # 保存按钮动画相关组件
         self.save_btn_overlay = None
         self.save_animation_group = None
-        self.save_in_progress = False  # 标记保存流程是否在进行中
-        # 初始化状态标志（避免初始化阶段触发不必要的配置更新）
+        self.save_in_progress = False
         self.initializing = True
 
-        # 初始化模型映射管理器（用于保存/加载模型选择状态）
-        if application_path:
-            model_map_path = os.path.join(application_path, ModelMapManager._DEFAULT_FILE_PATH)
-            self.model_map_manager = ModelMapManager(model_map_path)
-        else:
-            self.model_map_manager = ModelMapManager()
-        
-        # 初始化UI、动画及配置
         self._initialize_ui()
         self._setup_update_button_animation()
         self._setup_save_button_animation()
         self.load_config()
         self.adjustSize()
-        
-        # 设置窗口位置和大小（居中显示，占屏幕30%宽、80%高）
+
         screen_geometry = QApplication.primaryScreen().availableGeometry()
         width = int(screen_geometry.width() * 0.3)
         height = int(screen_geometry.height() * 0.8)
@@ -287,7 +252,6 @@ class APIConfigWidget(QWidget):
         self.setGeometry(left, top, width, height)
         self.setWindowTitle("API 配置管理")
 
-        # 初始化完成，发射信号并更新状态
         self.initializationCompleted.emit(self.available_models)
         self.initializing = False
 
@@ -652,28 +616,27 @@ class APIConfigWidget(QWidget):
         if self.save_btn_overlay:
             self.save_btn_overlay.hide()
 
+
     def on_update_models(self) -> None:
-        """触发模型库更新（通过线程执行，避免界面卡顿）"""
+        """触发模型库更新"""
         self.status_label.setText("正在更新模型库...")
-        # 创建更新线程
-        self.update_thread = APIConfigDialogUpdateModelThread(
-            application_path=self.application_path, 
-        )
+        self.update_thread = APIConfigDialogUpdateModelThread()
         self.update_thread.started_signal.connect(
             lambda: self.status_label.setText("正在更新模型库..."))
-        self.update_thread.finished_signal.connect(self._on_models_updated)  # 更新完成回调
-        self.update_thread.error_signal.connect(  # 错误处理
+        self.update_thread.finished_signal.connect(self._on_models_updated)
+        self.update_thread.error_signal.connect(
             lambda msg: [self.status_label.setText(f"更新出错: {msg}"), self.stop_update_animation()])
-        
-        # 启动线程执行更新
+
         self.update_thread.start()
-        self.start_update_animation()  # 显示更新动画
+        self.start_update_animation()
+
     
     def _on_models_updated(self, available_models: Dict[str, List[str]]) -> None:
         """模型库更新完成后的回调"""
-        from utils.setting import APP_SETTINGS
-
         self.stop_update_animation()
+
+        # >>> 1. 先保存当前选中的模型 <<<
+        previously_selected = self._get_currently_selected_models()
 
         # 合并手动添加的模型
         for api_name, models in self.available_models.items():
@@ -689,7 +652,7 @@ class APIConfigWidget(QWidget):
         # 同步到 providers
         for api_name, models in available_models.items():
             if api_name in APP_SETTINGS.api.providers:
-                APP_SETTINGS.api.providers[api_name].models = models  # 对象属性赋值
+                APP_SETTINGS.api.providers[api_name].models = models
             else:
                 APP_SETTINGS.api.providers[api_name] = {
                     "url": "",
@@ -697,10 +660,25 @@ class APIConfigWidget(QWidget):
                     "models": models
                 }
 
-        self._populate_model_ui(available_models, available_models)
+        # >>> 2. 用之前选中的来恢复，而不是全选 <<<
+        self._populate_model_ui(available_models, previously_selected)
 
         total = sum(len(m) for m in available_models.values())
-        self.status_label.setText(f"模型库更新完成！共 {total} 个模型")
+        selected_count = sum(len(m) for m in previously_selected.values())
+        self.status_label.setText(f"模型库更新完成！共 {total} 个模型，已选中 {selected_count} 个")
+
+    def _get_currently_selected_models(self) -> Dict[str, List[str]]:
+        """
+        获取当前所有 API 的已选中模型
+        返回: {api_name: [selected_model_1, selected_model_2, ...]}
+        """
+        selected = {}
+        for api_name, widgets in self.api_widgets.items():
+            _, _, list_widget, _ = widgets
+            selected_items = [item.text() for item in list_widget.selectedItems()]
+            if selected_items:
+                selected[api_name] = selected_items
+        return selected
 
     def on_save_and_close(self):
         """处理保存并关闭逻辑（支持取消保存）"""
@@ -748,35 +726,27 @@ class APIConfigWidget(QWidget):
             self._validate_and_save(show_message=True)
             self.status_label.setText(f"已添加自定义供应商: {name}")
             QTimer.singleShot(2000, lambda: self.status_label.setText(""))
-
+    
     def remove_custom_api(self, api_name: str) -> None:
-        """
-        删除自定义API供应商（包含配置和模型数据）
-        
-        参数:
-            api_name: 要删除的API供应商名称
-        """
+        """删除自定义API供应商"""
         if api_name not in self.custom_apis:
             return
-            
-        # 确认删除
+
         reply = QMessageBox.question(
             self, "确认删除", 
             f"确定要删除'{api_name}'的配置吗?\n此操作不可恢复。",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
         )
-        
+
         if reply == QMessageBox.StandardButton.Yes:
             try:
-                # 移除标签页
                 widget = self.tab_widget.findChild(QWidget, api_name)
                 if widget:
                     index = self.tab_widget.indexOf(widget)
                     if index != -1:
                         self.tab_widget.removeTab(index)
                         widget.deleteLater()
-                
-                # 清理数据
+
                 if api_name in self.custom_apis:
                     self.custom_apis.remove(api_name)
                 if api_name in self.api_widgets:
@@ -786,25 +756,19 @@ class APIConfigWidget(QWidget):
                     del self.api_timers[api_name]
                 if api_name in self.available_models:
                     del self.available_models[api_name]
-                
-                # 更新模型映射（移除该API的模型选择）
-                current_map = self.model_map_manager.get_model_map()
-                if api_name in current_map:
-                    del current_map[api_name]
-                    self.model_map_manager.save_model_map(current_map)
-                
-                # 保存配置并提示
+
+                if api_name in APP_SETTINGS.api.providers:
+                    del APP_SETTINGS.api.providers[api_name]
+
                 self._validate_and_save()
                 self.status_label.setText(f"已删除供应商: {api_name}")
                 QTimer.singleShot(2000, lambda: self.status_label.setText(""))
-                
+
             except Exception as e:
                 QMessageBox.critical(self, "删除错误", f"删除时发生错误: {str(e)}")
 
     def load_config(self) -> None:
         """从 APP_SETTINGS 加载API配置"""
-        from utils.setting import APP_SETTINGS
-
         providers = APP_SETTINGS.api.providers
 
         for api_name, config in providers.items():
@@ -828,7 +792,6 @@ class APIConfigWidget(QWidget):
             self.available_models[api_name] = list(config.models)  # 复制一份
 
         self._populate_model_ui(self.available_models, self.available_models)
-
 
     def _populate_model_ui(self, available_models: Dict[str, List[str]], selected_models_map: Dict[str, List[str]] = None):
         """
@@ -879,8 +842,6 @@ class APIConfigWidget(QWidget):
 
     def _validate_and_save(self, show_message: bool = True) -> dict:
         """验证并保存配置到 APP_SETTINGS"""
-        from utils.setting import APP_SETTINGS, ConfigManager
-
         providers = {}
         config_data = {}
 
@@ -1101,29 +1062,32 @@ class Ui_random_model_selecter(object):
         self.groupBox_view_model.setTitle(_translate("random_model_selecter", "模型库-使用的模型将在其中选择"))
         self.remove_model.setText(_translate("random_model_selecter", "移除选中项"))
 
+
 class RandomModelSelecter(QWidget):
-    def __init__(self, parent=None,model_map={},logger=None):
+    def __init__(self, parent=None, logger=None):
         super().__init__(parent)
         self.ui = Ui_random_model_selecter()
         self.ui.setupUi(self)
         self.setGeometry(100, 100, 600, 350)
+
         # 初始化数据
-        self.model_map = model_map
+        # self.model_map = model_map  <-- 这种过时的东西不需要了
         self.current_models = []  # 存储已添加的模型信息
-        self.last_check=0
-        self.logger=logger
-        
+        self.last_check = 0
+        self.logger = logger
+
         # 初始化UI组件
         self.init_providers()
         self.init_connections()
         self.init_list_view()
-        
+
         # 初始更新模型列表
         self.update_model_names()
 
     def init_providers(self):
         """初始化模型提供商下拉框"""
-        self.ui.model_provider.addItems(self.model_map.keys())
+        # 直接从单例配置中获取 keys
+        self.ui.model_provider.addItems(APP_SETTINGS.api.model_map.keys())
 
     def init_connections(self):
         """建立信号槽连接"""
@@ -1145,8 +1109,10 @@ class RandomModelSelecter(QWidget):
     def update_model_names(self):
         """更新模型名称下拉框"""
         current_provider = self.ui.model_provider.currentText()
-        models = self.model_map.get(current_provider, [])
-        
+
+        # 改用 APP_SETTINGS 获取对应提供商的模型列表
+        models = APP_SETTINGS.api.model_map.get(current_provider, [])
+
         self.ui.model_name.clear()
         if models:
             self.ui.model_name.addItems(models)
@@ -1154,20 +1120,20 @@ class RandomModelSelecter(QWidget):
 
     def add_model_to_list(self):
         """添加当前选择的模型到列表"""
-        self.last_check=0
+        self.last_check = 0
         provider = self.ui.model_provider.currentText()
         model_name = self.ui.model_name.currentText()
-        
+
         # 防止重复添加
         if (provider, model_name) in self.current_models:
             QMessageBox.warning(self, "警告", "该模型已存在于列表中！")
             return
-        
+
         # 创建列表项
         item_text = f"{provider} - {model_name}"
         item = QStandardItem(item_text)
         item.setData({"provider": provider, "model": model_name})
-        
+
         self.list_model.appendRow(item)
         self.current_models.append((provider, model_name))
 
@@ -1176,8 +1142,9 @@ class RandomModelSelecter(QWidget):
         selected = self.ui.random_model_list_viewer.selectedIndexes()
         if not selected:
             return
-        
-        for index in selected:
+
+        # 倒序删除防止索引错位，虽然单选模式下无所谓，但这是好习惯
+        for index in sorted(selected, key=lambda x: x.row(), reverse=True):
             row = index.row()
             # 从数据存储中移除
             del self.current_models[row]
@@ -1186,20 +1153,25 @@ class RandomModelSelecter(QWidget):
 
     def collect_selected_models(self):
         """收集最终选择的模型信息"""
+        if not self.current_models:
+            if self.logger:
+                self.logger.log("[模型轮询] 警告：没有选择任何模型！")
+            return None
+
         # 结果已实时存储在self.current_models中
         if self.ui.order_radio.isChecked():
-            self.last_check+=1
-            return_model= self.current_models[self.last_check%len(self.current_models)]
-
+            self.last_check += 1
+            return_model = self.current_models[self.last_check % len(self.current_models)]
         else:
-            return_model=random.choice(self.current_models)
-        self.logger.log(f"[模型轮询]当前轮换至:{return_model}")
+            return_model = random.choice(self.current_models)
+
+        if self.logger:
+            self.logger.log(f"[模型轮询]当前轮换至:{return_model}")
         return return_model
 
     def get_selected_models(self):
         """获取最终选择的模型列表"""
         return self.current_models
-
 
 
 if __name__ == "__main__":

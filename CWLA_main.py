@@ -44,7 +44,7 @@ from utils.settings import ConfigManager as ConfigManagerOld
 
 from utils.setting import APP_SETTINGS,MainSettingWindow,APP_RUNTIME,ConfigManager,MODEL_MAP
 
-from utils.model_map_manager import ModelMapManager,APIConfigWidget,RandomModelSelecter
+from utils.model_map_manager import APIConfigWidget,RandomModelSelecter
 from utils.theme_manager import ThemeSelector
 from utils.tool_core import FunctionManager,get_functions_events
 from utils.concurrentor import ConvergenceDialogueOptiProcessor
@@ -492,7 +492,7 @@ class MainWindow(QMainWindow):
         self.init_system_prompt_window()
         
         # 模型轮询器
-        self.ordered_model=RandomModelSelecter(model_map=APP_SETTINGS.api.model_map,logger=self.info_manager)
+        self.ordered_model=RandomModelSelecter(logger=self.info_manager)
 
         # 创建主布局
         self.main_layout = QGridLayout()
@@ -1826,7 +1826,7 @@ class MainWindow(QMainWindow):
     #api导入窗口
     def open_api_window(self):
         if not hasattr(self,'api_window'):
-            self.api_window = APIConfigWidget(application_path=self.application_path)
+            self.api_window = APIConfigWidget()
             self.api_window.configUpdated.connect(self._handle_api_update)
             self.api_window.notificationRequested.connect(self.info_manager.notify)
         self.api_window.show()
@@ -2155,7 +2155,7 @@ class MainWindow(QMainWindow):
             ConfigManagerOld.config_save(self)
         except Exception as e:
             LOGGER.error(f"config_save fail: {e}")
-        ModelMapManager().save_model_map(MODEL_MAP)
+        #ModelMapManager().save_model_map(MODEL_MAP)
         self.mod_configer.run_close_event()
         # 确保执行父类关闭操作
         super().closeEvent(event)

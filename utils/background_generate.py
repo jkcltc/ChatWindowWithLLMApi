@@ -2,57 +2,67 @@ from PyQt6.QtCore import *
 from PyQt6.QtWidgets import *
 from PyQt6.QtGui import QPixmap
 from jsonfinder import jsonfinder
-from .chat_history_manager import ChatHistoryTools
-from .preset_data import BackGroundPresetVars,LongChatImprovePersetVars
-from .tools.one_shot_api_request import APIRequestHandler
-from .text_to_image.image_agents import ImageAgent
-from .custom_widget import AspectLabel
+from utils.chat_history_manager import ChatHistoryTools
+from utils.preset_data import BackGroundPresetVars,LongChatImprovePersetVars
+from utils.tools.one_shot_api_request import APIRequestHandler
+from utils.text_to_image.image_agents import ImageAgent
+from utils.custom_widget import AspectLabel
+from utils.setting import APP_SETTINGS,APP_RUNTIME
+
+
 
 #背景生成管线
 class BackGroundWorker(QObject):
-    request_opti_bar_update=pyqtSignal()
-    poll_success=pyqtSignal(str)
-    failure=pyqtSignal(str,str)
-    debug=pyqtSignal(str)
+    request_opti_bar_update = pyqtSignal()
+    poll_success = pyqtSignal(str)
+    failure = pyqtSignal(str, str)
+    debug = pyqtSignal(str)
 
-    def __init__(self,
-                 default_apis={'provider':{'url':'url','key':'sk-xxx'}},
-                 application_path='',
-                 summary_api_provider='',
-                 summary_model='',
-                 image_api_provider='',
-                 image_model='',
-                 ):
+    def __init__(self):
         super().__init__()
-        self.default_apis=default_apis
-        self.application_path=application_path
-        self.summary_api_provider   =   summary_api_provider
-        self.summary_model          =   summary_model
-        self.image_api_provider     =   image_api_provider
-        self.image_model            =   image_model
+        self.request_sender = None
+        self.creator = None
+
         self.failure.connect(print)
         self.poll_success.connect(print)
         self.debug.connect(print)
-
-    def set_providers(self,             summary_api_provider='',
-                                        summary_model='',
-                                        image_api_provider='',
-                                        image_model='',):
-        
-        self.summary_api_provider   =   summary_api_provider
-        self.summary_model          =   summary_model
-        self.image_api_provider     =   image_api_provider
-        self.image_model            =   image_model
     
-    def _init_api_requester(self,summary_api_provider):
-        self.request_sender=APIRequestHandler(api_config={
-                "url":self.default_apis[summary_api_provider]['url'],
-                "key":self.default_apis[summary_api_provider]['key']
-                }
-            )
+    @property
+    def application_path(self):
+        return APP_RUNTIME.paths.application_path
+
+    @property
+    def summary_provider(self):
+        return APP_SETTINGS.background.summary_provider
+
+    @property
+    def summary_model(self):
+        return APP_SETTINGS.background.summary_model
+
+    @property
+    def image_provider(self):
+        return APP_SETTINGS.background.image_provider
+
+    @property
+    def image_model(self):
+        return APP_SETTINGS.background.image_model
+
+    def _get_api_config(self, provider: str) -> dict:
+        """从全局设置获取 API 配置"""
+        return APP_SETTINGS.api.endpoints.get(provider, {"url": "", "key": ""})
+    
+    def _init_api_requester(self):
+        """用当前配置初始化 API 请求器"""
+        config = self._get_api_config(self.summary_provider)
+        self.request_sender = APIRequestHandler(api_config={
+            "url": config['url'],
+            "key": config['key']
+        })
         self.request_sender.request_completed.connect(self._handle_image_prompt_receive)
-        self.request_sender.error_occurred.connect(lambda infos :self.failure.emit('request_sender',infos))
-        
+        self.request_sender.error_occurred.connect(
+            lambda infos: self.failure.emit('request_sender', infos)
+        )
+
     def _finish_api_requester(self):
         if hasattr(self, 'request_sender') and self.request_sender is not None:
             try:
@@ -63,8 +73,8 @@ class BackGroundWorker(QObject):
             self.request_sender.deleteLater()
             self.request_sender = None
 
-    def _init_image_agent(self,application_path,image_api_provider):
-        self.creator = ImageAgent(application_path=application_path)
+    def _init_image_agent(self,image_api_provider):
+        self.creator = ImageAgent()
         self.creator.set_generator(image_api_provider)
         self.creator.failure.connect(lambda s1, s2: self.failure.emit(s1, s2))
         self.creator.pull_success.connect(self.poll_success.emit)
@@ -84,19 +94,24 @@ class BackGroundWorker(QObject):
     # 启动方法：
     # 初始化发送器
     # 组织参数发到back_ground_update_summary，用于请求prompt
-    def generate(self,chathistory,background_style,required_lenth):
+    def generate(self, chathistory):
+        """生成背景图"""
         self.request_opti_bar_update.emit()
         self._finish_image_agent()
         self._finish_api_requester()
+
+        # 从配置取，不用传参
+        background_style = APP_SETTINGS.background.style
+        required_length = APP_SETTINGS.background.max_length
+
         try:
-            self.back_ground_update_summary(chathistory,
-                       background_style,
-                       self.summary_api_provider,
-                       self.summary_model,
-                       required_lenth=required_lenth
-                    )
+            self.back_ground_update_summary(
+                chathistory,
+                background_style,
+                required_length
+            )
         except Exception as e:
-            self.failure.emit('back_ground_update',f'error code: {e}')
+            self.failure.emit('back_ground_update', f'error code: {e}')
 
     def _get_readable_story(self,chathistory,required_length):
             total_chars = 0
@@ -268,7 +283,7 @@ class BackGroundWorker(QObject):
         param['model']=image_model
 
         try:
-            self._init_image_agent(application_path,image_api_provider)
+            self._init_image_agent(image_api_provider)
         except Exception as e:
             self.failure.emit('background_image creater init',f"Error: {str(e)}")
 
@@ -756,9 +771,10 @@ class BackgroundAgent(QObject):
         ):
         super().__init__()
         self.default_apis=default_apis
+        # default_apis就是endpoints
         self.model_map=model_map
         self.application_path=application_path
-        self.image_agent=ImageAgent(application_path=application_path)
+        self.image_agent=ImageAgent()
         self.setting_window=BackgroundSettingsWidget()
         self.update_worker=BackGroundWorker(
             default_apis=self.default_apis,

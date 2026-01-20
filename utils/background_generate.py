@@ -2,6 +2,7 @@ from PyQt6.QtCore import *
 from PyQt6.QtWidgets import *
 from PyQt6.QtGui import QPixmap
 from jsonfinder import jsonfinder
+import os
 from utils.chat_history_manager import ChatHistoryTools
 from utils.preset_data import BackGroundPresetVars,LongChatImprovePersetVars
 from utils.tools.one_shot_api_request import APIRequestHandler
@@ -12,7 +13,7 @@ from utils.setting import APP_SETTINGS,APP_RUNTIME
 
 
 #背景生成管线
-class BackGroundWorker(QObject):
+class BackgroundWorker(QObject):
     request_opti_bar_update = pyqtSignal()
     poll_success = pyqtSignal(str)
     failure = pyqtSignal(str, str)
@@ -26,37 +27,54 @@ class BackGroundWorker(QObject):
         self.failure.connect(print)
         self.poll_success.connect(print)
         self.debug.connect(print)
-    
+
+    # ========== 配置属性，统一从 APP_SETTINGS 读 ==========
+
     @property
     def application_path(self):
         return APP_RUNTIME.paths.application_path
 
     @property
+    def background_cfg(self):
+        """背景配置快捷访问"""
+        return APP_SETTINGS.background
+
+    @property
     def summary_provider(self):
-        return APP_SETTINGS.background.summary_provider
+        return self.background_cfg.summary_provider
 
     @property
     def summary_model(self):
-        return APP_SETTINGS.background.summary_model
+        return self.background_cfg.summary_model
 
     @property
     def image_provider(self):
-        return APP_SETTINGS.background.image_provider
+        return self.background_cfg.image_provider
 
     @property
     def image_model(self):
-        return APP_SETTINGS.background.image_model
+        return self.background_cfg.image_model
 
-    def _get_api_config(self, provider: str) -> dict:
+    @property
+    def background_style(self):
+        return self.background_cfg.style
+
+    @property
+    def required_length(self):
+        return self.background_cfg.max_length
+
+    def _get_api_config(self, provider: str) -> tuple:
         """从全局设置获取 API 配置"""
-        return APP_SETTINGS.api.endpoints.get(provider, {"url": "", "key": ""})
-    
+        return APP_SETTINGS.api.endpoints.get(provider, ("", ""))
+
+    # ========== API 请求器生命周期 ==========
+
     def _init_api_requester(self):
         """用当前配置初始化 API 请求器"""
-        config = self._get_api_config(self.summary_provider)
+        url, key = self._get_api_config(self.summary_provider)
         self.request_sender = APIRequestHandler(api_config={
-            "url": config['url'],
-            "key": config['key']
+            "url": url,
+            "key": key
         })
         self.request_sender.request_completed.connect(self._handle_image_prompt_receive)
         self.request_sender.error_occurred.connect(
@@ -64,235 +82,170 @@ class BackGroundWorker(QObject):
         )
 
     def _finish_api_requester(self):
-        if hasattr(self, 'request_sender') and self.request_sender is not None:
+        if self.request_sender is not None:
             try:
                 self.request_sender.request_completed.disconnect(self._handle_image_prompt_receive)
-            except:
-                pass  # 可能之前没有连接，或者对象已被删除
-            # 请求对象销毁
+            except Exception as e:
+                self.debug.emit(f"BGW Warning: _finish_api_requester Failed: {e}")
             self.request_sender.deleteLater()
             self.request_sender = None
 
-    def _init_image_agent(self,image_api_provider):
+    # ========== 图像生成器生命周期 ==========
+
+    def _init_image_agent(self):
+        """用当前配置初始化图像生成器"""
         self.creator = ImageAgent()
-        self.creator.set_generator(image_api_provider)
+        self.creator.set_generator(self.image_provider)
         self.creator.failure.connect(lambda s1, s2: self.failure.emit(s1, s2))
         self.creator.pull_success.connect(self.poll_success.emit)
-    
+
     def _finish_image_agent(self):
-        if hasattr(self, 'creator') and self.creator is not None:
-            # 断开信号连接
+        if self.creator is not None:
             try:
                 self.creator.pull_success.disconnect(self.poll_success.emit)
             except Exception as e:
-                print('self.creator.pull_success.disconnect()',e)
-                pass  # 可能之前没有连接，或者对象已被删除
-            # 请求对象销毁
+                print('self.creator.pull_success.disconnect()', e)
             self.creator.deleteLater()
             self.creator = None
 
-    # 启动方法：
-    # 初始化发送器
-    # 组织参数发到back_ground_update_summary，用于请求prompt
+    # ========== 主流程 ==========
+
     def generate(self, chathistory):
-        """生成背景图"""
+        """生成背景图 - 入口方法"""
         self.request_opti_bar_update.emit()
         self._finish_image_agent()
         self._finish_api_requester()
-
-        # 从配置取，不用传参
-        background_style = APP_SETTINGS.background.style
-        required_length = APP_SETTINGS.background.max_length
-
         try:
-            self.back_ground_update_summary(
-                chathistory,
-                background_style,
-                required_length
-            )
+            self._request_image_prompt(chathistory)
         except Exception as e:
             self.failure.emit('back_ground_update', f'error code: {e}')
 
-    def _get_readable_story(self,chathistory,required_length):
-            total_chars = 0
-            index = 0
-            last_full_story = []
+    def _request_image_prompt(self, chathistory):
+        """第一步：请求LLM生成图像prompt"""
+        summary_prompt = BackGroundPresetVars.summary_prompt
+        last_full_story = self._get_background_prompt_from_chathistory(chathistory)
 
-            # 从后往前遍历 chathistory
-            for message in reversed(chathistory):
-                if message["role"] != "system":
-                    content = message["content"]
-                    total_chars += len(content)
-                    index += 1
-                    if total_chars >= required_length:
-                        # 如果字符数达到 required_length，截取从当前消息到列表末尾的部分
-                        last_full_story = chathistory[-index:]
-                        break
+        messages = [
+            {"role": "system", "content": summary_prompt},
+            {"role": "user", "content": last_full_story}
+        ]
 
-            # 如果遍历结束后总字符数不足 required_length，返回所有非 system 消息
-            if total_chars < required_length:
-                last_full_story = [msg for msg in chathistory if msg["role"] != "system"]
-            return ChatHistoryTools.to_readable_str(last_full_story)
-    
-    def _get_last_full_story(self,chathistory):#summaried
-        if chathistory[0]["role"] == "system":
-            # 从系统消息中尝试提取上次摘要
+        try:
+            self._init_api_requester()
+        except Exception as e:
+            self.failure.emit('APIRequestHandler init', str(e))
+            return
+
+        try:
+            self.debug.emit(f"场景生成：prompt请求发送。\n发送内容长度:{len(last_full_story)}")
+            self.request_sender.send_request(message=messages, model=self.summary_model)
+        except Exception as e:
+            self.failure.emit('back_ground_update_thread', f"Error: {str(e)}")
+
+    def _handle_image_prompt_receive(self, return_prompt):
+        """第二步：收到prompt后，请求生成图像"""
+        self._finish_api_requester()
+        self.debug.emit(f'return_prompt received:{return_prompt}')
+        self._generate_image(return_prompt)
+
+    def _generate_image(self, return_prompt):
+        """第三步：调用图像生成API"""
+        param = {}
+        for _, __, obj in jsonfinder(return_prompt, json_only=True):
+            if isinstance(obj, dict):
+                param = obj
+
+        if 'prompt' not in param or 'negative_prompt' not in param:
+            self.failure.emit(
+                'background_image',
+                f'prompt extract failed, param extracted:{param}, return_prompt:{return_prompt}'
+            )
+            return
+
+        param['width'] = 1280
+        param['height'] = 720
+        param['model'] = self.image_model
+
+        try:
+            self._init_image_agent()
+        except Exception as e:
+            self.failure.emit('background_image creater init', f"Error: {str(e)}")
+            return
+
+        try:
+            self.creator.create(params_dict=param)
+        except Exception as e:
+            self.failure.emit('background_image_create', f"Error: {str(e)}")
+
+    # ========== 辅助方法 ==========
+
+    def _get_readable_story(self, chathistory) -> str:
+        """从聊天记录提取指定长度的可读文本"""
+        required_length = self.required_length
+        total_chars = 0
+        index = 0
+        last_full_story = []
+
+        for message in reversed(chathistory):
+            if message["role"] != "system":
+                content = message["content"]
+                total_chars += len(content)
+                index += 1
+                if total_chars >= required_length:
+                    last_full_story = chathistory[-index:]
+                    break
+
+        if total_chars < required_length:
+            last_full_story = [msg for msg in chathistory if msg["role"] != "system"]
+
+        return ChatHistoryTools.to_readable_str(last_full_story)
+
+    def _get_last_full_story(self, chathistory) -> str:
+        """从系统消息提取上次摘要"""
+        if chathistory and chathistory[0]["role"] == "system":
             try:
-                last_summary = str(
+                return str(
                     chathistory[0]["content"].split(
                         LongChatImprovePersetVars.before_last_summary
                     )[1]
                 )
             except IndexError:
-                last_summary = ''
-            return last_summary
-        else:
-            return ''
-    
-    #组织过去的故事
-    def _get_background_prompt_from_chathistory(
-            self,
-            chathistory,
-            background_style='',
-            required_length=2000,
-            image_model=''
-        ): 
-        """
-            Generates a background prompt for a story based on chat history and specified style.
-            This method constructs a prompt by combining system summary, scene hints, user summary, 
-            and optional background style requirements. It utilizes preset variables and helper methods 
-            to extract relevant information from the chat history.
-            Args:
-                chathistory (list): The chat history containing messages and story context.
-                background_style (str, optional): The desired style for the background prompt. Defaults to ''.
-                required_length (int, optional): The minimum required length for the readable story. Defaults to 2000.
-            Returns:
-                str: The user summary portion of the constructed background prompt.
-        """
-        if not image_model:
-            image_model=self.image_model
-        last_full_story=''
+                return ''
+        return ''
 
-        #添加自迭代摘要结果 
-        summary_in_system=self._get_last_full_story(chathistory)
+    def _get_background_prompt_from_chathistory(self, chathistory) -> str:
+        """组装发给LLM的完整prompt"""
+        last_full_story = ''
+
+        # 添加自迭代摘要结果 
+        summary_in_system = self._get_last_full_story(chathistory)
         if summary_in_system:
             last_full_story += (
-                BackGroundPresetVars.system_prompt_hint+'\n'
-                +summary_in_system+'\n'
+                BackGroundPresetVars.system_prompt_hint + '\n'
+                + summary_in_system + '\n'
             )
 
+        # 添加场景内容
         last_full_story += (
-            BackGroundPresetVars.scene_hint+'\n'
-            + str(self._get_readable_story(chathistory,required_length=required_length))+'\n'
+            BackGroundPresetVars.scene_hint + '\n'
+            + self._get_readable_story(chathistory) + '\n'
         )
 
-        #添加用户主请求，从常量类取user_summary
-        user_summary=BackGroundPresetVars.user_summary
-        last_full_story+=user_summary+'\n'
+        # 添加用户主请求
+        last_full_story += BackGroundPresetVars.user_summary + '\n'
 
         # 添加风格要求
-        if background_style != '':
-            last_full_story+=(
-                BackGroundPresetVars.style_hint +'\n'
-                + background_style +'\n'
-                + '\n'
+        if self.background_style:
+            last_full_story += (
+                BackGroundPresetVars.style_hint + '\n'
+                + self.background_style + '\n\n'
             )
-        if 'irag' in image_model:
-            last_full_story+=BackGroundPresetVars.IRAG_USE_CHINESE
+
+        # IRAG 特殊处理
+        if 'irag' in self.image_model.lower():
+            last_full_story += BackGroundPresetVars.IRAG_USE_CHINESE
+
         return last_full_story
-
-    #背景更新：聊天记录到prompt
-    def back_ground_update_summary(self,
-                                  chathistory,
-                                  background_style='',
-                                  summary_api_provider='',
-                                  summary_model='',
-                                  required_lenth=2000
-                                  ):
-        """
-        Updates the background summary by sending a prompt to a summary API provider.
-        This method prepares a system prompt and retrieves the latest full story from the chat history,
-        then sends a request to the specified summary API provider using the given model. The response
-        is handled asynchronously, with signals connected for completion and error handling.
-        Args:
-            chathistory (list or object): The chat history data used to generate the background prompt.
-            background_style (str, optional): The style to apply when generating the background prompt. Defaults to ''.
-            summary_api_provider (str, optional): The key identifying which summary API provider to use. Defaults to ''.
-            summary_model (str, optional): The model name to use for the summary API request. Defaults to ''.
-        Emits:
-            failure (signal): Emitted if an exception occurs during the request, with the thread name and error message.
-        """
-        #先设置系统提示
-        summary_prompt=BackGroundPresetVars.summary_prompt
-        #再获取
-        last_full_story=self._get_background_prompt_from_chathistory(chathistory=chathistory,
-                                                                    background_style=background_style,
-                                                                    required_length=required_lenth)
-        messages=[
-            {"role":"system","content":summary_prompt},
-            {"role":"user","content":last_full_story}
-        ]
-
-        try:
-            self._init_api_requester(summary_api_provider=summary_api_provider)
-        except Exception as e:
-            self.failure.emit('APIRequestHandler init',str(e))
-            return
-        
-        try:
-            self.debug.emit(f"场景生成：prompt请求发送。\n发送内容长度:{len(last_full_story)}")
-            self.request_sender.send_request(message=messages,model=summary_model)
-            
-        except Exception as e:
-            # 如果线程中发生异常，也通过信号通知主线程
-            self.failure.emit('back_ground_update_thread',f"Error: {str(e)}")
-
-    #将prompt组合实例变量，转发到图像生成
-    def _handle_image_prompt_receive(self,return_prompt):
-        self._finish_image_agent()
-        self._finish_api_requester()
-        self.debug.emit(f'return_prompt received:{return_prompt}')
-        self.back_ground_update_generate_image(
-            return_prompt=return_prompt,
-            image_api_provider=self.image_api_provider,
-            image_model=self.image_model,
-            application_path=self.application_path,
-        )
-
-    def back_ground_update_generate_image(
-            self,
-            return_prompt='',
-            image_api_provider='',
-            image_model='',
-            application_path=''
-        ):
-        param={}
-        for _, __, obj in jsonfinder(return_prompt,json_only=True):
-            if isinstance(obj, dict):
-                param=obj
-            
-        if (not 'prompt' in param) or (not 'negative_prompt' in param):
-            self.failure.emit(
-                'background_image',
-                f'prompt extract failed, param extracted:{param},return_prompt:{return_prompt}'
-            )
-            return
-        print('image',image_model)
-        param['width']=1280
-        param['height']=720
-        param['model']=image_model
-
-        try:
-            self._init_image_agent(image_api_provider)
-        except Exception as e:
-            self.failure.emit('background_image creater init',f"Error: {str(e)}")
-
-        try:
-            self.creator.create(params_dict=param)
-        except Exception as e:
-            # 如果线程中发生异常，也通过信号通知主线程
-            self.failure.emit('background_image_create',f"Error: {str(e)}")
-
 #简易小组件
 class QuickSeparator(QFrame):
     """统一风格的分隔线组件"""
@@ -320,29 +273,33 @@ class SectionWidget(QWidget):
 
 #背景生成设置UI
 class BackgroundSettingsWidget(QWidget):
-    """背景设置主组件，包含信号机制和优化布局"""
-    
-    # 定义信号
-    modelProviderChanged = pyqtSignal(str)
-    modelChanged = pyqtSignal(str)
-    imageProviderChanged = pyqtSignal(str)
-    imageModelChanged = pyqtSignal(str)
-    updateSettingChanged = pyqtSignal(bool)
-    lockBackground = pyqtSignal(bool)
-    updateIntervalChanged = pyqtSignal(int)
-    historyLengthChanged = pyqtSignal(int)
-    styleChanged = pyqtSignal(str)
+    """背景设置组件 - 直接读写 APP_SETTINGS"""
+
     updateModelRequested = pyqtSignal()
     updateImageModelRequested = pyqtSignal()
-    backgroundImageChanged = pyqtSignal(str)
-    
-    def __init__(self):
-        super().__init__()
-        self.background_image_path = None
+    previewImageChanged = pyqtSignal(str)  # 预览图变了，主类刷新UI
+    updateSettingChanged = pyqtSignal(bool) # 主类有个进度条要刷新
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._initializing = False
+        self._image_model_map = {}
         self.setup_ui()
         self.setup_connections()
-        self.initing=False#信号已经block了，但文件选择框还是触发了
-        
+        self.load_from_settings()
+    @property
+    def cfg(self):
+        return APP_SETTINGS.background
+    
+    @property
+    def model_map(self) -> dict:
+        return APP_SETTINGS.api.model_map
+
+    def set_image_model_map(self, model_map: dict):
+        """外部设置图像模型映射后调用"""
+        self._image_model_map = model_map
+        self.load_from_settings()
+
     def setup_ui(self):
         # 主窗口设置
         self.setWindowTitle("背景设置")
@@ -541,298 +498,329 @@ class BackgroundSettingsWidget(QWidget):
         # 添加到主布局右侧
         main_layout.addWidget(preview_panel, 1)
 
-    def initialize_settings(self, settings_dict:dict):
-        """
-        使用传入的字典设置初始化所有控件
-        settings_dict: 包含所有初始化设置的字典
-            - model_map: {provider: [model_names]} 提示词模型映射
-            - image_model_map: {provider: [model_names]} 绘图模型映射
-            - back_ground_update_var: 是否启用后台更新（bool）
-            - lock_background,是否指定背景（bool）
-            - max_background_rounds: 更新间隔值（int）
-            - max_backgound_lenth: 参考对话长度（int）
-            - background_style: 生成风格文本（str）
-            - background_image_path: 背景图片路径（str，如果指定了背景）
-            - current_model: 当前选择的提示词模型 (provider, model_name)
-            - current_image_model: 当前选择的绘图模型 (provider, model_name)
-        """
-        # 使用信号阻塞确保初始化时不触发事件
-        self.blockSignals(True)
-        self.initing=True
-        # 保存模型映射到实例变量
-        self.model_map = settings_dict.get('model_map', {})
-        self.image_model_map = settings_dict.get('image_model_map', {})
-        
+    def load_from_settings(self):
+        """从 APP_SETTINGS 加载到控件"""
+        self._initializing = True
+        # 怎么光flag没有用的
+        # self.blockSignals(True)
         try:
-            # =================== 填充模型下拉框 ===================
-            # 清空现有选项
+            # --- 模型下拉框 ---
             self.provider_combo.clear()
-            self.model_combo.clear()
-            self.image_provider_combo.clear()
-            self.image_model_combo.clear()
-            
-            # 添加提示词模型提供者
             self.provider_combo.addItems(list(self.model_map.keys()))
-            
-            # 添加绘图模型提供者
-            self.image_provider_combo.addItems(list(self.image_model_map.keys()))
-            
-            # =================== 更新其他控件 ===================
-            # 更新设置组
-            self.enable_update_check.setChecked(settings_dict.get('back_ground_update_var', False))
-            self.specify_background_check.setChecked(settings_dict.get('lock_background', False))
-            
-            # 数值控件
-            update_interval = settings_dict.get('max_background_rounds', 15)
-            self.update_slider.setValue(update_interval)
-            self.update_spin.setValue(update_interval)
-            
-            history_length = settings_dict.get('max_backgound_lenth', 500)
-            self.history_slider.setValue(history_length)
-            self.history_spin.setValue(history_length)
-            
-            # 生成风格文本
-            self.style_text_edit.setText(settings_dict.get('background_style', ''))
-            
-            # 激活/禁用关联控件
-            update_enabled = settings_dict.get('back_ground_update_var', False)
-            self.update_slider.setEnabled(update_enabled)
-            self.update_spin.setEnabled(update_enabled)
-            self.history_slider.setEnabled(update_enabled)
-            self.history_spin.setEnabled(update_enabled)
-            
-            # =================== 设置选中模型 ===================
-            # 设置当前提示词模型
-            current_model = settings_dict.get('current_model', (None, None))
-            if current_model[0] in self.model_map and current_model[1] in self.model_map[current_model[0]]:
-                self.provider_combo.setCurrentText(current_model[0])
-                self.model_combo.addItems(self.model_map[current_model[0]])
-                self.model_combo.setCurrentText(current_model[1])
-            
-            # 设置当前绘图模型
-            current_image_model = settings_dict.get('current_image_model', (None, None))
-            if current_image_model[0] in self.image_model_map and current_image_model[1] in self.image_model_map[current_image_model[0]]:
-                self.image_provider_combo.setCurrentText(current_image_model[0])
-                self.image_model_combo.addItems(self.image_model_map[current_image_model[0]])
-                self.image_model_combo.setCurrentText(current_image_model[1])
-            
-            # =================== 背景图片处理 ===================
-            background_image_path = settings_dict.get('background_image_path', None)
-            if settings_dict.get('lock_background', False) and background_image_path:
-                self.background_image_path = background_image_path
-                self._update_preview_image(background_image_path)
+
+            self.image_provider_combo.clear()
+            self.image_provider_combo.addItems(list(self._image_model_map.keys()))
+
+            # 设置当前选中的 provider 和 model
+            if self.cfg.summary_provider in self.model_map:
+                self.provider_combo.setCurrentText(self.cfg.summary_provider)
+                self.model_combo.clear()
+                self.model_combo.addItems(self.model_map[self.cfg.summary_provider])
+                if self.cfg.summary_model in self.model_map[self.cfg.summary_provider]:
+                    self.model_combo.setCurrentText(self.cfg.summary_model)
+
+            if self.cfg.image_provider in self._image_model_map:
+                self.image_provider_combo.setCurrentText(self.cfg.image_provider)
+                self.image_model_combo.clear()
+                self.image_model_combo.addItems(self._image_model_map[self.cfg.image_provider])
+                if self.cfg.image_model in self._image_model_map[self.cfg.image_provider]:
+                    self.image_model_combo.setCurrentText(self.cfg.image_model)
+
+            # --- 开关和数值 ---
+            self.enable_update_check.setChecked(self.cfg.enabled)
+            self.specify_background_check.setChecked(self.cfg.lock)
+
+            self.update_slider.setValue(self.cfg.max_rounds)
+            self.update_spin.setValue(self.cfg.max_rounds)
+
+            self.history_slider.setValue(self.cfg.max_length)
+            self.history_spin.setValue(self.cfg.max_length)
+
+            self.style_text_edit.setText(self.cfg.style)
+
+            # --- 控件启用状态 ---
+            self._update_controls_enabled(self.cfg.enabled)
+
+            # --- 背景预览 ---
+            if self.cfg.lock and self.cfg.image_path:
+                self._update_preview_image(self.cfg.image_path)
             else:
                 self.preview_area.clear()
                 self.preview_area.setText("背景预览区域")
-        except Exception as e:
-            print('init background generate fail:',e)
+
         finally:
-            # 解除信号阻塞
-            self.initing=False
-            self.blockSignals(False)
-
-
+            self._initializing = False
+            #self.blockSignals(False)
     
+    # ==================== UI变更 → 写入配置 ====================
+
+    def _on_provider_changed(self, provider: str):
+        if not provider or self._initializing:
+            return
+        self.cfg.summary_provider = provider
+        # 更新模型下拉框
+        self.model_combo.clear()
+        if provider in self.model_map:
+            self.model_combo.addItems(self.model_map.get(provider, []))
+
+    def _on_model_changed(self, model: str):
+        if not model or self._initializing:
+            return
+        self.cfg.summary_model = model
+
+    def _on_image_provider_changed(self, provider: str):
+        if not provider or self._initializing:
+            return
+        self.cfg.image_provider = provider
+        self.image_model_combo.clear()
+        if provider in self._image_model_map:
+            self.image_model_combo.addItems(self._image_model_map[provider])
+
+    def _on_image_model_changed(self, model: str):
+        if not model or self._initializing:
+            return
+        self.cfg.image_model = model
+
+    def _on_enabled_changed(self, enabled: bool):
+        if self._initializing:
+            return
+        self.cfg.enabled = enabled
+        self._update_controls_enabled(enabled)
+        if enabled:
+            self.specify_background_check.setChecked(False)
+        self.updateSettingChanged.emit(enabled)
+
+    def _on_max_rounds_changed(self, value: int):
+        if self._initializing:
+            return
+        self.cfg.max_rounds = value
+        # 同步 slider 和 spin
+        if self.sender() == self.update_slider:
+            self.update_spin.blockSignals(True)
+            self.update_spin.setValue(value)
+            self.update_spin.blockSignals(False)
+        else:
+            self.update_slider.blockSignals(True)
+            self.update_slider.setValue(value)
+            self.update_slider.blockSignals(False)
+
+    def _on_max_length_changed(self, value: int):
+        if self._initializing:
+            return
+        self.cfg.max_length = value
+
+        if self.sender() == self.history_slider:
+            self.history_spin.blockSignals(True)
+            self.history_spin.setValue(value)
+            self.history_spin.blockSignals(False)
+        else:
+            self.history_slider.blockSignals(True)
+            self.history_slider.setValue(value)
+            self.history_slider.blockSignals(False)
+
+    def _on_style_changed(self):
+        if self._initializing:
+            return
+        self.cfg.style = self.style_text_edit.toPlainText()
+    
+    # ==================== 连接信号 ====================
     def setup_connections(self):
-        # 模型提供者改变信号
-        self.provider_combo.currentTextChanged.connect(
-            lambda text: [
-                self.model_combo.clear(),
-                self.model_combo.addItems(self.model_map[text]),
-                self.modelProviderChanged.emit(text)
-            ] if text else None
-        )
-        # 绘图模型提供者改变信号
-        self.image_provider_combo.currentTextChanged.connect(
-            lambda text: [
-                self.image_model_combo.clear(),
-                self.image_model_combo.addItems(self.image_model_map[text]),
-                self.imageProviderChanged.emit(text),
-            ]if text else None
-        )
-        
-        # 模型选择改变信号
-        self.model_combo.currentTextChanged.connect(self.modelChanged.emit)
-        self.image_model_combo.currentTextChanged.connect(self.imageModelChanged.emit)
-        
-        # 更新按钮信号
+        # 模型选择
+        self.provider_combo.currentTextChanged.connect(self._on_provider_changed)
+        self.model_combo.currentTextChanged.connect(self._on_model_changed)
+        self.image_provider_combo.currentTextChanged.connect(self._on_image_provider_changed)
+        self.image_model_combo.currentTextChanged.connect(self._on_image_model_changed)
+
+        # 开关
+        self.enable_update_check.toggled.connect(self._on_enabled_changed)
+        self.specify_background_check.toggled.connect(self._on_lock_changed)
+
+        # 数值
+        self.update_slider.valueChanged.connect(self._on_max_rounds_changed)
+        self.update_spin.valueChanged.connect(self._on_max_rounds_changed)
+        self.history_slider.valueChanged.connect(self._on_max_length_changed)
+        self.history_spin.valueChanged.connect(self._on_max_length_changed)
+
+        # 文本
+        self.style_text_edit.textChanged.connect(self._on_style_changed)
+
+        # 刷新按钮（这个还是要信号，让外部去拉新的模型列表）
         self.update_model_button.clicked.connect(self.updateModelRequested.emit)
         self.update_image_model_button.clicked.connect(self.updateImageModelRequested.emit)
-        
-        # 设置更新信号
-        self.enable_update_check.toggled.connect(self.updateSettingChanged.emit)
-        self.specify_background_check.toggled.connect(self.lockBackground.emit)
-        self.style_text_edit.textChanged.connect(lambda: self.styleChanged.emit(self.style_text_edit.toPlainText()))
-        
-        # 滑块和微调框值同步
-        self.update_slider.valueChanged.connect(
-            lambda val: [
-                self.update_spin.setValue(val),
-                self.updateIntervalChanged.emit(val)
-            ]
-        )
-        self.update_spin.valueChanged.connect(
-            lambda val: [
-                self.update_slider.setValue(val),
-                self.updateIntervalChanged.emit(val)
-            ]
-        )
-        
-        self.history_slider.valueChanged.connect(
-            lambda val: [
-                self.history_spin.setValue(val),
-                self.historyLengthChanged.emit(val)
-            ]
-        )
-        self.history_spin.valueChanged.connect(
-            lambda val: [
-                self.history_slider.setValue(val),
-                self.historyLengthChanged.emit(val)
-            ]
-        )
-        
-        # 启用更新时激活相关控件
-        self.enable_update_check.toggled.connect(
-            lambda state: [
-                self.update_slider.setEnabled(state),
-                self.update_spin.setEnabled(state),
-                self.history_slider.setEnabled(state),
-                self.history_spin.setEnabled(state)
-            ]
-        )
 
-        # 新增：指定背景复选框状态改变处理
-        self.specify_background_check.toggled.connect(self.on_specify_background_toggled)
-        
-        # 新增：启用后台更新时取消指定背景
-        self.enable_update_check.toggled.connect(
-            lambda state: state and self.specify_background_check.setChecked(False)
-            )
-    
-    def on_specify_background_toggled(self, checked):
+
+
+    def _on_lock_changed(self, checked: bool):
         """处理指定背景复选框状态变化"""
-        # 当选中时选择图片
-        if self.initing:
+        if self._initializing:
             return
+
         if checked:
-            self.enable_update_check.setChecked(False)  # 取消选中后台更新
+            self._initializing = True
+            self.enable_update_check.setChecked(False)
+            self._initializing = False
+
             file_path, _ = QFileDialog.getOpenFileName(
-                self, 
+                self,
                 "选择背景图片",
                 "",
                 "Images (*.png *.jpg *.jpeg *.bmp *.gif)"
             )
-            
+
             if file_path:
-                self.background_image_path = file_path
+                self.cfg.image_path = file_path
+                self.cfg.lock = True
                 self._update_preview_image(file_path)
-                self.backgroundImageChanged.emit(file_path)
+                self.previewImageChanged.emit(file_path)
             else:
-                self.specify_background_check.setChecked(False)  # 未选择图片则取消选中
-        
-        # 取消选中时清除背景
+                self._initializing = True
+                self.specify_background_check.setChecked(False)
+                self._initializing = False
+                self.cfg.lock = False
         else:
-            self.background_image_path = None
+            self.cfg.lock = False
+            self.cfg.image_path = ''
+            # 改这里：用 clear() 会同时清掉 master_pixmap
             self.preview_area.clear()
             self.preview_area.setText("背景预览区域")
-            self.backgroundImageChanged.emit("")
-    
-    def _update_preview_image(self, file_path):
+            self.previewImageChanged.emit("")
+
+    def _update_preview_image(self, file_path: str):
         """更新预览区域的图片"""
+        if not file_path:
+            self.preview_area.clear()
+            self.preview_area.setText("背景预览区域")
+            return
+
         pixmap = QPixmap(file_path)
-        if not pixmap.isNull():
-            self.preview_area.setText('')
-            self.preview_area.update_icon(pixmap)
+        if pixmap.isNull():
+            self.preview_area.clear()
+            self.preview_area.setText("图片加载失败")
+            return
+
+        self.preview_area.setText('')  # 清掉文字
+        self.preview_area.update_icon(pixmap)
+
+    
+    def _update_controls_enabled(self, enabled: bool):
+        """启用/禁用相关控件"""
+        self.update_slider.setEnabled(enabled)
+        self.update_spin.setEnabled(enabled)
+        self.history_slider.setEnabled(enabled)
+        self.history_spin.setEnabled(enabled)
 
     def show(self):
         super().show()
-        self.resize(int(1.5 * self.height()),  self.height())
+        self.resize(int(1.5 * self.height()), self.height())
+
         screen = QApplication.primaryScreen()
         if self.parent():
             screen = self.parent().screen()
-        
-        # 计算居中位置
+
         screen_geometry = screen.availableGeometry()
         x = (screen_geometry.width() - self.width()) // 2
         y = (screen_geometry.height() - self.height()) // 2
-        
-        # 设置位置（考虑屏幕偏移）
-        self.move(screen_geometry.left() + x, 
-                 screen_geometry.top() + y)
 
-#背景生成Agent类
+        self.move(screen_geometry.left() + x, screen_geometry.top() + y)
+
+# 背景生成代理
 class BackgroundAgent(QObject):
-    poll_success=pyqtSignal(str)
-    def __init__(
-            self,
-            default_apis,
-            model_map,
-            application_path,
-        ):
-        super().__init__()
-        self.default_apis=default_apis
-        # default_apis就是endpoints
-        self.model_map=model_map
-        self.application_path=application_path
-        self.image_agent=ImageAgent()
-        self.setting_window=BackgroundSettingsWidget()
-        self.update_worker=BackGroundWorker(
-            default_apis=self.default_apis,
-            application_path=self.application_path,
-        )
-        self.update_worker_processing=False
-        self.update_worker.poll_success.connect(self.poll_success.emit)
-        self.update_worker.poll_success.connect(lambda _:setattr(self,'update_worker_processing',False))
-        self.update_worker.poll_success.connect(lambda _:print('self.update_worker.poll_success received at BackgroundAgent'))
-        self.update_worker.failure.connect(lambda _:setattr(self,'update_worker_processing',False))
+    """背景生成代理 - 协调 Worker 和 SettingsWidget"""
 
-    def setup_setting_window(self,param_dict):
-        """
-        使用传入的字典设置初始化所有控件
-        settings_dict: 包含所有初始化设置的字典
-            - back_ground_update: 是否启用后台更新（bool）
-            - max_background_rounds: 更新间隔值（int）
-            - max_backgound_lenth: 参考对话长度（int）
-            - background_style: 生成风格文本（str）
-            - back_ground_update: 是否指定背景（bool）
-            - background_image_path: 背景图片路径（str，如果指定了背景）
-            - current_model: 当前选择的提示词模型 (provider, model_name)
-            - current_image_model: 当前选择的绘图模型 (provider, model_name)
-        """
-        if not hasattr(self,'setting_window'):
-            self.setting_window=BackgroundSettingsWidget()
-        param_dict['model_map']=self.model_map
-        param_dict['image_model_map']=self.image_agent.get_model_map()
-        self.setting_window.initialize_settings(param_dict)
-    
-    def generate(self,default_apis={},
-                 summary_api_provider='',
-                 summary_model='',
-                 image_api_provider='',
-                 image_model='',
-                 chathistory=[],
-                 background_style='',
-                 required_lenth=2000
-                 ):
-        if self.update_worker_processing:
-            return
-        self.update_worker_processing=True
-        #在主类调用时default_apis可以不传
-        self.default_apis = default_apis if default_apis else self.default_apis
-        self.update_worker.set_providers(
-            summary_api_provider=summary_api_provider,
-            summary_model=summary_model,
-            image_api_provider=image_api_provider,
-            image_model=image_model,
-        )
-        self.update_worker.generate(
-            chathistory=chathistory,
-            background_style=background_style,
-            required_lenth=required_lenth,
-        )
+    poll_success = pyqtSignal(str)
+    failure = pyqtSignal(str)
 
-    def show(self):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+
+        self._processing = False
+
+        # 子组件，都自己读 APP_SETTINGS
+        self.image_agent = ImageAgent()
+        self.setting_window = BackgroundSettingsWidget()
+        self.worker = BackgroundWorker()
+
+        self._setup_connections()
+
+    @property
+    def cfg(self):
+        return APP_SETTINGS.background
+
+    @property
+    def is_processing(self) -> bool:
+        return self._processing
+
+    def _setup_connections(self):
+        # Worker 信号
+        self.worker.poll_success.connect(self._on_generate_success)
+        self.worker.failure.connect(self._on_generate_failure)
+
+        # SettingsWidget 信号 - 更新图像模型列表
+        self.setting_window.updateImageModelRequested.connect(self._refresh_image_models)
+
+        # 预览图变化 → 可以转发给外部
+        self.setting_window.previewImageChanged.connect(self.poll_success.emit)
+
+    def _on_generate_success(self, image_path: str):
+        self._processing = False
+        self.poll_success.emit(image_path)
+
+    def _on_generate_failure(self, source: str, error: str):
+        self._processing = False
+        self.failure.emit(f"BGA Failed: {source} {error}")
+
+    def _refresh_image_models(self):
+        """刷新图像模型列表"""
+        image_model_map = self.image_agent.get_image_model_map()
+        self.setting_window.set_image_model_map(image_model_map)
+
+    # ==================== 公开方法 ====================
+
+    def initialize(self):
+        """初始化设置窗口（首次显示前调用）"""
+        # 加载图像模型映射
+        self._refresh_image_models()
+        # Widget 会自己从 APP_SETTINGS 加载其他配置
+
+    def generate(self, chathistory: list):
+        """
+        生成背景图
+        只需要传 chathistory，其他参数全从 APP_SETTINGS.background 读
+        """
+        if self._processing:
+            print('[BackgroundAgent] 正在处理中，忽略重复请求')
+            return False
+
+        if not self.cfg.enabled:
+            return False
+
+        if self.cfg.lock:
+            # 锁定模式，不自动生成
+            return False
+
+        self._processing = True
+        self.worker.generate(chathistory)
+        return True
+
+    def force_generate(self, chathistory: list):
+        """强制生成，忽略 enabled 和 lock 状态"""
+        if self._processing:
+            return False
+
+        self._processing = True
+        self.worker.generate(chathistory)
+        return True
+
+    def show_settings(self):
+        """显示设置窗口"""
+        self.initialize()  # 确保模型列表是最新的
         self.setting_window.show()
-    
+        self.setting_window.raise_()
+        self.setting_window.activateWindow()
+
+    # 兼容旧接口
+    def show(self):
+        self.show_settings()
+
     def raise_(self):
         self.setting_window.raise_()

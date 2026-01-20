@@ -2156,6 +2156,7 @@ class MainWindow(QMainWindow):
         except Exception as e:
             LOGGER.error(f"config_save fail: {e}")
         #ModelMapManager().save_model_map(MODEL_MAP)
+        ConfigManager.save_settings(APP_SETTINGS)
         self.mod_configer.run_close_event()
         # 确保执行父类关闭操作
         super().closeEvent(event)
@@ -2320,130 +2321,37 @@ class MainWindow(QMainWindow):
             # 如果线程中发生异常，也通过信号通知主线程
             self.info_manager.warning(f'长对话优化报错，Error code:{e}')
 
-    #对话设置，主设置，全局设置
+    # === 对话设置，主设置，全局设置 ===
     def open_max_send_lenth_window(self):
-        config = {
-            'max_message_rounds': self.max_message_rounds,
-            'long_chat_improve_var': self.long_chat_improve_var,
-            'long_chat_placement': self.long_chat_placement,
-            'MODEL_MAP': MODEL_MAP,
-            'long_chat_improve_api_provider': self.long_chat_improve_api_provider,
-            'long_chat_improve_model': self.long_chat_improve_model,
-            'top_p_enable': self.top_p_enable,
-            'temperature_enable': self.temperature_enable,
-            'presence_penalty_enable': self.presence_penalty_enable,
-            'top_p': self.top_p,
-            'temperature': self.temperature,
-            'presence_penalty': self.presence_penalty,
-            'long_chat_hint': self.long_chat_hint,
-            'autoreplace_var': self.autoreplace_var,
-            'autoreplace_from': self.autoreplace_from,
-            'autoreplace_to': self.autoreplace_to,
-            'name_user': self.name_user,
-            'name_ai': self.name_ai,
-            'enable_lci_system_prompt':self.enable_lci_system_prompt,
-            'stream_receive':self.stream_receive,
-            'enable_title_creator_system_prompt':self.enable_title_creator_system_prompt,
-            'title_creator_use_local':self.title_creator_use_local,
-            'title_creator_max_length':self.title_creator_max_length,
-            'title_creator_provider':self.title_creator_provider,
-            'title_creator_model':self.title_creator_model
-        }
-        if not hasattr(self,"main_setting_window"):
-            self.main_setting_window=MainSettingWindow(config=config)
-            self._connect_signal_mcsw_window()
-        #自动模型库更新完成后需要更新模型盒子
-        self.main_setting_window.populate_values(config)
+        if not hasattr(self, "main_setting_window"):
+            self.main_setting_window = MainSettingWindow(settings=APP_SETTINGS)
+            self._connect_setting_signals()
+        self.main_setting_window.populate_values()
         self.main_setting_window.show()
         self.main_setting_window.raise_()
 
-    def _connect_signal_mcsw_window(self):
-        if hasattr(self, "main_setting_window"):
-            # 最大对话轮数
-            self.main_setting_window.max_rounds_changed.connect(
-                lambda value: setattr(self, 'max_message_rounds', value))
-            # 长对话优化设置
-            self.main_setting_window.long_chat_improve_changed.connect(
-                lambda state: setattr(self, 'long_chat_improve_var', state))
-            self.main_setting_window.include_system_prompt_changed.connect(
-                lambda state: setattr(self, 'enable_lci_system_prompt', state))
-            self.main_setting_window.long_chat_placement_changed.connect(
-                lambda text: setattr(self, 'long_chat_placement', text))
-            self.main_setting_window.long_chat_api_provider_changed.connect(
-                lambda text: setattr(self, 'long_chat_improve_api_provider', text))
-            self.main_setting_window.long_chat_model_changed.connect(
-                lambda text: setattr(self, 'long_chat_improve_model', text))
-            
-            # 参数设置
-            self.main_setting_window.top_p_changed.connect(
-                lambda value: setattr(self, 'top_p', value))
-            self.main_setting_window.temperature_changed.connect(
-                lambda value: setattr(self, 'temperature', value))
-            self.main_setting_window.presence_penalty_changed.connect(
-                lambda value: setattr(self, 'presence_penalty', value))
-            self.main_setting_window.top_p_enable_changed.connect(
-                lambda state: setattr(self, 'top_p_enable', state))
-            self.main_setting_window.temperature_enable_changed.connect(
-                lambda state: setattr(self, 'temperature_enable', state))
-            self.main_setting_window.presence_penalty_enable_changed.connect(
-                lambda state: setattr(self, 'presence_penalty_enable', state))
-            self.main_setting_window.stream_receive_changed.connect(
-                lambda state: setattr(self, 'stream_receive', state))
 
-            # 自定义提示
-            self.main_setting_window.custom_hint_changed.connect(
-                lambda text: setattr(self, 'long_chat_hint', text))
-            
-            # 自动替换
-            self.main_setting_window.autoreplace_changed.connect(
-                lambda state: setattr(self, 'autoreplace_var', state))
-            self.main_setting_window.autoreplace_from_changed.connect(
-                lambda text: setattr(self, 'autoreplace_from', text))
-            self.main_setting_window.autoreplace_to_changed.connect(
-                lambda text: setattr(self, 'autoreplace_to', text))
-            
-            # 代称设置
-            self.main_setting_window.user_name_changed.connect(
-                lambda text:self.handle_name_changed('user',text))
-            self.main_setting_window.assistant_name_changed.connect(
-                lambda text:self.handle_name_changed('assistant',text))
-            
-            # 标题生成设置
-            self.main_setting_window.title_creator_system_prompt_changed.connect(
-                lambda state: setattr(self, 'enable_title_creator_system_prompt', state))
-            self.main_setting_window.title_creator_use_local_changed.connect(
-                lambda state: setattr(self, 'title_creator_use_local', state))
-            self.main_setting_window.title_creator_max_length_changed.connect(
-                lambda value: setattr(self, 'title_creator_max_length', value))
-            self.main_setting_window.title_creator_provider_changed.connect(
-                lambda text: (
-                    setattr(self, 'title_creator_provider', text),
-                    self.title_generator.set_provider(
-                        provider=text,model=self.title_creator_model,api_config=self.api
-                        )
-                )
-            )
-            self.main_setting_window.title_creator_model_changed.connect(
-                lambda text: (
-                    setattr(self, 'title_creator_model', text),
-                    self.title_generator.set_provider(
-                        model=text,provider=self.title_creator_provider,api_config=self.api
-                        )
-                )
-            )
+    def _connect_setting_signals(self):
+        # LCI开关 → 更新状态栏图标
+        self.main_setting_window.lci_enabled_changed.connect(self.update_opti_bar)
 
-            self.main_setting_window.long_chat_improve_changed.connect(
-                self.update_opti_bar
-            )
+        # 代称变更 → 更新历史记录和气泡
+        self.main_setting_window.name_changed.connect(self.handle_name_changed)
 
-    #名称更新
-    def handle_name_changed(self,role,name):
-        if role=='user':
-            self.name_user=name
-        elif role=='assistant':
-            self.name_ai=name
+        # 标题生成provider/model变更 → 重新设置title_generator
+        self.main_setting_window.title_provider_changed.connect(
+            lambda provider, model: self.title_generator.set_provider(
+                provider=provider, model=model, api_config=APP_SETTINGS.api
+            )
+        )
+
+
+    # === 名称更新 ===
+    def handle_name_changed(self, role, name):
+        # 不需要再写self.name_user了，UI已经写到APP_SETTINGS.names里了
         self.init_name_to_history()
         self.update_name_to_chatbubbles()
+
     #历史对话
     def past_chats_menu(self, position):
         target_item = self.past_chat_list.itemAt(position)
@@ -2550,37 +2458,14 @@ class MainWindow(QMainWindow):
         self.switchImage(self.background_image_path)
 
     def _setup_bsw(self):
-        do_init=False
         if not hasattr(self,'background_agent'):
-            do_init=True
-        elif self.background_agent.model_map!=MODEL_MAP or\
-            self.background_agent.default_apis!=DEFAULT_APIS:
-            do_init=True
-        if do_init:
-            self.background_agent=BackgroundAgent(
-                    DEFAULT_APIS,#用于填入BackGroundWorker
-                    MODEL_MAP,#用于填充总结模型库
-                    application_path=application_path,
-                )
+            self.background_agent=BackgroundAgent()
             self.bind_background_signals()
 
     #背景更新：设置窗口
     def background_settings_window(self):
         """创建并显示设置子窗口，用于更新配置变量"""
         self._setup_bsw()
-        params={
-            'max_background_rounds':self.max_background_rounds,#更新间隔/轮次
-            'max_backgound_lenth':self.max_backgound_lenth,#参考长度
-            'back_ground_update_var':self.back_ground_update_var,#是否启用自动更新
-            'lock_background':self.lock_background,
-            'current_model':(self.back_ground_summary_provider,#提示词模型
-                            self.back_ground_summary_model),
-            'current_image_model':(self.back_ground_image_provider,#图像模型
-                                self.back_ground_image_model),
-            'background_style':self.background_style,
-            'background_image_path':self.background_image_path,#当前背景图路径
-        }
-        self.background_agent.setup_setting_window(params)
         self.background_agent.show()
         self.background_agent.raise_()
         
@@ -2599,51 +2484,16 @@ class MainWindow(QMainWindow):
             connection = signal.connect(slot)
             self._bg_signal_connections.append(lambda: signal.disconnect(connection))
 
-        # 使用辅助函数添加连接
-        add_connection(
-            self.background_agent.setting_window.modelProviderChanged,
-            lambda p: setattr(self, 'back_ground_summary_provider', p)
-        )
-        add_connection(
-            self.background_agent.setting_window.modelChanged,
-            lambda m: setattr(self, 'back_ground_summary_model', m)
-        )
-        add_connection(
-            self.background_agent.setting_window.imageProviderChanged,
-            lambda p: setattr(self, 'back_ground_image_provider', p)
-        )
-        add_connection(
-            self.background_agent.setting_window.imageModelChanged,
-            lambda m: setattr(self, 'back_ground_image_model', m)
-        )
-        add_connection(
-            self.background_agent.setting_window.updateSettingChanged,
-            lambda e: setattr(self, 'back_ground_update_var', e)
-        )
         add_connection(
             self.background_agent.setting_window.updateSettingChanged,
             self.update_opti_bar
         )
+
         add_connection(
-            self.background_agent.setting_window.updateIntervalChanged,
-            lambda i: setattr(self, 'max_background_rounds', i) or self.update_opti_bar()
-        )
-        add_connection(
-            self.background_agent.setting_window.historyLengthChanged,
-            lambda l: setattr(self, 'max_backgound_lenth', l)
-        )
-        add_connection(
-            self.background_agent.setting_window.styleChanged,
-            lambda s: setattr(self, 'background_style', s)
-        )
-        add_connection(
-            self.background_agent.setting_window.backgroundImageChanged,
+            self.background_agent.setting_window.previewImageChanged,
             lambda path: self.update_background(path) if path else self.update_background('background.jpg')
         )
-        add_connection(
-            self.background_agent.setting_window.lockBackground,
-            lambda b: setattr(self, 'lock_background', b)
-        )
+
         add_connection(
             self.background_agent.poll_success,
             lambda path: [
@@ -2901,15 +2751,19 @@ class MainWindow(QMainWindow):
 
     #气泡名称更新
     def update_name_to_chatbubbles(self):
-        self.chat_history_bubbles.nicknames={'user': self.name_user, 'assistant': self.name_ai}
+        self.chat_history_bubbles.nicknames = {
+            'user': APP_SETTINGS.names.user, 
+            'assistant': APP_SETTINGS.names.ai
+        }
         self.chat_history_bubbles.update_all_nicknames()
 
     #名称注入历史记录
     def init_name_to_history(self):
-        self.chathistory[0]['info']['name']={
-            'user':self.name_user,
-            'assistant':self.name_ai
+        self.chathistory[0]['info']['name'] = {
+            'user': APP_SETTINGS.names.user,
+            'assistant': APP_SETTINGS.names.ai
         }
+
 
     #创建新消息
     def creat_new_chathistory(self):

@@ -2,12 +2,21 @@ import os,sys
 from typing import List, Dict, Optional, Any
 from pydantic import BaseModel, ConfigDict,Field, model_validator
 
+
 # ==================== 核心基类 ====================
 
 class BaseSettings(BaseModel):
     """
-    基于 Pydantic 的配置基类。
-    所有配置类都继承这个，自动获得 Update 能力和类型检查能力。
+    该类为所有配置类提供基础功能，自动获得属性更新（update 方法）和类型检查能力。
+    继承自 BaseModel，适用于需要动态更新配置且保持类型安全的场景。
+    Attributes:
+        model_config (ConfigDict): 配置 Pydantic V2 的行为，包括属性赋值校验、忽略多余字段、允许任意类型。
+    Methods:
+        update(data: Dict[str, Any]) -> None:
+            原地递归更新模型属性。对于嵌套的 BaseSettings 子模型，支持递归更新，确保对象内存地址不变。
+            非嵌套字段直接赋值，触发 Pydantic 的类型校验。List 类型字段会被整体替换。
+        to_dict() -> dict:
+            返回模型的字典表示，兼容旧代码的 to_dict 调用方式，等价于 model_dump()。
     """
 
     # 配置 Pydantic V2 的行为
@@ -46,7 +55,7 @@ class BaseSettings(BaseModel):
         return self.model_dump()
 
 
-# ==================== 分类子配置 (Settings) ====================
+# ==================== 用户配置 ====================
 
 class BackgroundSettings(BaseSettings):
     """背景图自动生成设置"""
@@ -162,6 +171,10 @@ class InputLimitSettings(BaseSettings):
     max_input_length:int = 32767
     """单个对话长度"""
 
+class NameSettings(BaseSettings): 
+    """默认/回退名称"""
+    user: str = "user"
+    ai: str = 'assistant'
 
 class TTSSettings(BaseSettings): 
     """语音合成配置"""
@@ -271,7 +284,7 @@ class ApiConfig(BaseSettings):
         "tencent": ProviderConfig(
             url="https://api.lkeap.cloud.tencent.com/v1",
             key="",
-            models=["deepseek-v3.2", "deepseek-v3"]
+            models=["deepseek-v3.2"]
         ),
         "novita": ProviderConfig(
             url="https://api.novita.ai/v3",
@@ -300,10 +313,19 @@ class ApiConfig(BaseSettings):
 # >>> 用户配置总入口 <<<
 class AppSettings(BaseSettings):
     generation: GenerationSettings = Field(default_factory=GenerationSettings)
+    """生成参数"""
+
     limits: InputLimitSettings = Field(default_factory=InputLimitSettings)
+    """输入限制和请求截断"""
+
     tts: TTSSettings = Field(default_factory=TTSSettings)
+    """TTS"""
+
     title: TitleSettings = Field(default_factory=TitleSettings)
+    """标题生成"""
+
     replace: AutoReplaceSettings = Field(default_factory=AutoReplaceSettings)
+    """响应内容自动替换"""
 
     lci: LciSettings = Field(default_factory=LciSettings)
     """上下文自动压缩"""
@@ -318,11 +340,15 @@ class AppSettings(BaseSettings):
     """强制降重"""
 
     api: ApiConfig = Field(default_factory=ApiConfig)
-    """api"""
+    """api: 供应商和key"""
+
+    names: NameSettings = Field(default_factory=NameSettings)
+    """默认/回退名称"""
 
 # 初始化单例
 APP_SETTINGS = AppSettings()
 
+# ==================== 运行时配置 ====================
 class AppPaths(BaseSettings):
     # 先定义成普通字段，给个空字符串当占位符
     application_path: str = ""
@@ -346,6 +372,7 @@ class AppPaths(BaseSettings):
 
         return self
 
+# >>> 全局运行时单例 <<<
 class AppRuntime(BaseSettings):
     paths: AppPaths = Field(default_factory=AppPaths)
 

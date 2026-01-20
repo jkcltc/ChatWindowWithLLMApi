@@ -40,6 +40,10 @@ def extract_api_info(provider, api_config=None):
     :param api_config: API配置信息
     :return: (api_key, url, provider_type)
     """
+    def is_api_config_object(obj):
+        """判断是否为 ApiConfig 数据类"""
+        return hasattr(obj, 'providers') and hasattr(obj, 'endpoints')
+
     def is_dsls(obj):
         """判断是否为{'provider':['url','key']}"""
         if not isinstance(obj, dict):
@@ -121,6 +125,13 @@ def extract_api_info(provider, api_config=None):
     elif is_dsuk(api_config):
         url = api_config['url']
         api_key = api_config['key']
+    
+    elif is_api_config_object(api_config):
+        if provider not in api_config.providers:
+            raise ValueError(f'Provider "{provider}" not found in api_config')
+        config = api_config.providers[provider]
+        url = config.url
+        api_key = config.key
     
     else:
         #self.completion_failed.emit('FFR-set_provider', 'Unrecognized structure')

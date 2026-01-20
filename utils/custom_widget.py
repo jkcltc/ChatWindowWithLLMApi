@@ -334,6 +334,16 @@ class AspectLabel(QLabel):
     def lock(self):
         """锁定图片内容（允许缩放）"""
         self.locked = True
+    
+    def clear(self):
+        """清除图片和文字"""
+        self.master_pixmap = None
+        super().clear()
+
+    def clear_image(self):
+        """只清除图片，保留文字"""
+        self.master_pixmap = None
+        super().setPixmap(QPixmap())  # 设置空 pixmap
 
     def unlock(self):
         """解锁图片内容"""

@@ -333,13 +333,20 @@ class FullFunctionRequestHandler(QObject):
                 self._update_info(event)
 
         except Exception as e:
+            try:
+                json.loads(str(e))
+                error_code=f"""
+```json
+{e}
+```"""
+            except:
+                error_code=str(e)
             self.completion_failed.emit(
                 self.request_id, 
                 f'''Stream request failed.
 Error code :
-```json
-{e}
-```'''
+{error_code}
+'''
 #Request payload :
 #```json
 #{json.dumps(request_data, indent=2, ensure_ascii=False)}

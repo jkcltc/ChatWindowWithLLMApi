@@ -473,7 +473,7 @@ class TitleGenerator(QObject):
         if not isinstance(text, str):
             text = str(text or "")
         # 移除换行与常见不支持字符
-        unsupported = r'[\n<>:"/\\|?*{}```math```,，。.!！:：;；\'" ]'
+        unsupported = r'[\n<>:"/\\|?*{}`,，。.!！:：;；\'"]'
         text = re.sub(unsupported, "", text)
         text = text.strip()
         if not text:

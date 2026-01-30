@@ -10,6 +10,7 @@ import threading
 import asyncio
 import random
 import json
+from utils.setting.data import TTSSettings
 
 class WindowAnimator:
     @staticmethod
@@ -1381,14 +1382,15 @@ class TTSIncomeMessageHandler:
 
 class TTSAgent(QGroupBox):
     tts_state=pyqtSignal(bool,str)
-    def __init__(self,application_path=''):
+    def __init__(self,setting:TTSSettings,application_path):
         super().__init__()
         self.function_dict={
             'Edge-tts':EdgeTTSMainSetting,
             'CosyVoice':CosyVoiceTTSWindow
         }
         self.message_handler=TTSIncomeMessageHandler()
-        self.tts_enabled=False
+        self.setting=setting
+        
         self.application_path=application_path
         self.agent_layout=QGridLayout()
         self.setLayout(self.agent_layout)
@@ -1407,8 +1409,8 @@ class TTSAgent(QGroupBox):
     
     def confirm_generator_change(self, name):
         if not name in self.function_dict:
-            self.tts_enabled=False
-            self.tts_state.emit(self.tts_enabled,'')
+            self.setting.tts_enabled=False
+            self.setting.tts_provider='不使用TTS'
         if not hasattr(self, 'generator'):
             self.set_generator(name)
             self.current_generator = name
@@ -1429,31 +1431,33 @@ class TTSAgent(QGroupBox):
         if reply == QMessageBox.StandardButton.Yes:
             self.set_generator(name)
             self.current_generator = name
-            self.tts_state.emit(self.tts_enabled,name)
+            self.setting.tts_provider = name
         else:
             # 还原到更改前的选项
             self.generator_selector.blockSignals(True)  # 临时阻塞信号
             self.generator_selector.setCurrentText(self.current_generator)
+            self.setting.tts_provider = self.current_generator
             self.generator_selector.blockSignals(False)  # 恢复信号连接
 
 
     def set_generator(self, name):
         if not name in self.function_dict:
             self.generator=None
-            self.tts_enabled=False
+            self.setting.tts_enabled=False
             if hasattr(self,'mini_setting'):
                 self.mini_setting.deleteLater()
             return
+        self.setting.tts_provider=name
         self.generator=self.function_dict[name](self.application_path)
         self.generator.enable_dialog_extract.connect(lambda state:setattr(self,'enable_dialog_extract',state))
         self.mini_setting=TTSMainSettingMini(parent=self.generator)
         self.mini_setting.enable_dialog_extract.connect(lambda state:setattr(self,'enable_dialog_extract',state))
         self.agent_layout.addWidget(self.mini_setting,0,1,3,1)
-        self.tts_enabled=True
+        self.setting.tts_enabled=True
 
     def send_tts_request(self,name,text,force_remain=False):
         self.call_iter+=1
-        if not self.tts_enabled or not text:
+        if not self.setting.tts_enabled or not text:
             return
         if not force_remain and self.call_iter%3!=0:
             return

@@ -431,11 +431,11 @@ class WebSearchTool:
             return ''
 
 # 搜索组件
-class WebSearchSettingWindows:
-    def __init__(self):
-        
+class WebSearchSettingWindows(QObject):
+    update_result_ui=pyqtSignal()
 
-        self.search_engine = "baidu"
+    def __init__(self):
+        super().__init__()
         self.results_num = 10
 
         self.search_queue = queue.Queue()
@@ -449,6 +449,8 @@ class WebSearchSettingWindows:
         self.finished = False
         self.search_complete_event = threading.Event()
 
+        self.update_result_ui.connect(self.display_results)
+
         self.create_search_settings()
         self.create_search_results()
 
@@ -457,6 +459,10 @@ class WebSearchSettingWindows:
         """实时获取"""
         return APP_SETTINGS.api.model_map
 
+    @property
+    def default_apis(self):
+        return APP_SETTINGS.api.providers
+    
     @property
     def endpoints(self):
         """实时获取"""
@@ -469,7 +475,7 @@ class WebSearchSettingWindows:
         engine_label = QLabel("搜索引擎")
         self.engine_combo = QComboBox()
         self.engine_combo.addItems(["baidu", "bing"])
-        self.engine_combo.setCurrentText(self.search_engine)
+        self.engine_combo.setCurrentText(APP_SETTINGS.web_search.search_engine)
         layout.addWidget(engine_label)
         layout.addWidget(self.engine_combo)
         
@@ -528,8 +534,11 @@ class WebSearchSettingWindows:
         
     def save_settings(self):
         """保存设置"""
-        self.search_engine = self.engine_combo.currentText()
-        self.results_num = int(self.result_num_edit.text() or 10)  # 默认10条
+        search_engine = self.engine_combo.currentText()
+        results_num = int(self.result_num_edit.text() or 10)  # 默认10条
+        APP_SETTINGS.web_search.search_engine = search_engine
+        APP_SETTINGS.web_search.search_results_num = results_num
+
         self.search_settings_widget.hide()
         
     def create_search_results(self):
@@ -568,14 +577,13 @@ class WebSearchSettingWindows:
         layout.addWidget(self.results_list)
         self.search_results_widget.setLayout(layout)
          
-    def perform_search(self, query, apikey=None):
+    def perform_search(self, query):
         """执行搜索并更新结果（使用线程避免阻塞UI）"""
         # 读取当前UI参数
         self.finished=False
         self.search_complete_event.clear()
         engine = self.engine_combo.currentText()
-        results_num = self.results_num
-        self.current_apikey = apikey  # 保存apikey供后续使用
+        results_num = APP_SETTINGS.web_search.search_results_num
 
         # 启动后台线程执行搜索
         search_thread = threading.Thread(
@@ -584,10 +592,8 @@ class WebSearchSettingWindows:
             daemon=True
         )
         search_thread.start()
-
-        self.result_timer = QTimer()
-        self.result_timer.timeout.connect(self.check_search_result)
-        self.result_timer.start(100)
+        search_thread.join()
+        print('joined search_thread')
 
         # 开始检查结果（根据GUI框架调整）
         self.check_search_result()
@@ -613,25 +619,28 @@ class WebSearchSettingWindows:
         try:
             # 非阻塞获取结果
             result = self.search_queue.get_nowait()
-            self.result_timer.stop()  # 停止定时器
             
             # 处理RAG（在主线程操作UI组件）
-            if self.rag_checkbox.isChecked() and self.current_apikey:
-                rag_model = self.rag_model_combo.currentText()
-                rag_link = self.default_apis[self.rag_provider_combo.currentText()]["url"]
-                
-                # 创建临时工具处理RAG
-                self.rag_result=self.tool.online_rag(
-                    self.current_apikey,
-                    rag_link,
-                    rag_model
+            if APP_SETTINGS.web_search.use_llm_reformat:
+                config = APP_SETTINGS.web_search.reformat_config
+                provider_info = APP_SETTINGS.api.providers.get(config.provider)
+
+                if not provider_info:
+                    raise ValueError(f"未找到API提供商: {config.provider}")
+
+                self.rag_result = self.tool.online_rag(
+                    api_key=provider_info.key,
+                    url=provider_info.url,
+                    model=config.model
                 )
-            
+
             # 更新结果并显示
             self.result = result
-            self.display_results()
+            self.update_result_ui.emit()
         except queue.Empty:
             None
+        except Exception as e:
+            print(e)
 
     def display_results(self):
         """展示搜索结果"""

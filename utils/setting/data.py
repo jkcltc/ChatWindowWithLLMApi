@@ -54,6 +54,10 @@ class BaseSettings(BaseModel):
         """兼容旧代码的 to_dict 调用"""
         return self.model_dump()
 
+# ==================== 快捷编组 ====================
+class LLMUsagePack(BaseModel):
+    provider: str = 'deepseek'
+    model: str = 'deepseek-chat'
 
 # ==================== 用户配置 ====================
 
@@ -123,6 +127,11 @@ class LciSettings(BaseSettings):
 class WebSearchSettings(BaseSettings):
     """手动强制搜索"""
     web_search_enabled: bool = False
+    search_engine: str = 'bing'
+    search_results_num: int = 5
+
+    use_llm_reformat: bool = False
+    reformat_config: LLMUsagePack = Field(default_factory=LLMUsagePack)
 
 class ForceRepeatSettings(BaseSettings):
     """强制降重"""

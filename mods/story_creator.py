@@ -474,6 +474,9 @@ AI扮演的角色负责提供信息和引导。
                 if isinstance(obj, list):  # 确保我们提取到的是JSON数组
                     self.request_completed.emit(obj)
                     print('主线解析发现结果')
+            if not obj:
+                print('主线解析未发现结果')
+                self.request_completed.emit(['failed to parse json'])
             else:
                 print('主线解析结束')
         except json.JSONDecodeError:
@@ -896,6 +899,7 @@ class StoryManagerBackend(QWidget):
 
     def update_story_treeview(self, story_nodes: list):
         """更新剧情树视图"""
+        print('story_nodes collected at update_story_treeview',story_nodes)
         # 获取story_treeview控件
         tree = self.ui.story_treeview
         
@@ -928,7 +932,7 @@ class StoryManagerBackend(QWidget):
             item.setToolTip(1, node['content'])
             
             # 添加展开/收起指示器（小三角形）
-            item.setChildIndicatorPolicy(QTreeWidgetItem.ShowIndicator)
+            item.setChildIndicatorPolicy(QTreeWidgetItem.ChildIndicatorPolicy.ShowIndicator)
         self.ui.respond_json.setText(json.dumps(story_nodes, ensure_ascii=False, indent=2))
         self.ui.ai_create_story.setEnabled(True)
         self.ui.ai_create_story.stop_animation()

@@ -51,12 +51,12 @@ from utils.concurrentor import ConvergenceDialogueOptiProcessor
 from utils.preset_data import *
 from utils.usage_analysis import TokenAnalysisWidget
 from utils.chat_history_manager import ChatHistoryEditor,ChathistoryFileManager,TitleGenerator,ChatHistoryTools,ChatHistoryTextView,HistoryListWidget
+from utils.message.preprocessor import ChatCompletionPack,MessagePreprocessor
 from utils.avatar import AvatarCreatorWindow
 from utils.background_generate import BackgroundAgent
 from utils.tools.one_shot_api_request import FullFunctionRequestHandler,APIRequestHandler
 from utils.status_analysis import StatusAnalyzer
 from utils.tools.str_tools import StrTools
-from utils.tools.patch_manager import GlobalPatcher
 
 LOGGER.log(f'CWLA custom lib import finished, time cost:{time.time()-start_time_stamp:.2f}s')
 
@@ -194,163 +194,54 @@ class RepeatProcessor:
             text = text.replace(symbol, '')
         return text
 
-#发送消息前处理器
-class MessagePreprocessor:
+#发送消息前处理器的patch
+class PreprocessorPatch:
     def __init__(self, god_class):
-        self.god = god_class  # 保存对原类的引用
-        self.stream = True
+        self.god = god_class
 
-    def prepare_message(self, tools=False):
+    def prepare_patch(self):
         """预处理消息并构建API参数"""
-        start = time.perf_counter()
         
-        # 1. 在最开始获取原始数据并深复制一次
-        better_round = self._calculate_better_round()
-        raw_messages = self._get_raw_messages(better_round)
-        
-        # 2. 深复制原始消息，之后所有操作都在副本上进行
-        messages = copy.deepcopy(raw_messages)
+        web_search_results = self._handle_web_search_results()
+        enforce_lower_repeat_text = APP_SETTINGS.force_repeat.enforce_lower_repeat_text \
+            if APP_SETTINGS.force_repeat.enforce_lower_repeat_text \
+            else self.god.enforce_lower_repeat_text
+        temp_style=self.god.temp_style
 
-        # 3. 按顺序应用所有处理，都操作深复制后的 messages
-        messages = self._fix_chat_history(messages)
-        messages = self._handle_web_search_results(messages)
-        messages = self._process_special_styles(messages)
-        messages = self._handle_long_chat_placement(messages)
-        messages = self._handle_user_and_char(messages)
-        messages = self._handle_multimodal_format(messages)
-        messages = self._handle_mod_functions(messages)
-        messages = self._purge_message(messages)
-        
-        # 4. 构建请求参数
-        params = self._build_request_params(messages, stream=self.stream, tools=tools)
-        params = self._handle_provider_patch(params)
+        pack=ChatCompletionPack(
+            chathistory=self.god.chathistory,
+            model_name=self.god.model_combobox.currentText(),
+            api_provider = self.god.api_var.currentText(),
 
-        # b=json.dumps(params,ensure_ascii=False,indent=4)
-        # LOGGER.log(b)
-        LOGGER.info(f'发送长度: {StrTools.get_chat_content_length(messages)}，消息数: {len(messages)}')
-        LOGGER.info(f'消息打包耗时:{(time.perf_counter()-start)*1000:.2f}ms')
-        return messages, params
+            tool_list=self.god.function_manager.get_selected_functions(),
+            
+            optional = {
+                "temp_style":temp_style,
+                'web_search_result':web_search_results,
+                'enforce_lower_repeat_text':enforce_lower_repeat_text,
+            },
 
-    def _get_raw_messages(self, better_round):
-        """获取原始消息（不进行深复制）"""
-        history = self.god.chathistory
-        if history[-(better_round-1):][0]["role"] == "system":
-            better_round += 1
-        return [history[0]] + history[-(better_round-1):]
+            mod=[self._handle_mod_functions],
 
-    def _calculate_better_round(self):
-        """计算合适的消息轮数"""
-        history = self.god.chathistory
-        if (len(str(history[-(self._fix_max_rounds()-1):])) - len(str(history[0]))) < 1000:
-            return self._fix_max_rounds(False, 2*self._fix_max_rounds())
-        return self._fix_max_rounds() - 1
+        )
+        return pack
 
-    def _fix_max_rounds(self, max_round_bool=True, max_round=None):
-        if max_round_bool:
-            return min(self.god.max_message_rounds, len(self.god.chathistory))
-        else:
-            return min(max_round, len(self.god.chathistory))
 
-    def _purge_message(self, messages):
-        """清理不需要的字段（操作深复制后的消息）"""
-        new_messages = []
-        not_needed = ['info']  # 'reasoning_content'
-        
-        for item in messages:
-            temp_dict = {}
-            for key, value in item.items():
-                if key not in not_needed:
-                    temp_dict[key] = value
-            new_messages.append(temp_dict)
-        return new_messages
-
-    def _process_special_styles(self, messages):
-        """处理特殊样式文本（操作深复制后的消息）"""
-        if (self.god.chathistory[-1]["role"] == "user" and self.god.temp_style != '') \
-            or self.god.enforce_lower_repeat_text != '':
-            append_text = f'【{self.god.temp_style}{self.god.enforce_lower_repeat_text}】'
-            messages[-1]["content"] = append_text + messages[-1]["content"]
-        return messages
-
-    def _handle_web_search_results(self, messages):
-        """处理网络搜索结果（操作深复制后的消息）"""
-        if self.god.web_search_enabled:
+    def _handle_web_search_results(self):
+        user_input=self.god.chathistory[-1]['content']
+        if isinstance(user_input,list):
+            for item in user_input:
+                if item['type']=='text':
+                    user_input=item['text']
+                    break
+        if APP_SETTINGS.web_search.web_search_enabled:
+            self.god.web_searcher.perform_search(user_input)
             self.god.web_searcher.wait_for_search_completion()
-            if self.god.web_searcher.rag_checkbox.isChecked():
+            if APP_SETTINGS.web_search.use_llm_reformat:
                 results = self.god.web_searcher.rag_result
             else:
                 results = self.god.web_searcher.tool.format_results()
-            messages[-1]["content"] += "\n[system]搜索引擎提供的结果:\n" + results
-        return messages
-
-    def _fix_chat_history(self, messages:list):
-        """
-        修复被截断的聊天记录，保证工具调用的完整性
-        （注意：这个方法会插入消息，插入时需要深复制）
-        """
-        # 仅当第二条消息不是用户时触发修复（第一条是system）
-        if len(messages) > 1 and messages[1]['role'] != 'user':  
-            full_history = self.god.chathistory
-            current_length = len(messages)
-            cutten_len = len(full_history) - current_length
-            
-            if cutten_len > 0:
-                # 反向遍历缺失的消息，插入时需要深复制
-                for item in reversed(full_history[:cutten_len+1]):
-                    if item['role'] != 'user':
-                        messages.insert(1, copy.deepcopy(item))
-                    if item['role'] == 'user':
-                        messages.insert(1, copy.deepcopy(item))
-                        break
-        return messages
-
-    #def _clean_consecutive_messages(self, messages):
-    #    """清理连续的同角色消息"""
-    #    cleaned = []
-    #    for msg in messages:
-    #        if cleaned and msg['role'] == cleaned[-1]['role']:
-    #            cleaned[-1]['content'] += "\n" + msg['content']
-    #        else:
-    #            cleaned.append(msg)
-    #    return cleaned
-
-    def _handle_long_chat_placement(self, messages):
-        """处理长对话位置"""
-        if self.god.long_chat_placement == "对话第一位":
-            if len(messages) >= 2 and "**已发生事件和当前人物形象**" in messages[0]["content"]:
-                try:
-                    header, history_part = messages[0]["content"].split(
-                        "**已发生事件和当前人物形象**", 1)
-                    messages[0]["content"] = header.strip()
-                    if history_part.strip():
-                        messages[1]["content"] = f"{messages[1]['content']}\n{history_part.strip()}"
-                except ValueError:
-                    pass
-        return messages
-
-    def _handle_user_and_char(self, messages):
-        """处理用户和角色名称"""
-        if not self.god.name_ai:
-            ai_name = self.god.model_combobox.currentText()
-        else:
-            ai_name = self.god.name_ai
-            
-        if not self.god.name_user:
-            user_name = 'user'
-        else:
-            user_name = self.god.name_user
-            
-        item = messages[0]
-        if item['role'] == 'system':
-            if '{{user}}' in item['content']:
-                item['content'] = item['content'].replace('{{user}}', user_name)
-            if '{{char}}' in item["content"]:
-                item['content'] = item['content'].replace('{{char}}', ai_name)
-            if '{{model}}' in item['content']:
-                item['content'] = item['content'].replace('{{model}}', self.god.model_combobox.currentText())
-            if '{{time}}' in item["content"]:
-                item['content'] = item['content'].replace('{{time}}', time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()))
-        return messages
+            return results
 
     def _handle_mod_functions(self, messages):
         """处理模块功能"""
@@ -372,7 +263,7 @@ class MessagePreprocessor:
         text = status_text + use_ai_func + text
         messages[-1]['content'] = text
         return messages
-    
+
     def _handle_story_creator(self, messages):
         """处理故事创建器"""
         if not "mods.story_creator" in sys.modules:
@@ -382,60 +273,7 @@ class MessagePreprocessor:
             return messages
         return self.god.mod_configer.story_creator.process_income_chat_history(messages)
 
-    # 0.25.3 enable_thinking
-    def _handle_provider_patch(self, params):
-        # url作为判断供应商的标识
-        url_text = self.god.api_var.currentText()
-        provider_url = self.god.api[url_text][0]
 
-        patcher = GlobalPatcher()
-        config_context = {
-            "reasoning_effort": self.god.reasoning_effort,
-        }
-        new_params = patcher.patch(params, provider_url, config_context)
-        return new_params
-
-    def _build_request_params(self, messages, stream=True, tools=False):
-        """构建请求参数（含Function Call支持）"""
-        params = {
-            'model': self.god.model_combobox.currentText(),
-            'messages': messages,
-            'stream': stream
-        }
-        
-        # 添加现有参数
-        if self.god.top_p_enable:
-            params['top_p'] = float(self.god.top_p)
-        if self.god.temperature_enable:
-            params['temperature'] = float(self.god.temperature)
-        if self.god.presence_penalty_enable:
-            params['presence_penalty'] = float(self.god.presence_penalty)
-        
-        # 打开思考功能
-        if self.god.thinking_enabled:
-            params['enable_thinking'] = True
-
-        function_definitions = []
-        manager = self.god.function_manager
-        function_definitions = manager.get_selected_functions()
-        if function_definitions:
-            params['tools'] = function_definitions
-        return params
-
-    # 0.25.4 multimodal
-    def _handle_multimodal_format(self, messages):
-        """处理多模态格式"""
-        for single_message in messages:
-            if 'multimodal' in single_message['info']:
-                text_message = [
-                        {
-                            "type": "text",
-                            "text": single_message['content']
-                        }
-                    ]
-                multimodal_message = single_message['info']['multimodal']
-                single_message['content'] = text_message + multimodal_message
-        return messages
 #主类
 class MainWindow(QMainWindow):
     ai_response_signal= pyqtSignal(str,str)
@@ -879,7 +717,6 @@ class MainWindow(QMainWindow):
     def init_self_params(self):
         self.chathistory=[]
         self.setting_img = setting_img
-        self.think_img = think_img
         self.application_path = application_path
         self.history_path=os.path.join(self.application_path,'history')
         self.temp_style=''
@@ -1125,7 +962,7 @@ class MainWindow(QMainWindow):
 
     def init_sysrule(self):
         # 定义文件路径
-        file_path = os.path.join(self.application_path,'utils','system_prompt_presets','当前对话.json')
+        file_path = os.path.join(APP_RUNTIME.paths.application_path,'utils','system_prompt_presets','当前对话.json')
         
         # 检查文件是否存在
         if os.path.exists(file_path):
@@ -1187,18 +1024,15 @@ class MainWindow(QMainWindow):
         """懒导入，不常用模块，加速启动"""
         if not hasattr(self, 'web_searcher'):
             from utils.online_rag import WebSearchSettingWindows
-            self.web_searcher = WebSearchSettingWindows(
-                APP_SETTINGS.api.model_map,
-                APP_SETTINGS.api.endpoints
-            )
+            self.web_searcher = WebSearchSettingWindows()
     
     def create_one_time_use_title_creator(self):
-        api_requester=APIRequestHandler(api_config=self.api)
+        api_requester=APIRequestHandler(api_config=APP_SETTINGS.api.providers)
         title_generator=TitleGenerator(api_handler=api_requester)
         title_generator.set_provider(
-            self.title_creator_provider,
-            model=self.title_creator_model,
-            api_config=self.api
+            provider=APP_SETTINGS.title.provider,
+            model=APP_SETTINGS.title.model,
+            api_config=APP_SETTINGS.api.providers
         )
         title_generator.log_signal.connect(self.info_manager.log)
         title_generator.error_signal.connect(self.info_manager.error)
@@ -1208,14 +1042,7 @@ class MainWindow(QMainWindow):
     def add_tts_page(self):
         if not "mods.chatapi_tts" in sys.modules:
             return
-        self.tts_handler=TTSAgent(application_path=self.application_path)
-        if hasattr(self,'tts_enabled'):
-            self.tts_handler.tts_enabled=self.tts_enabled
-        if hasattr(self,'tts_provider') and self.tts_provider!='不使用TTS':
-            self.tts_handler.generator_selector.setCurrentText(self.tts_provider)
-        self.tts_handler.tts_state.connect(
-            lambda state,provider:setattr(self,'tts_enabled',state) or setattr(self,'tts_provider',provider)
-            )
+        self.tts_handler=TTSAgent(setting=APP_SETTINGS.tts,path=APP_RUNTIME.paths.application_path)
         self.stat_tab_widget.addTab(self.tts_handler, "语音生成")
 
     def show_mod_configer(self):
@@ -1439,25 +1266,23 @@ class MainWindow(QMainWindow):
 
     #超长文本显示优化
     def display_full_chat_history_window(self):
-        self.history_text_view = ChatHistoryTextView(
-        self.chathistory, 
-        self.name_user, 
-        self.name_ai
-    )
+        self.history_text_view = ChatHistoryTextView(self.chathistory)
         
         self.history_text_view.show()
         self.history_text_view.raise_()
 
     #流式处理的末端方法
     def update_chat_history(self, clear=True, new_msg=None,msg_id=''):
+        name_ai=self.chathistory[0]['info']['name']['assistant']
+        name_user=self.chathistory[0]['info']['name']['user']
         if not new_msg:
             self.chat_history_bubbles.streaming_scroll(False)
-            self.chat_history_bubbles.set_role_nickname('assistant', self.name_ai)
-            self.chat_history_bubbles.set_role_nickname('user', self.name_user)
+            self.chat_history_bubbles.set_role_nickname('assistant',name_ai)
+            self.chat_history_bubbles.set_role_nickname('user', name_user)
             self.chat_history_bubbles.set_chat_history(self.chathistory)
             try:
                 self.tts_handler.send_tts_request(
-                    self.name_ai,
+                    name_ai,
                     self.full_response,
                     force_remain=True
                 )
@@ -1516,7 +1341,7 @@ class MainWindow(QMainWindow):
 
 
     #更新AI辅助函数
-    def _handle_update(self, response_length, timer, update_method, last_update_attr, delay_threshold, delays,request_id):
+    def _handle_update(self, response_length, timer: QTimer, update_method, last_update_attr, delay_threshold, delays,request_id):
         current_time = QDateTime.currentDateTime().toMSecsSinceEpoch()
         fast_delay, slow_delay = delays
         delay = slow_delay if response_length > delay_threshold else fast_delay
@@ -1543,11 +1368,12 @@ class MainWindow(QMainWindow):
         )
         actual_response = StrTools.combined_remove_var_vast_replace(self)
         self.update_chat_history(new_msg=actual_response,msg_id=request_id)
+        name_ai=self.chathistory[0]['info']['name']['assistant']
 
         #0.25.1 气泡
         try:
             self.tts_handler.send_tts_request(
-                self.name_ai,
+                name_ai,
                 self.full_response
             )
         except Exception as e:
@@ -1618,15 +1444,15 @@ class MainWindow(QMainWindow):
         self.think_response=''
         self.tool_response=''
         def target():
-            preprocessor = MessagePreprocessor(self)  # 创建预处理器实例
-            preprocessor.stream=self.stream_receive
-            message, params = preprocessor.prepare_message()
+            pack = PreprocessorPatch(self).prepare_patch()  # 创建预处理器实例
+            message, params = MessagePreprocessor().prepare_message(pack=pack)
+            print('skjhak',params)
             if self.use_concurrent_model.isChecked():
                 self.concurrent_model.start_workflow(params)
                 return
             self.requester.set_provider(
             provider=self.api_var.currentText(),
-            api_config=self.api
+            api_config=APP_SETTINGS.api.providers
             )
             self.requester.send_request(params)
         try:
@@ -1702,10 +1528,16 @@ class MainWindow(QMainWindow):
         if self.long_chat_improve_var:
             try:
                 self.new_chat_rounds+=2
-                full_chat_lenth=len(str(self.chathistory))
-                message_lenth_bool=(len(self.chathistory)>self.max_message_rounds or full_chat_lenth>self.max_total_length)
-                newchat_rounds_bool=self.new_chat_rounds>self.max_message_rounds
-                newchat_lenth_bool=len(str(self.chathistory[-self.new_chat_rounds:]))>self.max_segment_length
+
+                full_chat_lenth=StrTools.get_chat_content_length(self.chathistory)
+
+                message_lenth_bool=(len(self.chathistory)>APP_SETTINGS.generation.max_message_rounds \
+                                    or full_chat_lenth>APP_SETTINGS.lci.max_total_length)
+                
+                newchat_rounds_bool=self.new_chat_rounds>APP_SETTINGS.generation.max_message_rounds
+
+                newchat_lenth_bool=StrTools.get_chat_content_length(self.chathistory[-self.new_chat_rounds:])>APP_SETTINGS.lci.max_total_length
+
                 long_chat_improve_bool=message_lenth_bool and newchat_rounds_bool or newchat_lenth_bool
 
                 self.info_manager.log(
@@ -1713,12 +1545,12 @@ class MainWindow(QMainWindow):
                         [
                             '长对话优化日志：',
                             '\n当前对话次数:', str(len(self.chathistory)-1),
-                            '\n当前对话长度（包含system prompt）:', str(full_chat_lenth),
-                            '\n当前新对话轮次:', str(self.new_chat_rounds), '/', str(self.max_message_rounds),
+                            '\n当前对话长度（包含system prompt）:', full_chat_lenth,
+                            '\n当前新对话轮次:', str(self.new_chat_rounds), '/', str(APP_SETTINGS.generation.max_message_rounds),
                             '\n新对话长度:', str(len(str(self.chathistory[-self.new_chat_rounds:]))),
                             '\n触发条件:',
                             '\n总对话轮数达标:'
-                            '\n对话长度达达到', str(self.max_total_length), ":", str(message_lenth_bool),
+                            '\n对话长度达达到', str(APP_SETTINGS.generation.max_message_rounds), ":", str(message_lenth_bool),
                             '\n新对话轮次超过限制:', str(newchat_rounds_bool),
                             '\n新对话长度超过限制:', str(newchat_lenth_bool),
                             '\n触发长对话优化:', str(long_chat_improve_bool)
@@ -1735,19 +1567,22 @@ class MainWindow(QMainWindow):
         if self.back_ground_update_var:
             try:
                 self.new_background_rounds+=2
-                full_chat_lenth=len(str(self.chathistory))
-                message_lenth_bool=(len(self.chathistory)>self.max_background_rounds or full_chat_lenth>self.max_backgound_lenth)
-                newchat_rounds_bool=self.new_background_rounds>self.max_background_rounds
+                full_chat_lenth=StrTools.get_chat_content_length(self.chathistory)
+                message_lenth_bool=(len(self.chathistory)>APP_SETTINGS.background.max_rounds \
+                                    or full_chat_lenth>APP_SETTINGS.background.max_length)
+                newchat_rounds_bool=self.new_background_rounds>APP_SETTINGS.background.max_rounds
+
                 long_chat_improve_bool=message_lenth_bool and newchat_rounds_bool
+
                 self.info_manager.log(f"""背景更新日志：
 当前对话次数: {len(self.chathistory)-1}
 当前对话长度（包含system prompt）: {full_chat_lenth}
-当前新对话轮次: {self.new_background_rounds}/{self.max_background_rounds}
-新对话长度: {len(str(self.chathistory[-self.new_background_rounds:]))-len(str(self.chathistory[0]))}
+当前新对话轮次: {self.new_background_rounds}/{APP_SETTINGS.background.max_rounds}
+新对话长度: {StrTools.get_chat_content_length(self.chathistory[-self.new_background_rounds:])-StrTools.get_chat_content_length(self.chathistory[0])}
 触发条件:
 总对话轮数达标:
-对话长度达到 {self.max_backgound_lenth}: {message_lenth_bool}
-新对话轮次超过限制: {newchat_rounds_bool}
+对话长度达到 {APP_SETTINGS.background.max_length}: {message_lenth_bool}
+新对话轮次超过限制{APP_SETTINGS.background.max_rounds}: {newchat_rounds_bool}
 触发背景更新: {long_chat_improve_bool}""",
                     level='info')
                 if long_chat_improve_bool:
@@ -1757,24 +1592,18 @@ class MainWindow(QMainWindow):
                     self.call_background_update()
                 
             except Exception as e:
-                LOGGER.error(f"long chat improvement failed, Error code:{e}")
-        if self.enforce_lower_repeat_var:
-            self.enforce_lower_repeat_text=''
+                LOGGER.error(f"Background update failed, Error code:{e}")
+        if APP_SETTINGS.force_repeat.enforce_lower_repeat_var:
+            APP_SETTINGS.force_repeat.enforce_lower_repeat_text=''
             repeat_list=self.repeat_processor.find_last_repeats()
             if len(repeat_list)>0:
                 for i in repeat_list:
-                    self.enforce_lower_repeat_text+=i+'"或"'
-                self.enforce_lower_repeat_text='避免回复词汇"'+self.enforce_lower_repeat_text[:-2]
-                LOGGER.info(f"降重触发: {self.enforce_lower_repeat_text}")
+                    APP_SETTINGS.force_repeat.enforce_lower_repeat_text+=i+'"或"'
+                APP_SETTINGS.force_repeat.enforce_lower_repeat_text='避免回复词汇"'+APP_SETTINGS.force_repeat.enforce_lower_repeat_text[:-2]
+                LOGGER.info(f"降重触发: {APP_SETTINGS.force_repeat.enforce_lower_repeat_text}")
         else:
-            self.enforce_lower_repeat_text=''
-        if self.web_search_enabled:
-            if self.web_searcher.rag_checkbox.isChecked():
-                api_provider = self.web_searcher.rag_provider_combo.currentText()
-                api_key=self.api[api_provider][1]
-                self.web_searcher.perform_search(user_input,api_key)
-            else:
-                self.web_searcher.perform_search(user_input)
+            APP_SETTINGS.force_repeat.enforce_lower_repeat_text=''
+        
         self.update_opti_bar()
         return True
 
@@ -2341,7 +2170,7 @@ class MainWindow(QMainWindow):
         # 标题生成provider/model变更 → 重新设置title_generator
         self.main_setting_window.title_provider_changed.connect(
             lambda provider, model: self.title_generator.set_provider(
-                provider=provider, model=model, api_config=APP_SETTINGS.api
+                provider=provider, model=model, api_config=APP_SETTINGS.api.providers
             )
         )
 
@@ -2452,7 +2281,7 @@ class MainWindow(QMainWindow):
                 None,
                 '背景更新',
                 '获取的图像路径无效',
-                QMessageBox.Ok
+                QMessageBox.StandardButton.Ok
             )
 
         self.switchImage(self.background_image_path)
@@ -2556,23 +2385,23 @@ class MainWindow(QMainWindow):
     #更新触发进度条
     def update_opti_bar(self,_=None):
         try:
-            self.chat_opti_trigger_bar.setVisible(self.long_chat_improve_var)
+            self.chat_opti_trigger_bar.setVisible(APP_SETTINGS.lci.enabled)
             self.chat_opti_trigger_bar.setValue(self.new_chat_rounds)
-            self.chat_opti_trigger_bar.setMaximum(self.max_message_rounds)
-            self.Background_trigger_bar.setVisible(self.back_ground_update_var)
+            self.chat_opti_trigger_bar.setMaximum(APP_SETTINGS.generation.max_message_rounds)
+            self.Background_trigger_bar.setVisible(APP_SETTINGS.background.enabled)
             self.Background_trigger_bar.setValue(self.new_background_rounds)
-            self.Background_trigger_bar.setMaximum(self.max_background_rounds)
-            self.cancel_trigger_background_update.setVisible(self.back_ground_update_var)
-            self.cancel_trigger_chat_opti.setVisible(self.long_chat_improve_var)
-            if self.new_chat_rounds>=self.max_message_rounds:
+            self.Background_trigger_bar.setMaximum(APP_SETTINGS.background.max_rounds)
+            self.cancel_trigger_background_update.setVisible(APP_SETTINGS.background.enabled)
+            self.cancel_trigger_chat_opti.setVisible(APP_SETTINGS.lci.enabled)
+            if self.new_chat_rounds>=APP_SETTINGS.generation.max_message_rounds:
                 self.chat_opti_trigger_bar.setFormat(f'对话优化: 即将触发')
             else:
-                self.chat_opti_trigger_bar.setFormat(f'对话优化: {self.new_chat_rounds}/{self.max_message_rounds}')
-            if self.new_background_rounds>=self.max_background_rounds:
+                self.chat_opti_trigger_bar.setFormat(f'对话优化: {self.new_chat_rounds}/{APP_SETTINGS.generation.max_message_rounds}')
+            if self.new_background_rounds>=APP_SETTINGS.generation.max_message_rounds:
                 self.Background_trigger_bar.setFormat(f'背景更新: 即将触发')
             else:
-                self.Background_trigger_bar.setFormat(f'背景更新: {self.new_background_rounds}/{self.max_background_rounds}')
-            self.opti_frame.setVisible(self.long_chat_improve_var or self.back_ground_update_var)
+                self.Background_trigger_bar.setFormat(f'背景更新: {self.new_background_rounds}/{APP_SETTINGS.background.max_rounds}')
+            self.opti_frame.setVisible(APP_SETTINGS.background.enabled or APP_SETTINGS.lci.enabled)
         except Exception as e:
             self.info_manager.log(f"Setting up process bar,ignore if first set up: {e}")
 
@@ -2613,7 +2442,12 @@ class MainWindow(QMainWindow):
         if index ==2 :
             self.init_web_searcher()
             self.web_search_button.setChecked(True)
+            APP_SETTINGS.web_search.web_search_enabled = True
             self.search_result_button.show()
+        else:
+            APP_SETTINGS.web_search.web_search_enabled = False
+            self.search_result_button.hide()
+            self.search_result_label.hide()
 
         if index in [0,2]:
             selected_functions = self.function_manager.get_selected_function_names()
@@ -2638,8 +2472,8 @@ class MainWindow(QMainWindow):
     def handel_call_back_to_lci_bgu(self):
         '''长对话/背景更新启用时的消息回退'''
         handlers = [
-            (self.long_chat_improve_var, 'new_chat_rounds'),
-            (self.back_ground_update_var, 'new_background_rounds'),
+            (APP_SETTINGS.lci.enabled, 'new_chat_rounds'),
+            (APP_SETTINGS.background.enabled, 'new_background_rounds'),
         ]
         
         for condition, attr in handlers:
@@ -2703,16 +2537,20 @@ class MainWindow(QMainWindow):
         elif self.avatar_creator.avatar_info['user']!=self.name_user or\
         self.avatar_creator.avatar_info['assistant']:
             do_init=True
-        avatar_info={'user':{'name':self.name_user,'image':self.avatar_user},
-                    'assistant':{'name':self.name_ai,'image':self.avatar_ai},
+        name_user=self.chathistory[0]['info']['name']['user']
+        name_ai=self.chathistory[0]['info']['name']['assistant']
+        avatar_user=self.chathistory[0]['info']['avatar']['user']
+        avatar_ai=self.chathistory[0]['info']['avatar']['assistant']
+        avatar_info={'user':{'name':name_user,'image':avatar_user},
+                    'assistant':{'name':name_ai,'image':avatar_ai},
                     }
         if do_init:
             self.avatar_creator=AvatarCreatorWindow(
                 avatar_info=avatar_info,
-                application_path=self.application_path,
+                application_path=APP_RUNTIME.paths.application_path,
                 init_character={'lock':not msg_id,'character':name},
-                model_map=MODEL_MAP,#逆天全局变量
-                default_apis=DEFAULT_APIS,
+                model_map=APP_SETTINGS.api.model_map,
+                default_apis=APP_SETTINGS.api.providers,
                 msg_id=msg_id,
                 chathistory=self.chathistory
                 )
@@ -2733,8 +2571,8 @@ class MainWindow(QMainWindow):
     
     #头像注入气泡
     def update_avatar_to_chat_bubbles(self):
-        ai_avatar_path=os.path.join(self.application_path,'pics','avatar','AI_avatar.png')
-        user_avatar_path=os.path.join(self.application_path,'pics','avatar','USER_avatar.png')
+        ai_avatar_path=os.path.join(APP_RUNTIME.paths.application_path,'pics','avatar','AI_avatar.png')
+        user_avatar_path=os.path.join(APP_RUNTIME.paths.application_path,'pics','avatar','USER_avatar.png')
         if 'avatar' in self.chathistory[0]['info']:
             avatar_path=self.chathistory[0]['info']['avatar']
             if not avatar_path['user'] or not os.path.exists(avatar_path['user']):

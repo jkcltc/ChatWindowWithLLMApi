@@ -1073,6 +1073,10 @@ class ChathistoryFileManager(QObject):
 
     # 保存聊天记录
     def save_chathistory(self, chathistory, file_path=None):
+        if len(chathistory) == 1 or len(chathistory) == 0:
+            self.warning_signal.emit(f'save_chathistory|false activity:空记录')
+            QMessageBox.warning(None, '警告', '空记录，保存已取消')
+            return
         if not file_path:
             # 弹出文件保存窗口
             file_path, _ = QFileDialog.getSaveFileName(

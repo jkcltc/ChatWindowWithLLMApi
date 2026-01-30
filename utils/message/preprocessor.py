@@ -11,8 +11,6 @@ from utils.tools.str_tools import StrTools
 from dataclasses import dataclass ,field
 from utils.preset_data import LongChatImprovePersetVars
 
-def _identity(x):
-    return x
 @dataclass
 class ChatCompletionPack:
     """
@@ -33,7 +31,15 @@ class ChatCompletionPack:
         'enforce_lower_repeat_text':'',
     })
 
-    mod: Optional[Callable] = field(default=_identity) 
+    mod: Optional[List[Callable]] = field(default_factory=list) 
+
+    @property
+    def sysrule(self):
+        if self.chathistory[0]['role']=='system':
+            return self.chathistory[0]['content']
+        else:
+            return ''
+
 
 from utils.info_module import LOGMANAGER
 LOGGER = LOGMANAGER
@@ -57,6 +63,7 @@ class MessagePreprocessor:
         messages = copy.deepcopy(raw_messages)
 
         # 3. 按顺序应用所有处理
+        messages = self._handle_mod_functions(messages,pack)
         messages = self._fix_chat_history(messages, pack.chathistory)
         messages = self._handle_web_search_results(messages, pack)
         messages = self._process_special_styles(messages, pack)
@@ -64,20 +71,30 @@ class MessagePreprocessor:
         messages = self._handle_user_and_char(messages, pack)
         messages = self._handle_multimodal_format(messages)
 
-        messages = pack(messages) 
-
         messages = self._purge_message(messages)
 
         # 4. 构建请求参数
         # tools=True/False 的判断逻辑通常由上层决定传入 pack.tool_list 是否为空
         has_tools = len(pack.tool_list) > 0
-        params = self._build_request_params(messages, pack, stream=APP_SETTINGS.generation.stream_receive, tools=has_tools)
+        params = self._build_request_params(
+            messages, 
+            pack, 
+            stream=APP_SETTINGS.
+            generation.stream_receive, 
+            tools=has_tools
+        )
         params = self._handle_provider_patch(params, pack)
 
         LOGGER.info(f'发送长度: {StrTools.get_chat_content_length(messages)}，消息数: {len(messages)}')
         LOGGER.info(f'消息打包耗时:{(time.perf_counter()-start)*1000:.2f}ms')
         return messages, params
 
+    def _handle_mod_functions(self, messages, pack: ChatCompletionPack):
+        """处理mod函数"""
+        for func in pack.mod:
+            messages = func(messages)
+        return messages
+    
     def _get_raw_messages(self, pack: ChatCompletionPack, max_rounds: int):
         """获取原始消息（不进行深复制）"""
         history = pack.chathistory
@@ -86,8 +103,9 @@ class MessagePreprocessor:
         if len(history) >= max_rounds and history[-(max_rounds-1):][0]["role"] == "system":
             max_rounds += 1
 
-        # 始终包含第一条 (System Prompt) + 最近的 N 条
-        return [history[0]] + history[-(max_rounds-1):]
+        start_index = max(1, len(history) - (max_rounds - 1))
+
+        return [history[0]] + history[start_index:]
 
     def _purge_message(self, messages):
         """清理不需要的字段"""

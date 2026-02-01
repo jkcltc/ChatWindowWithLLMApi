@@ -42,7 +42,7 @@ from utils.system_prompt_manager import SystemPromptManager,SystemPromptComboBox
 # 先patch
 from utils.settings import ConfigManager as ConfigManagerOld
 
-from utils.setting import APP_SETTINGS,MainSettingWindow,APP_RUNTIME,ConfigManager,MODEL_MAP
+from utils.setting import APP_SETTINGS,MainSettingWindow,APP_RUNTIME,ConfigManager
 
 from utils.model_map_manager import APIConfigWidget,RandomModelSelecter
 from utils.theme_manager import ThemeSelector
@@ -51,7 +51,7 @@ from utils.concurrentor import ConvergenceDialogueOptiProcessor
 from utils.preset_data import *
 from utils.usage_analysis import TokenAnalysisWidget
 from utils.chat_history_manager import ChatHistoryEditor,ChathistoryFileManager,TitleGenerator,ChatHistoryTools,ChatHistoryTextView,HistoryListWidget
-from utils.message.preprocessor import ChatCompletionPack,MessagePreprocessor
+from utils.message.preprocessor import MessagePreprocessor,PreprocessorPatch
 from utils.avatar import AvatarCreatorWindow
 from utils.background_generate import BackgroundAgent
 from utils.tools.one_shot_api_request import FullFunctionRequestHandler,APIRequestHandler
@@ -116,9 +116,9 @@ class RepeatProcessor:
 
     def _restore_original_settings(self):
         """恢复原始配置"""
-        self.main.max_message_rounds = self.main.original_max_message_rounds
-        self.main.long_chat_placement = self.main.original_long_chat_placement
-        self.main.long_chat_improve_var = self.main.original_long_chat_improve_var
+        APP_SETTINGS.generation.max_message_rounds  = self.main.original_max_message_rounds
+        APP_SETTINGS.lci.placement                  = self.main.original_long_chat_placement
+        APP_SETTINGS.lci.enabled                    = self.main.original_long_chat_improve_var
         self.main.original_max_message_rounds = None
         self.main.original_long_chat_placement = None
         self.main.original_long_chat_improve_var = None
@@ -144,11 +144,11 @@ class RepeatProcessor:
     def _apply_similarity_settings(self):
         """应用相似度过高时的配置"""
         if not self.main.difflib_modified_flag:
-            self.main.original_max_message_rounds = self.main.max_message_rounds
-            self.main.original_long_chat_placement = self.main.long_chat_placement
-            self.main.original_long_chat_improve_var = self.main.long_chat_improve_var
-            self.main.max_message_rounds = 3
-            self.main.long_chat_placement = "对话第一位"
+            self.main.original_max_message_rounds =     APP_SETTINGS.generation.max_message_rounds  
+            self.main.original_long_chat_placement =    APP_SETTINGS.lci.placement                  
+            self.main.original_long_chat_improve_var=   APP_SETTINGS.lci.enabled                    
+            APP_SETTINGS.generation.max_message_rounds = 3
+            APP_SETTINGS.lci.placement = "对话第一位"
             self.main.difflib_modified_flag = True
 
     def _find_repeated_substrings(self, last_four):
@@ -194,86 +194,6 @@ class RepeatProcessor:
             text = text.replace(symbol, '')
         return text
 
-#发送消息前处理器的patch
-class PreprocessorPatch:
-    def __init__(self, god_class):
-        self.god = god_class
-
-    def prepare_patch(self):
-        """预处理消息并构建API参数"""
-        
-        web_search_results = self._handle_web_search_results()
-        enforce_lower_repeat_text = APP_SETTINGS.force_repeat.enforce_lower_repeat_text \
-            if APP_SETTINGS.force_repeat.enforce_lower_repeat_text \
-            else self.god.enforce_lower_repeat_text
-        temp_style=self.god.temp_style
-
-        pack=ChatCompletionPack(
-            chathistory=self.god.chathistory,
-            model_name=self.god.model_combobox.currentText(),
-            api_provider = self.god.api_var.currentText(),
-
-            tool_list=self.god.function_manager.get_selected_functions(),
-            
-            optional = {
-                "temp_style":temp_style,
-                'web_search_result':web_search_results,
-                'enforce_lower_repeat_text':enforce_lower_repeat_text,
-            },
-
-            mod=[self._handle_mod_functions],
-
-        )
-        return pack
-
-
-    def _handle_web_search_results(self):
-        user_input=self.god.chathistory[-1]['content']
-        if isinstance(user_input,list):
-            for item in user_input:
-                if item['type']=='text':
-                    user_input=item['text']
-                    break
-        if APP_SETTINGS.web_search.web_search_enabled:
-            self.god.web_searcher.perform_search(user_input)
-            self.god.web_searcher.wait_for_search_completion()
-            if APP_SETTINGS.web_search.use_llm_reformat:
-                results = self.god.web_searcher.rag_result
-            else:
-                results = self.god.web_searcher.tool.format_results()
-            return results
-
-    def _handle_mod_functions(self, messages):
-        """处理模块功能"""
-        messages = self._handle_status_manager(messages)
-        messages = self._handle_story_creator(messages)
-        return messages
-    
-    # mod functions
-    def _handle_status_manager(self, messages):
-        """处理状态管理器"""
-        if not "mods.status_monitor" in sys.modules:
-            return messages
-        if not self.god.mod_configer.status_monitor_enable_box.isChecked():
-            return messages
-        
-        text = messages[-1]['content']
-        status_text = self.god.mod_configer.status_monitor.get_simplified_variables()
-        use_ai_func = self.god.mod_configer.status_monitor.get_ai_variables(use_str=True)
-        text = status_text + use_ai_func + text
-        messages[-1]['content'] = text
-        return messages
-
-    def _handle_story_creator(self, messages):
-        """处理故事创建器"""
-        if not "mods.story_creator" in sys.modules:
-            LOGGER.info('no mods.story_creator')
-            return messages
-        if not self.god.mod_configer.enable_story_insert.isChecked():
-            return messages
-        return self.god.mod_configer.story_creator.process_income_chat_history(messages)
-
-
 #主类
 class MainWindow(QMainWindow):
     ai_response_signal= pyqtSignal(str,str)
@@ -302,8 +222,7 @@ class MainWindow(QMainWindow):
         top = (screen_geometry.height() - height) // 2
         
         self.setGeometry(left, top, width, height)
-        self.api=api_init()
-        
+
         # 初始化参数
         self.init_self_params()
 
@@ -323,9 +242,6 @@ class MainWindow(QMainWindow):
 
         self.init_chathistory_components()
 
-        #从存档载入设置并覆盖
-        ConfigManagerOld.init_settings(self, exclude=['application_path','temp_style','full_response','think_response','history_path'])
-
         self.init_title_creator()
         self.init_system_prompt_window()
         
@@ -339,37 +255,62 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(central_widget)
 
         #背景
-        self.init_back_ground_label(self.background_image_path)
+        self.init_back_ground_label(APP_SETTINGS.background.image_path)
 
         api_label = QLabel("API 提供商:")
         self.api_var = QComboBox()
-        self.api_var.addItems(APP_SETTINGS.api.providers.keys())
-        self.api_var.currentTextChanged.connect(self.update_model_combobox)
+        """主要对话供应商下拉框"""
 
         model_label = QLabel("选择模型:")
         self.model_combobox = QComboBox()
+        """主要模型下拉框"""
+
+        self.api_var.addItems(APP_SETTINGS.api.providers.keys())
+        self.api_var.currentTextChanged.connect(self.update_model_combobox)
 
         # 手动触发一次，初始化模型列表
         if self.api_var.currentText():
             self.update_model_combobox(self.api_var.currentText())
 
+        index = self.api_var.findText(APP_SETTINGS.ui.LLM.provider)
+        if index >= 0:
+            self.api_var.setCurrentIndex(index)
+        
+        index = self.model_combobox.findText(APP_SETTINGS.ui.LLM.model)
+        if index >= 0:
+            self.model_combobox.setCurrentIndex(index)
+
+        self.api_var.currentTextChanged.connect(
+            lambda s: APP_SETTINGS.ui.LLM.update({"provider":s})
+        )
+
+        self.model_combobox.currentTextChanged.connect(
+            lambda text: APP_SETTINGS.ui.LLM.update({"model":text})
+        )
+
         #轮换模型
-        self.use_muti_model=QCheckBox("使用轮换模型")
-        self.use_muti_model.toggled.connect(lambda checked: (
-            self.ordered_model.show() if checked else self.ordered_model.hide(),
-            self.api_var.setEnabled(not checked),
-            self.model_combobox.setEnabled(not checked)
-        ))
-        self.use_muti_model.setToolTip("用于TPM合并扩增/AI回复去重")
+        self.use_muti_model=QCheckBox("模型轮询")
+        self.use_muti_model.setChecked(APP_SETTINGS.model_poll.enabled)
+        self.use_muti_model.toggled.connect(
+            lambda checked: (
+                self.ordered_model.show() if checked else self.ordered_model.hide(),
+                self.api_var.setEnabled(not checked),
+                self.model_combobox.setEnabled(not checked)
+            )
+        )
+        self.use_muti_model.setToolTip("用于TPM/RPM合并扩增|AI回复去重")
 
         #汇流优化
         self.use_concurrent_model=QCheckBox("使用汇流优化")
+        self.use_concurrent_model.setChecked(APP_SETTINGS.concurrent.enabled)
         self.use_concurrent_model.setToolTip("用于提高生成质量\n注意！！极高token消耗量！！")
         self.use_concurrent_model.toggled.connect(lambda checked: self.show_concurrent_model(show=checked))
 
         #两模式互斥
         self.use_muti_model.toggled.connect(lambda c: self.use_concurrent_model.setChecked(False) if c else None)
+        self.use_muti_model.toggled.connect(lambda c: APP_SETTINGS.model_poll.update({"enabled":c}))
         self.use_concurrent_model.toggled.connect(lambda c: self.use_muti_model.setChecked(False) if c else None)
+        self.use_concurrent_model.toggled.connect(lambda c: APP_SETTINGS.concurrent.update({"enabled":c}))
 
 
         #优化功能触发进度
@@ -378,7 +319,7 @@ class MainWindow(QMainWindow):
         self.opti_frame.setLayout(self.opti_frame_layout)
         self.Background_trigger_bar = QProgressBar(self)
         self.opti_frame_layout.addWidget(self.Background_trigger_bar,0,0,1,7)
- 
+
         self.chat_opti_trigger_bar = QProgressBar(self)
         self.opti_frame_layout.addWidget(self.chat_opti_trigger_bar,1,0,1,7)
 
@@ -446,9 +387,9 @@ class MainWindow(QMainWindow):
 
         #强制去重
         self.enforce_lower_repeat=QCheckBox("强制去重")
-        self.enforce_lower_repeat.setChecked(self.enforce_lower_repeat_var)
-        self.enforce_lower_repeat.stateChanged.connect(
-            lambda state: setattr(self, 'enforce_lower_repeat_var', bool(state))
+        self.enforce_lower_repeat.setChecked(APP_SETTINGS.force_repeat.enabled)
+        self.enforce_lower_repeat.toggled.connect(
+            lambda state: APP_SETTINGS.force_repeat.update({'enabled':bool(state)})
         )
 
         self.main_layout.addWidget(ai_response_label, 5, 0, 1, 1)
@@ -464,10 +405,7 @@ class MainWindow(QMainWindow):
         control_frame.setLayout(self.control_frame_layout)
 
         self.pause_button = QPushButton("暂停")
-        self.pause_button.clicked.connect(lambda: 
-                                          (setattr(self, 'pause_flag', not self.pause_flag), 
-                                            self.control_frame_to_state('finished'))[1]
-                                        )
+        self.pause_button.clicked.connect(lambda: self.control_frame_to_state('finished'))
         self.pause_button.clicked.connect(lambda _:self.chat_history_bubbles.streaming_scroll(False))
         self.pause_button.clicked.connect(self.requester.pause)
 
@@ -493,19 +431,31 @@ class MainWindow(QMainWindow):
         self.web_search_button=ExpandableButton(["搜索：关闭","搜索：自动","搜索：强制",])
         self.web_search_button.toggled.connect(self.handle_web_search_button_toggled)
         self.web_search_button.indexChanged.connect(self.handle_web_search_button_index_changed)
-        if self.web_search_enabled:
+        if APP_SETTINGS.web_search.web_search_enabled:
             self.web_search_button.setCurrentIndex(2)
         
 
         self.enable_thinking_button=ExpandableButton(['深度思考','思考：短','思考：中','思考：高'])
-        self.enable_thinking_button.setChecked(self.thinking_enabled)
-        self.enable_thinking_button.setCurrentIndex(self.reasoning_effort)
-        self.enable_thinking_button.toggled.connect(lambda state:setattr(self,'thinking_enabled',state))
-        self.enable_thinking_button.itemSelected.connect(
-            lambda text: self.enable_thinking_button.setChecked(not text==self.enable_thinking_button.get_items()[0])
+        self.enable_thinking_button.setChecked(APP_SETTINGS.generation.thinking_enabled)
+        self.enable_thinking_button.setCurrentIndex(APP_SETTINGS.generation.reasoning_effort)
+        self.enable_thinking_button.toggled.connect(
+            lambda state:APP_SETTINGS.generation.update(
+                {
+                    'thinking_enabled':state
+                }
+            )
         )
         self.enable_thinking_button.itemSelected.connect(
-            lambda _: setattr(self,'reasoning_effort',self.enable_thinking_button.currentIndex())
+            lambda text: self.enable_thinking_button.setChecked(
+                not text==self.enable_thinking_button.get_items()[0]
+            )
+        )
+        self.enable_thinking_button.itemSelected.connect(
+            lambda _: APP_SETTINGS.generation.update(
+                {
+                    'reasoning_effort': self.enable_thinking_button.currentIndex()
+                }
+            )
         )
 
         separators = [QFrame() for _ in range(3)]
@@ -684,28 +634,14 @@ class MainWindow(QMainWindow):
             MainWindowPresetVars.toggle_tree_button_stylesheet
         )
 
-
-        # 设置快捷键
-        self.send_message_var = True
-        self.autoslide_var = True
-        self.send_message_var=True
-        self.send_message_shortcut= QShortcut(QKeySequence(), self)
-        self.shortcut1 = QShortcut(QKeySequence(), self)
-        self.shortcut2 = QShortcut(QKeySequence(), self)
-        self.hotkey_sysrule= QShortcut(QKeySequence(), self)
-        self.shortcut1.activated.connect(self.toggle_tree_view)
-        self.shortcut2.activated.connect(self.toggle_tree_view)
-        self.send_message_shortcut.activated.connect(self.send_message)
         self.sysrule=self.init_sysrule()
         self.creat_new_chathistory()
-        self.chathistory_detail=[]
-        self.pause_flag = False
         self.ai_response_signal.connect(self.update_ai_response_text)
         self.update_background_signal.connect(self.update_background)#可以弃用了
         self.think_response_signal.connect(self.update_think_response_text)
         self.thread_event = threading.Event()
         self.installEventFilter(self)
-        self.bind_enter_key()
+        self.bind_hot_key()
         self.update_opti_bar()
 
         #UI状态恢复
@@ -717,79 +653,20 @@ class MainWindow(QMainWindow):
     def init_self_params(self):
         self.chathistory=[]
         self.setting_img = setting_img
-        self.application_path = application_path
-        self.history_path=os.path.join(self.application_path,'history')
         self.temp_style=''
-        self.enforce_lower_repeat_var=False
-        self.enforce_lower_repeat_text=''
-        self.novita_model='foddaxlPhotorealism_v45_122788.safetensors'
 
         # 状态控制标志
-        self.stream_receive = True
-        self.long_chat_improve_var = True
-        self.enable_lci_system_prompt=True
         self.hotkey_sysrule_var = True
-        self.back_ground_update_var = True
-        self.lock_background=False
-        self.web_search_enabled=False
-        self.thinking_enabled=False
-        self.reasoning_effort=0 #0-3
         self.difflib_modified_flag = False
 
         # 聊天会话管理
-        self.past_chats = {}
-        self.max_message_rounds = 50
         self.new_chat_rounds = 0
         self.last_summary = ''
         self.full_response = ''
-        self.saved_api_provider = ''
-        self.saved_model_name = ''  
-
-        # 长度限制设置
-        self.max_total_length = 8000
-        self.max_segment_length = 8000
-        self.long_chat_hint=''
-        self.long_chat_improve_api_provider=None
-        self.long_chat_improve_model=None
-        self.long_chat_placement=''
 
         # 背景处理相关
-        self.max_backgound_lenth = 1000  
         self.new_background_rounds = 0
-        self.max_background_rounds = 15
-        self.background_style='现实'
-        self.back_ground_summary_model='deepseek-reasoner'
-        self.back_ground_summary_provider='deepseek'
-        self.back_ground_image_provider='novita'
-        self.back_ground_image_model='foddaxlPhotorealism_v45_122788.safetensors'#默认初始值
-        self.background_image_path='background.jpg'
-
-        #对话状态
-        self.top_p_enable=True
-        self.top_p=0.8
-        self.temperature_enable=True
-        self.temperature=0.7
-        self.presence_penalty_enable=True
-        self.presence_penalty=1
-
-        # 文件路径
-        self.returned_file_path = ''
-
-        # API密钥
-        self.novita_api_key=""
-
-        #自动替换
-        self.autoreplace_var = False
-        self.autoreplace_from = ''
-        self.autoreplace_to = ''
-
-        #俩人名字
-        self.name_user="用户"
-        self.name_ai=""
-
-        #俩人头像
-        self.avatar_user=''#path to user avatar.jpg
-        self.avatar_ai=''#path to ai avatar.jpg
+        """自从上次背景更新后的新对话轮数"""
 
         #对话储存点
         self.think_response=''
@@ -798,16 +675,6 @@ class MainWindow(QMainWindow):
         self.finish_reason_raw     =''
         self.finish_reason_readable=''
 
-        #TTS
-        self.tts_enabled=False
-        self.tts_provider='不使用TTS'
-
-        #标题创建
-        self.enable_title_creator_system_prompt=True
-        self.title_creator_use_local=True
-        self.title_creator_max_length=20
-        self.title_creator_provider='siliconflow'
-        self.title_creator_model= 'deepseek-ai/DeepSeek-R1-0528-Qwen3-8B'
     
     def init_system_prompt_window(self):
         self.system_prompt_override_window = SystemPromptManager()#folder_path='utils/system_prompt_presets'
@@ -885,12 +752,12 @@ class MainWindow(QMainWindow):
         self.requester.log_signal.connect(lambda message: self.info_manager.log(str(message)))
         self.requester.warning_signal.connect(lambda message: self.info_manager.notify(str(message), level='warning'))
 
-    @pyqtSlot(str, str)
-    def _requester_completion_failed(self, id_, content):
+    def _requester_completion_failed(self, id_, content,message):
+        print('_requester_completion_failed',self.chathistory)
         self.request_id = id_
         self.full_response = content
         self.info_manager.notify(f'{content}\n{id_}', level='error')
-        self._receive_message([])
+        self._receive_message(message)
 
     def init_info_manager(self):
         self.info_manager=InfoManager(
@@ -907,10 +774,6 @@ class MainWindow(QMainWindow):
 
     def init_post_ui_creation(self):
         self.mod_configer.finish_story_creator_init()
-        pass
-        #self.api_window = APIConfigWidget(application_path=self.application_path)
-        #self.api_window.initializationCompleted.connect(self._handle_api_init)
-        #self.api_window.configUpdated.connect(self._handle_api_init)
         
     def init_chat_history_bubbles(self):
         # 当前聊天文本框
@@ -976,6 +839,8 @@ class MainWindow(QMainWindow):
         else:
             # 创建目录（如果不存在）
             os.makedirs(os.path.dirname(file_path), exist_ok=True)
+            name_user=APP_SETTINGS.names.user
+            name_ai=APP_SETTINGS.names.ai
             
             # 创建默认配置数据
             default_content = "你是一个有用的AI助手"
@@ -985,7 +850,7 @@ class MainWindow(QMainWindow):
                 "post_history": "",
                 'info':{
                     'id':'system_prompt',
-                    'name':{'user':self.name_user,'assistant':self.name_ai},
+                    'name':{'user':name_user,'assistant':name_ai},
                     'title':'New Chat',
                     'tools':[]
                 }
@@ -1002,18 +867,18 @@ class MainWindow(QMainWindow):
         return self.sysrule
 
     def init_chathistory_components(self):
-        self.chathistory_file_manager=ChathistoryFileManager(self.history_path)
+        self.chathistory_file_manager=ChathistoryFileManager(APP_RUNTIME.paths.history_path)
         self.chathistory_file_manager.log_signal.connect(self.info_manager.log)
         self.chathistory_file_manager.warning_signal.connect(self.info_manager.warning)
         self.chathistory_file_manager.error_signal.connect(self.info_manager.error)
     
     def init_title_creator(self):
-        api_requester=APIRequestHandler(api_config=self.api)
+        api_requester=APIRequestHandler(api_config=APP_SETTINGS.api.providers)
         self.title_generator=TitleGenerator(api_handler=api_requester)
         self.title_generator.set_provider(
-            self.title_creator_provider,
-            model=self.title_creator_model,
-            api_config=self.api
+            provider=APP_SETTINGS.title.provider,
+            model=APP_SETTINGS.title.model,
+            api_config=APP_SETTINGS.api.providers
         )
         self.title_generator.log_signal.connect(self.info_manager.log)
         self.title_generator.error_signal.connect(self.info_manager.error)
@@ -1042,7 +907,7 @@ class MainWindow(QMainWindow):
     def add_tts_page(self):
         if not "mods.chatapi_tts" in sys.modules:
             return
-        self.tts_handler=TTSAgent(setting=APP_SETTINGS.tts,path=APP_RUNTIME.paths.application_path)
+        self.tts_handler=TTSAgent(setting=APP_SETTINGS.tts,application_path=APP_RUNTIME.paths.application_path)
         self.stat_tab_widget.addTab(self.tts_handler, "语音生成")
 
     def show_mod_configer(self):
@@ -1054,18 +919,14 @@ class MainWindow(QMainWindow):
         如果存在已保存的值，则设置对应下拉框的当前选项。
         同时连接下拉框的currentTextChanged信号，在用户更改选择时更新保存的值。
         """
-        if hasattr(self, 'saved_api_provider'):
-            index = self.api_var.findText(self.saved_api_provider)
-            if index >= 0:
-                self.api_var.setCurrentIndex(index)
+        index = self.api_var.findText(APP_SETTINGS.ui.LLM.provider)
+        if index >= 0:
+            self.api_var.setCurrentIndex(index)
         
-        if hasattr(self, 'saved_model_name'):
-            index = self.model_combobox.findText(self.saved_model_name)
-            if index >= 0:
-                self.model_combobox.setCurrentIndex(index)
-        
-        self.api_var.currentTextChanged.connect(lambda text: setattr(self, 'saved_api_provider', text))
-        self.model_combobox.currentTextChanged.connect(lambda text: setattr(self, 'saved_model_name', text))
+        index = self.model_combobox.findText(APP_SETTINGS.ui.LLM.model)
+        if index >= 0:
+            self.model_combobox.setCurrentIndex(index)
+
 
     #svg图标渲染器
     def render_svg_to_icon(self, svg_data):
@@ -1366,7 +1227,11 @@ class MainWindow(QMainWindow):
         self.ai_response_text.setMarkdown(
             self.get_status_str()
         )
-        actual_response = StrTools.combined_remove_var_vast_replace(self)
+        actual_response = StrTools.combined_remove_var_vast_replace(
+            self.full_response,
+            setting=APP_SETTINGS.replace,
+            mod_enabled=self.mod_configer.status_monitor_enable_box.isChecked()
+        )
         self.update_chat_history(new_msg=actual_response,msg_id=request_id)
         name_ai=self.chathistory[0]['info']['name']['assistant']
 
@@ -1416,7 +1281,11 @@ class MainWindow(QMainWindow):
             if content.startswith("\n\n"):
                 content = content[2:]
             content = content.replace('</think>', '')
-            content = StrTools.combined_remove_var_vast_replace(self,content=content)
+            content = StrTools.combined_remove_var_vast_replace(
+                content=content,
+                setting=APP_SETTINGS.replace,
+                mod_enabled=self.mod_configer.status_monitor_enable_box.isChecked()
+            )
             item['content']=content
         return message
 
@@ -1426,7 +1295,6 @@ class MainWindow(QMainWindow):
         try:
             message=self._replace_for_receive_message(message)
             self.chathistory.extend(message)
-
             # AI响应状态栏更新
             self.ai_response_text.setMarkdown(self.get_status_str(message_finished=True))
 
@@ -1446,8 +1314,7 @@ class MainWindow(QMainWindow):
         def target():
             pack = PreprocessorPatch(self).prepare_patch()  # 创建预处理器实例
             message, params = MessagePreprocessor().prepare_message(pack=pack)
-            print('skjhak',params)
-            if self.use_concurrent_model.isChecked():
+            if APP_SETTINGS.concurrent.enabled:
                 self.concurrent_model.start_workflow(params)
                 return
             self.requester.set_provider(
@@ -1487,7 +1354,7 @@ class MainWindow(QMainWindow):
 
 
     #发送消息前的预处理，防止报错,触发长文本优化,触发联网搜索
-    def sending_rule(self):           
+    def sending_rule(self):   
         user_input = self.user_input_text.toPlainText()
         if self.chathistory[-1]['role'] == "user":
             # 创建一个自定义的 QMessageBox
@@ -1525,7 +1392,7 @@ class MainWindow(QMainWindow):
             elif reply == QMessageBox.StandardButton.No:
                 # 如果否定：return False
                 return False
-        if self.long_chat_improve_var:
+        if APP_SETTINGS.lci.enabled:
             try:
                 self.new_chat_rounds+=2
 
@@ -1536,7 +1403,7 @@ class MainWindow(QMainWindow):
                 
                 newchat_rounds_bool=self.new_chat_rounds>APP_SETTINGS.generation.max_message_rounds
 
-                newchat_lenth_bool=StrTools.get_chat_content_length(self.chathistory[-self.new_chat_rounds:])>APP_SETTINGS.lci.max_total_length
+                newchat_lenth_bool=StrTools.get_chat_content_length(self.chathistory[-self.new_chat_rounds:])>APP_SETTINGS.lci.max_segment_length
 
                 long_chat_improve_bool=message_lenth_bool and newchat_rounds_bool or newchat_lenth_bool
 
@@ -1564,7 +1431,7 @@ class MainWindow(QMainWindow):
                     self.long_chat_improve()
             except Exception as e:
                 self.info_manager.notify(f"long chat improvement failed, Error code:{e}",'error')
-        if self.back_ground_update_var:
+        if APP_SETTINGS.background.enabled:
             try:
                 self.new_background_rounds+=2
                 full_chat_lenth=StrTools.get_chat_content_length(self.chathistory)
@@ -1578,7 +1445,7 @@ class MainWindow(QMainWindow):
 当前对话次数: {len(self.chathistory)-1}
 当前对话长度（包含system prompt）: {full_chat_lenth}
 当前新对话轮次: {self.new_background_rounds}/{APP_SETTINGS.background.max_rounds}
-新对话长度: {StrTools.get_chat_content_length(self.chathistory[-self.new_background_rounds:])-StrTools.get_chat_content_length(self.chathistory[0])}
+新对话长度: {StrTools.get_chat_content_length(self.chathistory[-self.new_background_rounds:])-StrTools.get_chat_content_length([self.chathistory[0]])}
 触发条件:
 总对话轮数达标:
 对话长度达到 {APP_SETTINGS.background.max_length}: {message_lenth_bool}
@@ -1593,16 +1460,16 @@ class MainWindow(QMainWindow):
                 
             except Exception as e:
                 LOGGER.error(f"Background update failed, Error code:{e}")
-        if APP_SETTINGS.force_repeat.enforce_lower_repeat_var:
-            APP_SETTINGS.force_repeat.enforce_lower_repeat_text=''
+        if APP_SETTINGS.force_repeat.enabled:
+
+            APP_RUNTIME.force_repeat.text=''
             repeat_list=self.repeat_processor.find_last_repeats()
             if len(repeat_list)>0:
                 for i in repeat_list:
-                    APP_SETTINGS.force_repeat.enforce_lower_repeat_text+=i+'"或"'
-                APP_SETTINGS.force_repeat.enforce_lower_repeat_text='避免回复词汇"'+APP_SETTINGS.force_repeat.enforce_lower_repeat_text[:-2]
-                LOGGER.info(f"降重触发: {APP_SETTINGS.force_repeat.enforce_lower_repeat_text}")
+                    APP_RUNTIME.force_repeat.text+=i+'"或"'
+                APP_RUNTIME.force_repeat.text='避免回复词汇"'+APP_RUNTIME.force_repeat.text[:-2]
         else:
-            APP_SETTINGS.force_repeat.enforce_lower_repeat_text=''
+            APP_RUNTIME.force_repeat.text=''
         
         self.update_opti_bar()
         return True
@@ -1610,10 +1477,8 @@ class MainWindow(QMainWindow):
     #“发送”按钮触发，开始消息预处理和UI更新
     def send_message(self):
         self.main_message_process_timer_start=time.time()*1000
-        if self.pause_flag:
-            self.pause_flag = not self.pause_flag
         if self.send_button.isEnabled() and self.sending_rule():
-            if self.use_muti_model.isChecked():
+            if APP_SETTINGS.model_poll.enabled:
                 provider,modelname=self.ordered_model.collect_selected_models()
                 if provider and modelname:
                     self.api_var.setCurrentText(provider)
@@ -1650,7 +1515,7 @@ class MainWindow(QMainWindow):
         self.user_input_text.clear()
         self.create_chat_title_when_empty(self.chathistory)
         self.update_chat_history()
-        self.send_request(create_thread= not self.use_concurrent_model.isChecked())
+        self.send_request(create_thread= not APP_SETTINGS.concurrent.enabled)
 
     #api导入窗口
     def open_api_window(self):
@@ -1663,7 +1528,6 @@ class MainWindow(QMainWindow):
 
     def _handle_api_update(self) -> None:
         """处理API配置更新信号"""
-        self.api = APP_SETTINGS.api.endpoints
         model_map = APP_SETTINGS.api.model_map
 
         # 保存当前选择
@@ -1748,14 +1612,14 @@ class MainWindow(QMainWindow):
             self.send_message_var = send_message_bu.isChecked()
             self.autoslide_var=autoslide_bu.isChecked()
             self.hotkey_sysrule_var=hotkey_sysrule_bu.isChecked()
-            self.bind_enter_key()
+            #self.bind_hot_key()
             self.settings_window.close()
 
         confirm_bu.clicked.connect(confirm_settings)
         self.settings_window.exec()
 
     #绑定快捷键
-    def bind_enter_key(self):
+    def bind_hot_key(self):
         """
         根据当前设置动态绑定或解绑所有快捷键。
         功能说明
@@ -1779,9 +1643,17 @@ class MainWindow(QMainWindow):
         - 当对应布尔变量为 True 时，为相应功能创建并绑定 QShortcut。
         - 当对应布尔变量为 False 且快捷键对象已存在时，将其键序列设为空，
           从而临时禁用该快捷键，但保留对象以便后续重新绑定。
-        - 方法名虽为 bind_enter_key，但实际负责所有快捷键的绑定与解绑。
         """
-
+        self.send_message_var = True
+        self.autoslide_var = True
+        self.send_message_var=True
+        self.send_message_shortcut= QShortcut(QKeySequence(), self)
+        self.shortcut1 = QShortcut(QKeySequence(), self)
+        self.shortcut2 = QShortcut(QKeySequence(), self)
+        self.hotkey_sysrule= QShortcut(QKeySequence(), self)
+        self.shortcut1.activated.connect(self.toggle_tree_view)
+        self.shortcut2.activated.connect(self.toggle_tree_view)
+        self.send_message_shortcut.activated.connect(self.send_message)
         QShortcut(QKeySequence("F11"), self).activated.connect(
             lambda: self.showFullScreen() if not self.isFullScreen() else self.showNormal()
         )
@@ -1848,21 +1720,20 @@ class MainWindow(QMainWindow):
     def load_chathistory(self,file_path=None):
         load_start_time=time.perf_counter()
         chathistory=self.chathistory_file_manager.load_chathistory(file_path)
-        chathistory : dict
         if chathistory:
             self.chathistory=ChatHistoryTools.patch_history_0_25_1(
                     chathistory,
                     names={
-                        'user':self.name_user,
-                        'assistant':self.name_ai
+                        'user':APP_SETTINGS.names.user,
+                        'assistant':APP_SETTINGS.names.ai
                         },
                     avatar={
                     'user':'',
                     'assistant':''
                     }
                 )
-            self.new_chat_rounds=min(self.max_message_rounds,len(self.chathistory))
-            self.new_background_rounds=min(self.max_background_rounds,len(self.chathistory))
+            self.new_chat_rounds=min(APP_SETTINGS.generation.max_message_rounds,len(self.chathistory))
+            self.new_background_rounds=min(APP_SETTINGS.background.max_rounds,len(self.chathistory))
             self.last_summary=''
             self.update_opti_bar()
             self._update_preset_to_ui_by_system_message()
@@ -1945,6 +1816,7 @@ class MainWindow(QMainWindow):
         self.resend_message()
     
     def resend_message(self,request_id=''):
+        self.main_message_process_timer_start=time.time()*1000
         if not self.send_button.isEnabled():
             return
 
@@ -1967,7 +1839,7 @@ class MainWindow(QMainWindow):
         self.control_frame_to_state('sending')
         self.ai_response_text.setText("正在重传，等待回复...")
         self.update_chat_history()
-        self.send_request(create_thread= not self.use_concurrent_model.isChecked())
+        self.send_request(create_thread= not APP_SETTINGS.concurrent.enabled)
 
     #重写关闭事件，添加自动保存聊天记录和设置
     def closeEvent(self, event):
@@ -2025,10 +1897,10 @@ class MainWindow(QMainWindow):
     #获取历史记录
     def grab_past_chats(self):
         # 获取当前文件夹下所有.json文件
-        self.past_chats=self.chathistory_file_manager.load_past_chats(self.history_path)
+        past_chats = self.chathistory_file_manager.load_past_chats(APP_RUNTIME.paths.history_path)
 
         # 将文件名添加到QComboBox中
-        self.past_chat_list.populate_history(self.past_chats)
+        self.past_chat_list.populate_history(past_chats)
 
     #从历史记录载入聊天
     def load_from_past(self, index):
@@ -2064,8 +1936,8 @@ class MainWindow(QMainWindow):
         self.lci_cleaned_system_prompt=''
         summary_prompt=LongChatImprovePersetVars.summary_prompt
         user_summary=LongChatImprovePersetVars.user_summary
-        if self.long_chat_hint!='':
-            user_summary+=LongChatImprovePersetVars.long_chat_hint_prefix+str(self.long_chat_hint)
+        if APP_SETTINGS.lci.hint!='':
+            user_summary+=LongChatImprovePersetVars.long_chat_hint_prefix+str(APP_SETTINGS.lci.hint)
         if self.chathistory[0]["role"]=="system":
             try:
                 self.last_summary=(self.chathistory[0]["content"].split(LongChatImprovePersetVars.before_last_summary))[1]
@@ -2075,10 +1947,10 @@ class MainWindow(QMainWindow):
             last_full_story=LongChatImprovePersetVars.before_last_summary+\
                             self.last_summary+\
                             LongChatImprovePersetVars.after_last_summary+\
-                            ChatHistoryTools.to_readable_str(self.chathistory[-self.max_message_rounds:])#,{'user':self.name_user,'assistant':self.name_ai,})
+                            ChatHistoryTools.to_readable_str(self.chathistory[-APP_SETTINGS.generation.max_message_rounds:])#,{'user':self.name_user,'assistant':self.name_ai,})
         else:
-            last_full_story=ChatHistoryTools.to_readable_str(self.chathistory[-self.max_message_rounds:])
-            if self.lci_cleaned_system_prompt and getattr(self,'enable_lci_system_prompt',None):
+            last_full_story=ChatHistoryTools.to_readable_str(self.chathistory[-APP_SETTINGS.generation.max_message_rounds:])
+            if self.lci_cleaned_system_prompt and APP_SETTINGS.lci.collect_system_prompt:
                 last_full_story=self.lci_cleaned_system_prompt+last_full_story
                 
 
@@ -2087,21 +1959,21 @@ class MainWindow(QMainWindow):
             {"role":"system","content":summary_prompt},
             {"role":"user","content":last_full_story}
         ]
-        if self.long_chat_improve_api_provider:
-            api_provider=self.long_chat_improve_api_provider
+        if APP_SETTINGS.lci.api_provider:
+            api_provider=APP_SETTINGS.lci.api_provider
             self.info_manager.log(f'自定义长对话优化API提供商：{api_provider}')
         else:
             api_provider = self.api_var.currentText()
             self.info_manager.log(f'默认对话优化API提供商：{api_provider}')
-        if self.long_chat_improve_model:
-            model=self.long_chat_improve_model
+        if APP_SETTINGS.lci.model:
+            model=APP_SETTINGS.lci.model
             self.info_manager.log(f'自定义长对话优化模型：{model}')
         else:
             model = self.model_combobox.currentText()
             self.info_manager.log(f'默认长对话优化模型：{model}')
         client = openai.Client(
-            api_key=self.api[api_provider][1],
-            base_url=self.api[api_provider][0]
+            api_key=APP_SETTINGS.api.providers[api_provider].key,
+            base_url=APP_SETTINGS.api.providers[api_provider].url
         )
         try:
             self.info_manager.log(f"长文本优化：迭代1发送。\n发送内容长度:{len(last_full_story)}")
@@ -2164,9 +2036,6 @@ class MainWindow(QMainWindow):
         # LCI开关 → 更新状态栏图标
         self.main_setting_window.lci_enabled_changed.connect(self.update_opti_bar)
 
-        # 代称变更 → 更新历史记录和气泡
-        self.main_setting_window.name_changed.connect(self.handle_name_changed)
-
         # 标题生成provider/model变更 → 重新设置title_generator
         self.main_setting_window.title_provider_changed.connect(
             lambda provider, model: self.title_generator.set_provider(
@@ -2174,12 +2043,6 @@ class MainWindow(QMainWindow):
             )
         )
 
-
-    # === 名称更新 ===
-    def handle_name_changed(self, role, name):
-        # 不需要再写self.name_user了，UI已经写到APP_SETTINGS.names里了
-        self.init_name_to_history()
-        self.update_name_to_chatbubbles()
 
     #历史对话
     def past_chats_menu(self, position):
@@ -2262,29 +2125,23 @@ class MainWindow(QMainWindow):
     def call_background_update(self):
         self._setup_bsw()
         self.background_agent.generate(
-        summary_api_provider=self.back_ground_summary_provider,
-        summary_model=self.back_ground_summary_model,
-        image_api_provider=self.back_ground_image_provider,
-        image_model=self.back_ground_image_model,
-        chathistory=self.chathistory,
-        background_style=self.background_style,
-    )
-        
+            chathistory=self.chathistory,
+        )
 
     #背景更新：触发UI更新
     def update_background(self,file_path):
-        self.background_image_path=os.path.join(self.application_path,file_path)
+        fp = os.path.join(APP_RUNTIME.paths.application_path,file_path)
         self.info_manager.log(f'update_background: {file_path}')
         if not file_path\
-        or not os.path.isfile(self.background_image_path):
+        or not os.path.isfile(fp):
             QMessageBox.critical(
                 None,
                 '背景更新',
                 '获取的图像路径无效',
                 QMessageBox.StandardButton.Ok
             )
-
-        self.switchImage(self.background_image_path)
+            return
+        self.switchImage(fp)
 
     def _setup_bsw(self):
         if not hasattr(self,'background_agent'):
@@ -2319,11 +2176,6 @@ class MainWindow(QMainWindow):
         )
 
         add_connection(
-            self.background_agent.setting_window.previewImageChanged,
-            lambda path: self.update_background(path) if path else self.update_background('background.jpg')
-        )
-
-        add_connection(
             self.background_agent.poll_success,
             lambda path: [
                 self.update_background(path) or self.info_manager.log(f'背景生成返回了路径，返回了{path}')] if path else [
@@ -2337,7 +2189,12 @@ class MainWindow(QMainWindow):
 
         #打开背景图片    
     def open_background_pic(self):
-        os.startfile(os.path.join(self.application_path,self.background_image_path))
+        os.startfile(
+            os.path.join(
+                APP_RUNTIME.paths.application_path,
+                APP_SETTINGS.background.image_path
+            )
+        )
 
     #背景控件初始化
     def init_back_ground_label(self,path):
@@ -2455,7 +2312,7 @@ class MainWindow(QMainWindow):
         self.function_manager.set_active_tools(selected_functions)
         
         # 强制搜索，老接口
-        self.web_search_enabled = index == 2
+        APP_SETTINGS.web_search.web_search_enabled = index == 2
             
 
     def handle_web_search_button_toggled(self,checked):
@@ -2531,19 +2388,30 @@ class MainWindow(QMainWindow):
     # 0.25.1 avatar
     # 显示头像窗口
     def show_avatar_window(self,msg_id,name):
+
+        # 从历史取初始值
         do_init=False
-        if (not hasattr(self,'avatar_creator')):
-            do_init=True
-        elif self.avatar_creator.avatar_info['user']!=self.name_user or\
-        self.avatar_creator.avatar_info['assistant']:
-            do_init=True
         name_user=self.chathistory[0]['info']['name']['user']
         name_ai=self.chathistory[0]['info']['name']['assistant']
         avatar_user=self.chathistory[0]['info']['avatar']['user']
         avatar_ai=self.chathistory[0]['info']['avatar']['assistant']
-        avatar_info={'user':{'name':name_user,'image':avatar_user},
-                    'assistant':{'name':name_ai,'image':avatar_ai},
-                    }
+        avatar_info={
+            'user':{
+                'name':name_user,
+                'image':avatar_user
+            },
+            'assistant':{
+                'name':name_ai,
+                'image':avatar_ai
+            },
+        }
+
+        # 检查初始化
+        if (not hasattr(self,'avatar_creator')):
+            do_init=True   
+        elif self.avatar_creator.avatar_info['user']!=name_user or\
+        self.avatar_creator.avatar_info['assistant'] != name_ai:
+            do_init=True
         if do_init:
             self.avatar_creator=AvatarCreatorWindow(
                 avatar_info=avatar_info,
@@ -2556,8 +2424,12 @@ class MainWindow(QMainWindow):
                 )
             self.avatar_creator.avatarCreated.connect(self.chat_history_bubbles.set_role_avatar)
             self.avatar_creator.avatarCreated.connect(self.update_avatar_to_system_prompt)
+        
+        # 更新选择
         self.avatar_creator.character_for.setCurrentText(avatar_info[name]['name'])
         self.avatar_creator.chathistory=self.chathistory
+
+        # 显示窗口
         self.avatar_creator.show()
         self.avatar_creator.raise_()
     
@@ -2589,19 +2461,13 @@ class MainWindow(QMainWindow):
 
     #气泡名称更新
     def update_name_to_chatbubbles(self):
+        name_user=self.chathistory[0]['info']['name']['user']
+        name_ai=self.chathistory[0]['info']['name']['assistant']
         self.chat_history_bubbles.nicknames = {
-            'user': APP_SETTINGS.names.user, 
-            'assistant': APP_SETTINGS.names.ai
+            'user': name_user, 
+            'assistant': name_ai
         }
         self.chat_history_bubbles.update_all_nicknames()
-
-    #名称注入历史记录
-    def init_name_to_history(self):
-        self.chathistory[0]['info']['name'] = {
-            'user': APP_SETTINGS.names.user,
-            'assistant': APP_SETTINGS.names.ai
-        }
-
 
     #创建新消息
     def creat_new_chathistory(self):
@@ -2618,11 +2484,7 @@ class MainWindow(QMainWindow):
         
         self._update_preset_to_ui_by_system_message()
 
-    def _update_preset_to_ui_by_system_message(self,chathistory=[]):
-        system_message=chathistory[0] if chathistory else self.chathistory[0]
-        info=system_message["info"]
-        self.name_user=info['name']['user']
-        self.name_ai=info['name']['assistant']
+    def _update_preset_to_ui_by_system_message(self):
         self.update_avatar_to_chat_bubbles()
         self.update_name_to_chatbubbles()
     
@@ -2687,18 +2549,25 @@ class MainWindow(QMainWindow):
             self.create_chat_title(chathistory)
         
     def create_chat_title(self,chathistory):
+        include_sys_pmt =   APP_SETTINGS.title.include_sys_pmt
+        use_local       =   APP_SETTINGS.title.use_local
+        max_length      =   APP_SETTINGS.title.max_length
+        task_id         =   chathistory[0]['info']['chat_id']
+
         self.title_generator.create_chat_title(
             chathistory=chathistory,
-            include_system_prompt=self.enable_title_creator_system_prompt,
-            use_local=self.title_creator_use_local,
-            max_length=self.title_creator_max_length,
-            task_id=chathistory[0]['info']['chat_id']
+            include_system_prompt=include_sys_pmt,
+            use_local=use_local,
+            max_length=max_length,
+            task_id= task_id
         )
+
     def update_chat_title(self,chat_id,title):
         if self.chathistory and 'info' in self.chathistory[0] and self.chathistory[0]['info']['chat_id']==chat_id:
             self.chathistory[0]['info']['title']=title
             self.info_manager.log(f'对话标题更新为：{title}')
             self.chathistory_file_manager.autosave_save_chathistory(self.chathistory)
+            self.grab_past_chats()
 
 LOGGER.log(f'CWLA Class import finished, time cost:{time.time()-start_time_stamp:.2f}s',level='debug')
 

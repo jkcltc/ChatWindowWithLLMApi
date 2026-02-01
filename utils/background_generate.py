@@ -761,6 +761,11 @@ class BackgroundAgent(QObject):
         # 预览图变化 → 可以转发给外部
         self.setting_window.previewImageChanged.connect(self.poll_success.emit)
 
+        self.poll_success.connect(self._on_poll_success)
+    
+    def _on_poll_success(self, image_path: str):
+        self.cfg.image_path = image_path
+
     def _on_generate_success(self, image_path: str):
         self._processing = False
         self.poll_success.emit(image_path)

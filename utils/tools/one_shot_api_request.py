@@ -5,6 +5,7 @@ import time
 import json
 import requests
 from utils.tool_core import get_tool_registry
+import traceback
 
 class DeltaObject:
     def __init__(self, delta_data):
@@ -32,7 +33,6 @@ class DeltaObject:
             tool_calls.append(tool_call)
         
         return tool_calls
-
 def extract_api_info(provider, api_config=None):
     """
     提取API信息，支持多种api_config格式
@@ -44,11 +44,27 @@ def extract_api_info(provider, api_config=None):
         """判断是否为 ApiConfig 数据类"""
         return hasattr(obj, 'providers') and hasattr(obj, 'endpoints')
 
+    def is_api_provider_object(obj):
+        """
+        判断是否为 ApiConfig.providers 字典结构
+        即: Dict[str, ProviderConfig]
+        """
+        if not isinstance(obj, dict):
+            return False
+
+        # 遍历检查内容
+        for k, v in obj.items():
+            if not isinstance(k, str):
+                return False
+            if not (hasattr(v, 'url') and hasattr(v, 'key') and hasattr(v, 'models')):
+                return False
+        return True
+
     def is_dsls(obj):
         """判断是否为{'provider':['url','key']}"""
         if not isinstance(obj, dict):
             return False
-        
+
         for key, value in obj.items():
             if not isinstance(key, str):
                 return False
@@ -58,12 +74,12 @@ def extract_api_info(provider, api_config=None):
                 if not isinstance(item, str):
                     return False
         return True
-    
+
     def is_dsds(obj):
         """判断对象是否为: {'provider': {'url': 'str','key': 'str'}}"""
         if not isinstance(obj, dict):
             return False
-        
+
         for key, value in obj.items():
             if not isinstance(key, str):
                 return False
@@ -73,7 +89,7 @@ def extract_api_info(provider, api_config=None):
                 if not isinstance(inner_key, str) or not isinstance(inner_value, str):
                     return False
         return True
-    
+
     def is_dsuk(obj):
         """判断是否为 {'url': 'str','key': 'str'}"""
         if not isinstance(obj, dict):
@@ -81,12 +97,10 @@ def extract_api_info(provider, api_config=None):
         if 'url' not in obj or 'key' not in obj:
             return False
         return True
+
     def get_provider_type(url):
         """
         根据字符串匹配确定供应商类型
-        不使用输入的provider参数是因为防止有人把供应商A写成供应商B
-        匹配不到默认openai兼容
-        不兼容的话后续也会报错
         """
         pre_defined_provider_map={
             'localhost':'local',
@@ -104,39 +118,50 @@ def extract_api_info(provider, api_config=None):
             if feature in url:
                 return pre_defined_provider_map[feature]
         return 'openai_compatible'
-    # 检查是否传入了api_config，如果没有，就去仓库找
+
+    # 逻辑判断开始
     if not api_config:
-        return None,None,None
-        #api_key, url = self._get_api_info(provider)
-    
-    # 如果已经传入了api_config
+        return None, None, None
+
+    # List 情况
     elif isinstance(api_config, list) and len(api_config) == 2:
         url = api_config[0]
         api_key = api_config[1]
-    
-    elif is_dsls(api_config):
-        url = api_config[provider][0]
-        api_key = api_config[provider][1]
-    
-    elif is_dsds(api_config):
-        url = api_config[provider]['url']
-        api_key = api_config[provider]['key']
-    
-    elif is_dsuk(api_config):
-        url = api_config['url']
-        api_key = api_config['key']
-    
+
+    # ApiConfig.providers
+    elif is_api_provider_object(api_config):
+        if provider not in api_config:
+            raise ValueError(f'Provider "{provider}" not found in provider config dict')
+        config = api_config[provider]
+        url = config.url
+        api_key = config.key
+
+    # ApiConfig 整体对象
     elif is_api_config_object(api_config):
         if provider not in api_config.providers:
             raise ValueError(f'Provider "{provider}" not found in api_config')
         config = api_config.providers[provider]
         url = config.url
         api_key = config.key
-    
+
+    # 简单字典结构
+    elif is_dsls(api_config):
+        url = api_config[provider][0]
+        api_key = api_config[provider][1]
+
+    elif is_dsds(api_config):
+        url = api_config[provider]['url']
+        api_key = api_config[provider]['key']
+
+    elif is_dsuk(api_config):
+        url = api_config['url']
+        api_key = api_config['key']
+
     else:
-        #self.completion_failed.emit('FFR-set_provider', 'Unrecognized structure')
-        raise ValueError('Unrecognized structure' + str(api_config))
+        raise ValueError('Unrecognized structure: ' + str(api_config))
+
     return api_key, url, get_provider_type(url)
+
 class FullFunctionRequestHandler(QObject):
     # CoT
     think_event_signal = pyqtSignal(str, str)
@@ -156,7 +181,7 @@ class FullFunctionRequestHandler(QObject):
     warning_signal = pyqtSignal(str)
 
     # 报错
-    completion_failed = pyqtSignal(str, str)
+    completion_failed = pyqtSignal(str, str,list) # id, error message, chathistory item 
 
     # 结束原因
     report_finish_reason = pyqtSignal(str, str, str)  # request id, finish_reason_raw, finish_reason_readable
@@ -220,10 +245,14 @@ class FullFunctionRequestHandler(QObject):
                 self._handle_stream_request(request_data, headers)
             else:
                 self._handle_non_stream_request(request_data, headers)
-            
-            self.request_finished.emit(self._assembly_result_message())
+
         except Exception as e:
-            self.completion_failed.emit(f'Error in sending request: {e}', 'error')
+            error_message=f'Error in sending request: {e}'
+            self.completion_failed.emit(
+                self.request_id,
+                error_message,
+                self._assembly_message(error_message)
+            )
             return
         
         if self.chatting_tool_call:
@@ -233,6 +262,7 @@ class FullFunctionRequestHandler(QObject):
         """构建请求头"""
         headers = {
             'Content-Type': 'application/json',
+            'Accept': 'application/json; charset=utf-8', 
             'Authorization': f'Bearer {self.api_key}'
         }
         return headers
@@ -249,7 +279,12 @@ class FullFunctionRequestHandler(QObject):
             try:
                 api_key, url, provider_type = extract_api_info(provider, api_config)
             except ValueError as e:
-                self.completion_failed.emit('FFR-set_provider', str(e))
+                error_message = 'FFR-set_provider'+str(e)
+                self.completion_failed.emit(
+                    "CWLA_internal_FFR-set_provider",
+                    error_message,
+                    self._assembly_message(error_message)
+                )
         else:
             api_key, url, provider_type = self._get_api_info(provider)
         self.base_url = url.rstrip('/')
@@ -261,8 +296,22 @@ class FullFunctionRequestHandler(QObject):
         url = f"{self.base_url}/chat/completions"
         temp_response = ""
         flag_id_received_from_completion = False
-        response=None
+        response = None
+
+        # 定义一个内部函数用来格式化错误信息
+        def format_error_msg(e, source_type):
+            trace_full = f"{traceback.format_exc()}\n{e}"
+            try:
+                # 尝试解析 json 格式的错误信息
+                error_json = json.loads(str(e))
+                error_details = f"```json\n{json.dumps(error_json, indent=2)}\n```"
+            except:
+                error_details = f"{trace_full}"
+
+            return f"[{source_type}] Request failed.\nDetails:\n{error_details}"
+
         try:
+            # 1. 发起网络请求
             response = self.session.post(
                 url, 
                 json=request_data, 
@@ -270,88 +319,105 @@ class FullFunctionRequestHandler(QObject):
                 stream=True,
                 timeout=180
             )
-            if response.status_code != 200:
-                raise Exception(json.dumps(response.json(), indent=2, ensure_ascii=False))
 
+            # 2. 处理外部 API 错误 (HTTP 状态码非 200)
+            if response.status_code != 200:
+                error_text = f"[External API Error] Status {response.status_code}.\nResponse:\n{self._byte_decode(response.content)}"
+                # 这里直接作为外部 API 错误处理，不再抛出异常给外层
+                self.completion_failed.emit(
+                    self.request_id,
+                    error_text,
+                    self._assembly_message(error_text)
+                )
+                return
+
+            # 3. 处理流式数据 (这部分主要涉及内部逻辑)
             for line in response.iter_lines(decode_unicode=False):
                 if line is None:
                     continue
-                # 尝试解码行
-                try:
-                    line_text = line.decode('utf-8')
-                except UnicodeDecodeError:
-                    try:
-                        line_text = line.decode('gbk')
-                    except UnicodeDecodeError:
-                        try:
-                            line_text = line.decode('gb2312')
-                        except UnicodeDecodeError:
-                            # 如果都不行，使用替换错误策略
-                            line_text = line.decode('utf-8', errors='replace')
+
+                line_text = self._byte_decode(line)
+
                 line=line_text
+
                 if self.pause_flag:
                     response.close()
                     print('对话已停止。')
                     break
-                
+
                 if not line:
                     continue
-                
+
                 # 处理 SSE 格式
                 if line.startswith('data: '):
                     data = line[6:]  # 去掉 'data: ' 前缀
-                    
+
                     if data == '[DONE]':
                         break
-                    
+
                     try:
                         event = json.loads(data)
                         if not flag_id_received_from_completion and 'id' in event:
                             self.request_id = event['id']
-                            self.last_chat_info['id']=self.request_id
+                            self.last_chat_info['id'] = self.request_id
                             flag_id_received_from_completion = True
                         if 'choices' not in event or not event['choices']:
                             continue
 
                         choice = event['choices'][0]
-
                         delta_data = choice.get('delta', {})
                         content = DeltaObject(delta_data)
-                        
+
                         # 处理内容
                         if hasattr(content, "content") and content.content:
                             temp_response += content.content
                         self._handle_response(content, temp_response)
 
                     except json.JSONDecodeError:
-                        self.log_signal(f'FFR streaming-JSONDecodeError,id:{self.request_id}')
+                        # JSON 解析错误通常算作数据源问题，或者内部处理逻辑不够健壮
+                        self.log_signal(f'FFR streaming-JSONDecodeError, id:{self.request_id}')
                         continue
 
-            # 获取最后一个有效事件用于检查完成原因
-            if 'event' in locals():
+            # 4. 后处理 (完成检查)
+            if 'event' in locals(): 
                 self.check_finish_reason(event)
                 self._update_info(event)
+            
+            self.request_finished.emit(self._assembly_result_message())
 
-        except Exception as e:
-            try:
-                json.loads(str(e))
-                error_code=f"""
-```json
-{e}
-```"""
-            except:
-                error_code=str(e)
+        # capture: 网络连接/超时错误 (外部错误)
+        except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
+            error_text=f"[Network Error] Connection failed or timed out.\n{e}",
             self.completion_failed.emit(
                 self.request_id, 
-                f'''Stream request failed.
-Error code :
-{error_code}
-'''
-#Request payload :
-#```json
-#{json.dumps(request_data, indent=2, ensure_ascii=False)}
-#```'''
+                error_text,
+                self._assembly_message(error_text)
             )
+
+        # capture: 其他 requests 错误 (外部错误)
+        except requests.exceptions.RequestException as e:
+            error_text=format_error_msg(e, "Network Request Error")
+            self.completion_failed.emit(
+                self.request_id, 
+                error_text,
+                self._assembly_message(error_text)
+            )
+
+        # capture: 内部错误
+        # 例如：变量未定义、AttributeError、self._handle_response 内部报错等
+        except Exception as e:
+            error_text=format_error_msg(e, "Internal System Error")
+            self.completion_failed.emit(
+                self.request_id, 
+                error_text,
+                self._assembly_message(error_text)
+            )
+
+        finally:
+            # 确保资源释放
+            if response:
+                response.close()
+
 
     def _handle_non_stream_request(self, request_data, headers):
         """处理非流式请求"""
@@ -376,11 +442,15 @@ Error code :
                 self._update_info(data)
                 
                 print(f'\n返回长度：{len(self.full_response)}\n思考链长度: {len(self.think_response)}')
-            
+
+            self.request_finished.emit(self._assembly_result_message())
+
         except requests.exceptions.RequestException as e:
+            error_text=f'Non-stream request failed: {e}'
             self.completion_failed.emit(
                 self.request_id, 
-                f'Non-stream request failed: {e}'
+                error_text,
+                self._assembly_message(error_text)
             )
 
     def check_finish_reason(self, event):
@@ -402,6 +472,7 @@ Error code :
                     "length": "对话因长度限制提前结束。",
                     "content_filter": "对话因内容过滤提前结束。",
                     "function_call": "AI发起了工具调用。",
+                    "tool_call": "AI发起了工具调用。",
                     "null": "未完成或进行中",
                     None: "对话结束，未返回完成原因。"
                 }
@@ -419,7 +490,11 @@ Error code :
                 
         except Exception as e:
             error_msg = f"处理结束原因时出错: {str(e)}"
-            self.completion_failed.emit(self.request_id, error_msg)
+            self.completion_failed.emit(
+                self.request_id, 
+                error_msg,
+                self._assembly_message(error_msg)
+            )
 
     def pause(self):
         self.pause_flag = True
@@ -610,7 +685,12 @@ Error code :
 
         except Exception as e:
             print('Failed function calling:', type(e), e)
-            self.completion_failed.emit('FFR-tool_call', f"Failed function calling: {e}")
+            error_text=f'FFR-tool_call : Failed function calling: {e}'
+            self.completion_failed.emit(
+                self.request_id,
+                error_text,
+                self._assembly_message(error_text)
+            )
 
     def _load_tool_arguments(self, function_call):
         """解析工具参数"""
@@ -679,7 +759,12 @@ Error code :
             return self.last_chat_info
 
         except Exception as e:
-            self.completion_failed.emit(self.request_id, 'failed info update:' + str(e))
+            error_text='failed info update:' + str(e)
+            self.completion_failed.emit(
+                self.request_id, 
+                error_text,
+                self._assembly_message(error_text)
+            )
             # 即使出错也确保基础信息存在
             self.last_chat_info = {
                 "id": self.request_id,
@@ -698,13 +783,39 @@ Error code :
         if self.chatting_tool_call:
             message = self._handle_tool_call([])
         else:
-            message = [{
-                'role': 'assistant',
-                'content': self.full_response,
-                'reasoning_content': self.think_response,
-                'info': self.last_chat_info
-            }]
+            message = self._assembly_message(self.full_response, self.think_response)
         return message
+    
+    def _assembly_message(self,full_response='',think_response=''):
+        """组装结果消息"""
+        message = [
+            {
+                'role': 'assistant',
+                'content': full_response,
+                'reasoning_content': think_response,
+                'info': self.last_chat_info
+            }
+        ] 
+        return message
+
+    def _byte_decode(self, byte_data:bytes):
+        """
+        解码各种编码
+        """
+        if not byte_data:
+            return ""
+        # 依次尝试各种编码，就像试开锁一样
+        try:
+            return byte_data.decode('utf-8')
+        except UnicodeDecodeError:
+            try:
+                return byte_data.decode('gbk')
+            except UnicodeDecodeError:
+                try:
+                    return byte_data.decode('gb2312')
+                except UnicodeDecodeError:
+                    # 实在打不开就暴力破拆，乱码就乱码吧
+                    return byte_data.decode('utf-8', errors='replace')
 
 
 class APIRequestHandler(FullFunctionRequestHandler):
@@ -743,7 +854,7 @@ class APIRequestHandler(FullFunctionRequestHandler):
             self.think_event_signal.connect(lambda _,t:print(t,end=''))
             self.ai_event_response.connect(lambda _,t:print(t,end=''))
             self.request_completed.connect(lambda _,t:print(t,end=''))
-            self.completion_failed.connect(lambda _,t:print(t,end=''))
+            self.completion_failed.connect(lambda _,t,__:print(t,end=''))
             self.error_occurred.connect(lambda _,t:print(t,end=''))
  
 
@@ -821,5 +932,5 @@ class APIRequestHandler(FullFunctionRequestHandler):
     def _bridge_request_finished(self, message_list):
         self.request_completed.emit(self.full_response or "")
 
-    def _bridge_error(self, request_id: str, err: str):
+    def _bridge_error(self, _: str, err: str, __):
         self.error_occurred.emit(err or "未知错误")

@@ -420,7 +420,7 @@ class MainSettingWindow(QWidget):
         # === 标题生成 ===
         self.title_local_radio.toggled.connect(self._handle_title_method)
         self.title_system_prompt_checkbox.stateChanged.connect(
-            lambda state: setattr(s.title, 'enabled', state != 0))
+            lambda state: setattr(s.title, 'include_sys_pmt', state != 0))
         self.title_max_length_edit.textChanged.connect(self._handle_title_max_length_text)
         self.title_max_length_slider.valueChanged.connect(self._handle_title_max_length_slider)
         self.title_provider_combo.currentTextChanged.connect(self._handle_title_provider)
@@ -490,9 +490,7 @@ class MainSettingWindow(QWidget):
 
     def _handle_title_provider(self, text):
         self.settings.title.provider = text
-        self.title_model_combo.blockSignals(True)
         self._update_title_model_combo()
-        self.title_model_combo.blockSignals(False)
         self.title_provider_changed.emit(text, self.settings.title.model)
 
     # ====== 下拉框更新 ======
@@ -563,7 +561,7 @@ class MainSettingWindow(QWidget):
         self.title_local_radio.setChecked(s.title.use_local)
         self.title_llm_radio.setChecked(not s.title.use_local)
         self.title_stack.setCurrentIndex(0 if s.title.use_local else 1)
-        self.title_system_prompt_checkbox.setChecked(s.title.enabled)
+        self.title_system_prompt_checkbox.setChecked(s.title.include_sys_pmt)
         self.title_max_length_edit.setText(str(s.title.max_length))
         self.title_max_length_slider.setValue(s.title.max_length)
         self.title_provider_combo.setCurrentText(s.title.provider)

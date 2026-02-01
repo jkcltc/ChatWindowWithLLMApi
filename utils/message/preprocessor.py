@@ -3,8 +3,11 @@ import time
 import sys
 import logging
 from typing import List, Dict, Any ,Optional ,Callable
+from utils.setting import APP_SETTINGS
+from utils.setting import APP_RUNTIME
+from utils.info_module import LOGMANAGER
+LOGGER = LOGMANAGER
 
-from utils.setting.data import APP_SETTINGS
 #from utils.message.data import ChatCompletionPack
 # from utils.api.patcher import GlobalPatcher 
 from utils.tools.str_tools import StrTools 
@@ -41,8 +44,83 @@ class ChatCompletionPack:
             return ''
 
 
-from utils.info_module import LOGMANAGER
-LOGGER = LOGMANAGER
+#发送消息前处理器的patch
+class PreprocessorPatch:
+    def __init__(self, god_class):
+        self.god = god_class
+
+    def prepare_patch(self):
+        """预处理消息并构建API参数"""
+        
+        web_search_results = self._handle_web_search_results()
+        enforce_lower_repeat_text = APP_RUNTIME.force_repeat.text 
+        temp_style=self.god.temp_style
+
+        pack=ChatCompletionPack(
+            chathistory=self.god.chathistory,
+            model_name=self.god.model_combobox.currentText(),
+            api_provider = self.god.api_var.currentText(),
+
+            tool_list=self.god.function_manager.get_selected_functions(),
+            
+            optional = {
+                "temp_style":temp_style,
+                'web_search_result':web_search_results,
+                'enforce_lower_repeat_text':enforce_lower_repeat_text,
+            },
+
+            mod=[self._handle_mod_functions],
+
+        )
+        return pack
+
+
+    def _handle_web_search_results(self):
+        user_input=self.god.chathistory[-1]['content']
+        if isinstance(user_input,list):
+            for item in user_input:
+                if item['type']=='text':
+                    user_input=item['text']
+                    break
+        if APP_SETTINGS.web_search.web_search_enabled:
+            self.god.web_searcher.perform_search(user_input)
+            self.god.web_searcher.wait_for_search_completion()
+            if APP_SETTINGS.web_search.use_llm_reformat:
+                results = self.god.web_searcher.rag_result
+            else:
+                results = self.god.web_searcher.tool.format_results()
+            return results
+
+    def _handle_mod_functions(self, messages):
+        """处理模块功能"""
+        messages = self._handle_status_manager(messages)
+        messages = self._handle_story_creator(messages)
+        return messages
+    
+    # mod functions
+    def _handle_status_manager(self, messages):
+        """处理状态管理器"""
+        if not "mods.status_monitor" in sys.modules:
+            return messages
+        if not self.god.mod_configer.status_monitor_enable_box.isChecked():
+            return messages
+        
+        text = messages[-1]['content']
+        status_text = self.god.mod_configer.status_monitor.get_simplified_variables()
+        use_ai_func = self.god.mod_configer.status_monitor.get_ai_variables(use_str=True)
+        text = status_text + use_ai_func + text
+        messages[-1]['content'] = text
+        return messages
+
+    def _handle_story_creator(self, messages):
+        """处理故事创建器"""
+        if not "mods.story_creator" in sys.modules:
+            LOGGER.info('no mods.story_creator')
+            return messages
+        if not self.god.mod_configer.enable_story_insert.isChecked():
+            return messages
+        return self.god.mod_configer.story_creator.process_income_chat_history(messages)
+
 
 class MessagePreprocessor:
     def __init__(self):
@@ -84,6 +162,8 @@ class MessagePreprocessor:
             tools=has_tools
         )
         params = self._handle_provider_patch(params, pack)
+
+        print(params)
 
         LOGGER.info(f'发送长度: {StrTools.get_chat_content_length(messages)}，消息数: {len(messages)}')
         LOGGER.info(f'消息打包耗时:{(time.perf_counter()-start)*1000:.2f}ms')
@@ -127,7 +207,7 @@ class MessagePreprocessor:
             return messages
 
         temp_style = pack.optional.get('temp_style', '')
-        force_text = pack.optional.get('enforce_lower_repeat_text','') if APP_SETTINGS.force_repeat.enforce_lower_repeat_var else ''
+        force_text = pack.optional.get('enforce_lower_repeat_text','') if APP_SETTINGS.force_repeat.enabled else ''
 
         # 仅当最后一条是 user 且有样式或强制文本时追加
         if (messages[-1]["role"] == "user" and temp_style) or force_text:

@@ -134,14 +134,14 @@ class StrTools:
         return text
 
     @staticmethod
-    def combined_remove_var_vast_replace(obj,content=None):
-        if content:
-            actual_response=content
-        else:
-            actual_response = obj.full_response
-        if obj.autoreplace_var:
-            actual_response = StrTools.vast_replace(actual_response,obj.autoreplace_from,obj.autoreplace_to)
-        if obj.mod_configer.status_monitor_enable_box.isChecked():
+    def combined_remove_var_vast_replace(content=None,setting=None,mod_enabled=False):
+        if not setting or content:
+            return content
+
+        actual_response=content
+        if setting.autoreplace_var:
+            actual_response = StrTools.vast_replace(actual_response,setting.autoreplace_from,setting.autoreplace_to)
+        if mod_enabled:
             actual_response = StrTools.remove_var(actual_response)
         return actual_response
 
@@ -155,6 +155,7 @@ class StrTools:
         total = 0
 
         for message in messages:
+
             content = message.get('content')
             if not content:
                 continue

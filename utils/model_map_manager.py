@@ -12,6 +12,7 @@ from PyQt6.QtWidgets import *
 from PyQt6.QtCore import *
 from PyQt6.QtGui import *
 from utils.setting import APP_RUNTIME,APP_SETTINGS, ConfigManager
+from utils.tools.patch_manager import GlobalPatcher
 
 
 class ModelMapManager:
@@ -346,6 +347,14 @@ class APIConfigWidget(QWidget):
         key_entry.setPlaceholderText("请输入认证密钥...")
         key_entry.setEchoMode(QLineEdit.EchoMode.Password)  # 隐藏输入内容
         key_entry.setClearButtonEnabled(True)
+
+        # 供应商类型选择框
+        type_combo = QComboBox()
+        type_combo.setEditable(True)
+        patch_list = GlobalPatcher().patch_list
+        type_combo.addItems(patch_list)
+        type_combo.setPlaceholderText("选择或输入适配类型")
+
         
         # 输入变化时触发配置更新（延迟保存）
         url_entry.textChanged.connect(lambda text, api=api_name: self._on_config_edited(api))
@@ -353,6 +362,7 @@ class APIConfigWidget(QWidget):
         
         config_layout.addRow("API URL:", url_entry)
         config_layout.addRow("API 密钥:", key_entry)
+        config_layout.addRow("供应商类型:", type_combo)
         
         # 自定义API添加删除按钮
         if is_custom:
@@ -403,7 +413,7 @@ class APIConfigWidget(QWidget):
         main_tab_layout.addWidget(model_group, 5)  # 模型区域占较大空间
         self.tab_widget.addTab(tab_content, api_name)  # 添加到标签页容器
         # 存储当前API的UI组件（用于后续操作）
-        self.api_widgets[api_name] = (url_entry, key_entry, model_list_widget, search_edit)
+        self.api_widgets[api_name] = (url_entry, key_entry, model_list_widget, search_edit, type_combo)
         
         # 记录自定义API
         if is_custom and api_name not in self.custom_apis:
@@ -431,7 +441,7 @@ class APIConfigWidget(QWidget):
                 return
                 
             # 获取模型列表控件
-            _, _, list_widget, _ = self.api_widgets[api_name]
+            _, _, list_widget, _, _ = self.api_widgets[api_name]
             
             # 检查模型是否已存在
             for i in range(list_widget.count()):
@@ -674,7 +684,7 @@ class APIConfigWidget(QWidget):
         """
         selected = {}
         for api_name, widgets in self.api_widgets.items():
-            _, _, list_widget, _ = widgets
+            _, _, list_widget, _, _ = widgets
             selected_items = [item.text() for item in list_widget.selectedItems()]
             if selected_items:
                 selected[api_name] = selected_items
@@ -776,18 +786,23 @@ class APIConfigWidget(QWidget):
                 self._create_api_tab(api_name, is_custom=True)
 
             if api_name in self.api_widgets:
-                url_entry, key_entry, _, search_edit = self.api_widgets[api_name]
+                url_entry, key_entry, _, search_edit, type_combo = self.api_widgets[api_name]
 
                 url_entry.blockSignals(True)
                 key_entry.blockSignals(True)
                 search_edit.blockSignals(True)
+                type_combo.blockSignals(True)
 
                 url_entry.setText(config.url)  # 对象属性访问
                 key_entry.setText(config.key)
 
+                current_type = getattr(config, 'provider_type', "openai_compatible")
+                type_combo.setCurrentText(current_type)
+
                 url_entry.blockSignals(False)
                 key_entry.blockSignals(False)
                 search_edit.blockSignals(False)
+                type_combo.blockSignals(False)
 
             self.available_models[api_name] = list(config.models)  # 复制一份
 
@@ -804,7 +819,7 @@ class APIConfigWidget(QWidget):
         selected_models_map = selected_models_map or {}
         for api_name, models in available_models.items():
             if api_name in self.api_widgets:
-                _, _, list_widget, search_edit = self.api_widgets[api_name]
+                _, _, list_widget, search_edit, _ = self.api_widgets[api_name]
                 # 断开信号（避免更新UI时触发保存）
                 list_widget.itemSelectionChanged.disconnect()
                 search_edit.blockSignals(True)
@@ -834,7 +849,7 @@ class APIConfigWidget(QWidget):
         if api_name not in self.api_widgets:
             return
             
-        _, _, list_widget, _ = self.api_widgets[api_name]
+        _, _, list_widget, _, _ = self.api_widgets[api_name]
         for i in range(list_widget.count()):
             item = list_widget.item(i)
             if item and item.text() in model_names:
@@ -846,16 +861,22 @@ class APIConfigWidget(QWidget):
         config_data = {}
 
         for api_name, widgets in self.api_widgets.items():
-            url_entry, key_entry, list_widget, _ = widgets
+            
+            url_entry, key_entry, list_widget, _, type_combo = widgets
+
             url = url_entry.text().strip()
             key = key_entry.text().strip()
             models = [item.text() for item in list_widget.selectedItems()]
+            # 获取供应商类型
+            p_type = type_combo.currentText().strip()
+            if not p_type: 
+                p_type = "openai_compatible" # 不能为空，给个默认值
 
-            # 直接用 dict，Pydantic 会自动转成 ProviderConfig
             providers[api_name] = {
                 "url": url,
                 "key": key,
-                "models": models
+                "models": models,
+                "provider_type": p_type
             }
             config_data[api_name] = providers[api_name]
 
@@ -885,7 +906,7 @@ class APIConfigWidget(QWidget):
         if api_name not in self.api_widgets:
             return
             
-        _, _, list_widget, _ = self.api_widgets[api_name]
+        _, _, list_widget, _, _ = self.api_widgets[api_name]
         
         # 保存当前选中的模型（过滤后恢复）
         selected_items = [item.text() for item in list_widget.selectedItems()]

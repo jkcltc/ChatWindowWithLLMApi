@@ -1412,7 +1412,7 @@ class MainWindow(QMainWindow):
                         [
                             '长对话优化日志：',
                             '\n当前对话次数:', str(len(self.chathistory)-1),
-                            '\n当前对话长度（包含system prompt）:', full_chat_lenth,
+                            '\n当前对话长度（包含system prompt）:', str(full_chat_lenth),
                             '\n当前新对话轮次:', str(self.new_chat_rounds), '/', str(APP_SETTINGS.generation.max_message_rounds),
                             '\n新对话长度:', str(len(str(self.chathistory[-self.new_chat_rounds:]))),
                             '\n触发条件:',

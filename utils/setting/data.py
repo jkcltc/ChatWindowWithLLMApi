@@ -1,5 +1,5 @@
 import os,sys
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional,Literal
 from pydantic import Field, model_validator
 from utils.setting.model import BaseSettings
 
@@ -7,6 +7,35 @@ from utils.setting.model import BaseSettings
 class LLMUsagePack(BaseSettings):
     provider: str = 'deepseek'
     model: str = 'deepseek-chat'
+
+class LLMDetail(BaseSettings):
+    name : str = Field(default="")
+
+    input_ability: List[Literal[
+        "text",
+        "image",
+        "audio",
+        "video",
+        "file"
+    ]] = Field(default=["text","image"]) 
+
+    output_ability: List[Literal[
+        "text",
+        "image",
+        "audio",
+        "video",
+    ]] = Field(default=["text"])
+
+    tool_ability: bool = True
+
+    default_tool : list[str] = Field(default=[])
+
+    reasoning_ability: bool = True
+
+    extra_body : Dict = Field(default={})
+
+    extra_headers : Dict = Field(default={})
+
 
 # ==================== 用户配置 ====================
 
@@ -82,6 +111,8 @@ class WebSearchSettings(BaseSettings):
     use_llm_reformat: bool = False
     reformat_config: LLMUsagePack = Field(default_factory=LLMUsagePack)
 
+    enable_provider_buildin: bool = False
+
 class ForceRepeatSettings(BaseSettings):
     """强制降重"""
     enabled: bool = False
@@ -101,6 +132,9 @@ class GenerationSettings(BaseSettings):
 
     max_message_rounds: int = 50   
     """最大发送长度"""
+
+    character_enforce: bool = False
+    """是否在消息中注入name字段"""
 
 class InputLimitSettings(BaseSettings): 
     """长度限制与对话阈值"""
@@ -219,6 +253,7 @@ class ProviderConfig(BaseSettings):
     url: str = ""
     key: str = ""
     models: List[str] = Field(default_factory=list)
+    provider_type : str = "openai_compatible"
 
 class ApiConfig(BaseSettings):
     """API配置"""
@@ -227,27 +262,38 @@ class ApiConfig(BaseSettings):
         "baidu": ProviderConfig(
             url="https://qianfan.baidubce.com/v2",
             key="",
-            models=["ernie-5.0-thinking-exp", "deepseek-v3.2"]
+            models=["ernie-5.0-thinking-exp", "deepseek-v3.2"],
+            provider_type="baidu"
         ),
         "deepseek": ProviderConfig(
             url="https://api.deepseek.com/v1",
             key="",
-            models=["deepseek-chat", "deepseek-reasoner"]
+            models=["deepseek-chat", "deepseek-reasoner"],
+            provider_type="deepseek"
         ),
         "siliconflow": ProviderConfig(
             url="https://api.siliconflow.cn/v1",
             key="",
-            models=["deepseek-ai/DeepSeek-V3.2", "Pro/deepseek-ai/DeepSeek-V3.2"]
+            models=["deepseek-ai/DeepSeek-V3.2", "Pro/deepseek-ai/DeepSeek-V3.2"],
+            provider_type="siliconflow"
         ),
         "tencent": ProviderConfig(
             url="https://api.lkeap.cloud.tencent.com/v1",
             key="",
-            models=["deepseek-v3.2"]
+            models=["deepseek-v3.2"],
+            provider_type= "openai_compatible" # 兼容最不好的一集
+        ),
+        "openrouter": ProviderConfig(
+            url="https://openrouter.ai/api/v1",
+            key="",
+            models=[],
+            provider_type="openrouter"
         ),
         "novita": ProviderConfig(
             url="https://api.novita.ai/v3",
             key="",
-            models=[]
+            models=[],
+            provider_type="novita_image" # not even chat,why is it here?
         )
     })
 

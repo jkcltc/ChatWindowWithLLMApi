@@ -1,48 +1,16 @@
 import copy
 import time
 import sys
-import logging
-from typing import List, Dict, Any ,Optional ,Callable
-from utils.setting import APP_SETTINGS
-from utils.setting import APP_RUNTIME
+from utils.message.data import ChatCompletionPack
+from utils.setting import APP_SETTINGS,APP_RUNTIME
 from utils.info_module import LOGMANAGER
 LOGGER = LOGMANAGER
 
 #from utils.message.data import ChatCompletionPack
 # from utils.api.patcher import GlobalPatcher 
 from utils.tools.str_tools import StrTools 
-from dataclasses import dataclass ,field
+
 from utils.preset_data import LongChatImprovePersetVars
-
-@dataclass
-class ChatCompletionPack:
-    """
-    用于在不同组件间传递对话请求所需的完整上下文包。
-    """
-    chathistory: List[Dict[str, Any]]
-
-    model_name: str
-
-    api_provider: str
-
-    tool_list: List[str] = field(default_factory=list)
-    """function_manager.selected_tools=>list"""
-
-    optional:dict = field(default_factory={
-        "temp_style":'',
-        'web_search_result':'',
-        'enforce_lower_repeat_text':'',
-    })
-
-    mod: Optional[List[Callable]] = field(default_factory=list) 
-
-    @property
-    def sysrule(self):
-        if self.chathistory[0]['role']=='system':
-            return self.chathistory[0]['content']
-        else:
-            return ''
-
 
 #发送消息前处理器的patch
 class PreprocessorPatch:
@@ -58,8 +26,8 @@ class PreprocessorPatch:
 
         pack=ChatCompletionPack(
             chathistory=self.god.chathistory,
-            model_name=self.god.model_combobox.currentText(),
-            api_provider = self.god.api_var.currentText(),
+            model=self.god.model_combobox.currentText(),
+            provider = APP_SETTINGS.api.providers[self.god.api_var.currentText()],
 
             tool_list=self.god.function_manager.get_selected_functions(),
             
@@ -99,18 +67,50 @@ class PreprocessorPatch:
     
     # mod functions
     def _handle_status_manager(self, messages):
-        """处理状态管理器"""
-        if not "mods.status_monitor" in sys.modules:
+        """
+        处理状态管理器的上下文注入。
+        如果启用了状态监控，将 simplified_variables 和 ai_variables 作为 system 消息
+        插入到倒数第二条位置（用户最新消息之前）。
+        """
+        # 1. 基础检查：模块是否加载
+        if "mods.status_monitor" not in sys.modules:
             return messages
+
+        # 2. 基础检查：功能是否开启
         if not self.god.mod_configer.status_monitor_enable_box.isChecked():
             return messages
-        
-        text = messages[-1]['content']
-        status_text = self.god.mod_configer.status_monitor.get_simplified_variables()
-        use_ai_func = self.god.mod_configer.status_monitor.get_ai_variables(use_str=True)
-        text = status_text + use_ai_func + text
-        messages[-1]['content'] = text
+
+        # 获取监视器实例
+        monitor = self.god.mod_configer.status_monitor
+
+        # 3. 收集要插入的上下文消息
+        context_messages = []
+
+        # --- 提取状态文本 ---
+        status_text = monitor.get_simplified_variables()
+        if status_text and status_text.strip():
+            context_messages.append({
+                "role": "system",
+                "content": status_text
+            })
+
+        # --- 提取AI变量/函数 ---
+        ai_funcs_text = monitor.get_ai_variables(use_str=True)
+        if ai_funcs_text and ai_funcs_text.strip():
+            context_messages.append({
+                "role": "system",
+                "content": ai_funcs_text
+            })
+
+        # 4. 执行插入操作
+        # 如果没有上下文要插，就直接返回原样
+        if not context_messages:
+            return messages
+
+
+        messages[-1:-1] = context_messages
         return messages
+
 
     def _handle_story_creator(self, messages):
         """处理故事创建器"""
@@ -202,30 +202,42 @@ class MessagePreprocessor:
         return new_messages
 
     def _process_special_styles(self, messages, pack: ChatCompletionPack):
-        """处理特殊样式文本和强制降重"""
+        """处理特殊样式文本和强制降重 - 改为User前插入System"""
         if not messages:
             return messages
 
         temp_style = pack.optional.get('temp_style', '')
-        force_text = pack.optional.get('enforce_lower_repeat_text','') if APP_SETTINGS.force_repeat.enabled else ''
+        force_text = pack.optional.get('enforce_lower_repeat_text', '') if APP_SETTINGS.force_repeat.enabled else ''
 
-        # 仅当最后一条是 user 且有样式或强制文本时追加
-        if (messages[-1]["role"] == "user" and temp_style) or force_text:
+        # 如两个变量都空，直接返回
+        if not temp_style and not force_text:
+            return messages
+
+        # 仅当最后一条是 user 时，在其前方插入系统提示
+        if messages[-1]["role"] == "user":
             append_text = f'【{temp_style}|{force_text}】'
-            messages[-1]["content"] = append_text + messages[-1]["content"]
+
+            # 构造要插入的系统消息
+            new_system_msg = {"role": "system", "content": append_text}
+            messages.insert(-1, new_system_msg)
 
         return messages
 
     def _handle_web_search_results(self, messages, pack: ChatCompletionPack):
-        """处理网络搜索结果"""
-
+        """处理网络搜索结果 - 改为User前插入System"""
         search_result = pack.optional.get('web_search_result', '')
 
+        # 如果搜索结果为空或消息列表为空，直接返回原消息列表
         if APP_SETTINGS.web_search.web_search_enabled and search_result and messages:
-            messages[-1]["content"] = "[system]搜索引擎提供的结果:\n" + search_result + "现在，根据搜索引擎提供的结果回答用户的以下问题：" + messages[-1]["content"]
+
+            if messages[-1]["role"] == "user":
+                prompt_text = f"搜索引擎提供的结果:\n{search_result}\n请根据以上搜索结果回答用户的提问。"
+
+                new_msg = {"role": "system", "content": prompt_text}
+
+                messages.insert(-1, new_msg)
 
         return messages
-
     def _fix_chat_history(self, messages: list, full_history: list):
         """
         修复被截断的聊天记录，保证工具调用的完整性
@@ -265,30 +277,46 @@ class MessagePreprocessor:
         return messages
 
     def _handle_user_and_char(self, messages, pack: ChatCompletionPack):
-        """处理用户和角色名称替换"""
+        """处理用户和角色名称替换 & 为每条消息注入name字段"""
         if not messages:
             return messages
-        
-        item = messages[0]
-        # 优先使用配置名，否则回退
-        ai_name=item ["info"]["name"]['assistant']
+
+        # 1. 获取用户和角色名称 
+        first_msg_info = messages[0].get("info", {}) if isinstance(messages[0], dict) else {}
+        names_config = first_msg_info.get("name", {})
+
+        # 获取AI名字
+        ai_name = names_config.get('assistant')
         if not ai_name:
-            ai_name = APP_SETTINGS.names.ai if APP_SETTINGS.names.ai else pack.model_name
-        user_name=item ["info"]["name"]['user']
+            ai_name = APP_SETTINGS.names.ai if APP_SETTINGS.names.ai else pack.model
+
+        # 获取用户名字
+        user_name = names_config.get('user')
         if not user_name:
             user_name = APP_SETTINGS.names.user if APP_SETTINGS.names.user else 'user'
 
-        if item['role'] == 'system':
-            content = item.get('content', '')
-            if '{{user}}' in content:
-                content = content.replace('{{user}}', user_name)
-            if '{{char}}' in content:
-                content = content.replace('{{char}}', ai_name)
-            if '{{model}}' in content:
-                content = content.replace('{{model}}', pack.model_name)
-            if '{{time}}' in content:
-                content = content.replace('{{time}}', time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()))
-            item['content'] = content
+        # 2. 遍历所有消息，该贴标签的贴标签，该换内容的换内容
+        for item in messages:
+            role = item.get('role')
+            if APP_SETTINGS.generation.character_enforce:
+                # 给 User 和 Assistant 注入 name 字段
+                if role == 'user':
+                    item['name'] = user_name
+                elif role == 'assistant':
+                    item['name'] = ai_name
+
+            # 3. 针对 System 消息进行模板变量替换
+            if role == 'system':
+                content = item.get('content', '')
+                if '{{user}}' in content:
+                    content = content.replace('{{user}}', user_name)
+                if '{{char}}' in content:
+                    content = content.replace('{{char}}', ai_name)
+                if '{{model}}' in content:
+                    content = content.replace('{{model}}', pack.model)
+                if '{{time}}' in content:
+                    content = content.replace('{{time}}', time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()))
+                item['content'] = content
 
         return messages
 
@@ -307,11 +335,17 @@ class MessagePreprocessor:
                 single_message['content'] = text_message + multimodal_data
         return messages
 
+    #class ProviderConfig(BaseSettings):
+    #   """单个供应商的配置结构"""
+    #   url: str = ""
+    #   key: str = ""
+    #   models: List[str] = Field(default_factory=list)
+    #   provider_type : str = "openai_compatible"
+
     def _handle_provider_patch(self, params, pack: ChatCompletionPack):
         """应用特定供应商的补丁"""
         # 从配置中通过 provider key 获取 URL
-        provider_config = APP_SETTINGS.api.providers.get(pack.api_provider)
-        provider_url = provider_config.url if provider_config else ""
+        provider_type=pack.provider.provider_type
 
         # 需要引入 GlobalPatcher
         from utils.tools.patch_manager import GlobalPatcher # 延迟导入避免循环依赖
@@ -319,14 +353,17 @@ class MessagePreprocessor:
         patcher = GlobalPatcher()
         config_context = {
             "reasoning_effort": APP_SETTINGS.generation.reasoning_effort,
+            'provider_buildin_search_enabled': APP_SETTINGS.web_search.enable_provider_buildin,
+            # 占位符 等待设置重构
+            'input_ability':['text','image','audio']
         }
-        new_params = patcher.patch(params, provider_url, config_context)
+        new_params = patcher.patch(params, provider_type, config_context)
         return new_params
 
     def _build_request_params(self, messages, pack: ChatCompletionPack, stream=True, tools=False):
         """构建请求参数"""
         params = {
-            'model': pack.model_name,
+            'model': pack.model,
             'messages': messages,
             'stream': stream
         }

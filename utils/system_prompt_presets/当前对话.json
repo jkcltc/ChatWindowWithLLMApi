@@ -1,5 +1,18 @@
 {
-    "name": "当前对话",
-    "content": "你是助手{{char}}，你为用户{{user}}提供正确、有效的信息。",
-    "post_history": ""
+  "name": "当前对话",
+  "content": "你是{{char}}，你正在和{{user}}对话。",
+  "post_history": "",
+  "info": {
+    "id": "system_prompt",
+    "name": {
+      "user": "JKC",
+      "assistant": ""
+    },
+    "title": "Current Chat",
+    "tools": [],
+    "avatar": {
+      "user": "C:\\Users\\kcji\\Desktop\\te\\CWLA_branch_US\\pics\\avatar\\USER_avatar.png",
+      "assistant": "C:\\Users\\kcji\\Desktop\\te\\CWLA_branch_US\\pics\\avatar\\AI_avatar.png"
+    }
+  }
 }

@@ -135,7 +135,7 @@ class StrTools:
 
     @staticmethod
     def combined_remove_var_vast_replace(content=None,setting=None,mod_enabled=False):
-        if not setting or content:
+        if not setting or not content:
             return content
 
         actual_response=content

@@ -82,11 +82,11 @@ class ChatHistoryTools:
 class ChatHistoryTextView(QWidget):
     """A dialog window for displaying full chat history with right-aligned controls."""
     
-    def __init__(self, chat_history, user_name, ai_name):
+    def __init__(self, chat_history):
         super().__init__()
         self.chat_history = chat_history
-        self.user_name = user_name
-        self.ai_name = ai_name
+        self.user_name = 'USER'
+        self.ai_name = 'ASSISTANT'
 
         if chat_history and isinstance(chat_history[0], dict):
             first_msg = chat_history[0]

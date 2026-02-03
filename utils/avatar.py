@@ -432,7 +432,7 @@ class AvatarImageGenerator(QObject):
     def __init__(self,generator='',application_path='',model=''):
         super().__init__()
         self.generator_name=generator
-        self.generator=ImageAgent(application_path)
+        self.generator=ImageAgent()
         self.generator.set_generator(generator)
         self.generator.pull_success.connect(self.pull_success.emit)
         self.generator.pull_success.connect(lambda  _:self.status_update.emit(AvatarCreatorText.IMAGE_GENERATE_STATUS_SUCCESS))
@@ -584,7 +584,7 @@ class AvatarCreatorWindow(QWidget):
         self.current_character = self.character_for_names[0] if self.character_for_names else ""
 
         #生成器
-        self.generator=ImageAgent(self.application_path)
+        self.generator=ImageAgent()
     
     def _init_ui(self):
         """初始化UI控件"""
@@ -974,8 +974,8 @@ class AvatarCreatorWindow(QWidget):
                       msg_id=msg_id
                       )
         self.image_generator.send_image_workflow_request(api_config={
-            'url':self.defalt_apis[self.prompt_summarizer_provider.currentText()]['url'],
-            'key':self.defalt_apis[self.prompt_summarizer_provider.currentText()]['key']
+            'url':self.defalt_apis[self.prompt_summarizer_provider.currentText()].url,
+            'key':self.defalt_apis[self.prompt_summarizer_provider.currentText()].key
         },
         summary_model=self.prompt_summarizer_model.currentText())
         

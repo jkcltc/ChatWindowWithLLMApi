@@ -25,6 +25,8 @@ class ImageAgent(QObject):
 
         # >>> 缓存只保留图片模型的，和文本模型分开 <<<
         self._image_model_cache = {}
+        # 天哪 是老api
+        self.generator_dict=self.SUPPORTED_PROVIDERS
 
     @property
     def application_path(self):

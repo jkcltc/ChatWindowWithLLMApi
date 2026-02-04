@@ -1194,15 +1194,3 @@ class RandomModelSelecter(QWidget):
         """获取最终选择的模型列表"""
         return self.current_models
 
-
-if __name__ == "__main__":
-    import sys
-    from PyQt6.QtWidgets import QApplication
-    app = QApplication(sys.argv)
-    window = APIConfigWidget(application_path=r"C:\Users\kcji\Desktop\te\ChatWindowWithLLMApi")
-    window.configUpdated.connect(print)
-    with open(r'C:\Users\kcji\Desktop\te\ChatWindowWithLLMApi\theme\ds-r1-0528.qss',encoding='utf-8')as e:
-        window.setStyleSheet(e.read())
-    #window=RandomModelSelecter(model_map=ModelMapManager().get_model_map())
-    #window.show()
-    sys.exit(app.exec())

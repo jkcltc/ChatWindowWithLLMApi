@@ -1069,6 +1069,17 @@ class ChathistoryFileManager(QObject):
         else:
             self.warning_signal.emit(f'failed loading chathistory from {file_path}')
             return []
+        chathistory=ChatHistoryTools.patch_history_0_25_1(
+                    chathistory,
+                    names={
+                        'user':'',
+                        'assistant':''
+                        },
+                    avatar={
+                    'user':'',
+                    'assistant':''
+                    }
+                )
         return chathistory
 
     # 保存聊天记录

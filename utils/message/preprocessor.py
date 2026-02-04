@@ -4,6 +4,7 @@ import sys
 from utils.message.data import ChatCompletionPack
 from utils.setting import APP_SETTINGS,APP_RUNTIME
 from utils.info_module import LOGMANAGER
+from utils.tools.patch_manager import GlobalPatcher
 LOGGER = LOGMANAGER
 
 #from utils.message.data import ChatCompletionPack
@@ -298,7 +299,7 @@ class MessagePreprocessor:
         # 2. 遍历所有消息，该贴标签的贴标签，该换内容的换内容
         for item in messages:
             role = item.get('role')
-            if APP_SETTINGS.generation.character_enforce:
+            if APP_SETTINGS.names.character_enforce:
                 # 给 User 和 Assistant 注入 name 字段
                 if role == 'user':
                     item['name'] = user_name
@@ -346,9 +347,6 @@ class MessagePreprocessor:
         """应用特定供应商的补丁"""
         # 从配置中通过 provider key 获取 URL
         provider_type=pack.provider.provider_type
-
-        # 需要引入 GlobalPatcher
-        from utils.tools.patch_manager import GlobalPatcher # 延迟导入避免循环依赖
 
         patcher = GlobalPatcher()
         config_context = {

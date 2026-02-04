@@ -202,8 +202,10 @@ class MainWindow(QMainWindow):
     update_background_signal= pyqtSignal(str)
 
     def setupUi(self):
+        print(APP_SETTINGS.ui.theme)
         self.theme_selector = ThemeSelector()
-        self.theme_selector.apply_saved_theme(init_path=None)
+        self.theme_selector.apply_saved_theme()
+
 
     def __init__(self):
         super().__init__()
@@ -756,7 +758,7 @@ class MainWindow(QMainWindow):
         print('_requester_completion_failed',self.chathistory)
         self.request_id = id_
         self.full_response = content
-        self.info_manager.notify(f'{content}\n{id_}', level='error')
+        self.info_manager.notify(content, level='error')
         self._receive_message(message)
 
     def init_info_manager(self):
@@ -1163,6 +1165,7 @@ class MainWindow(QMainWindow):
         if clear :
             if not new_msg:
                 self.chathistory_file_manager.autosave_save_chathistory(self.chathistory)
+                self.update_opti_bar()
                 
 
     #更新AI回复
@@ -1470,8 +1473,6 @@ class MainWindow(QMainWindow):
                 APP_RUNTIME.force_repeat.text='避免回复词汇"'+APP_RUNTIME.force_repeat.text[:-2]
         else:
             APP_RUNTIME.force_repeat.text=''
-        
-        self.update_opti_bar()
         return True
 
     #“发送”按钮触发，开始消息预处理和UI更新
@@ -1559,7 +1560,6 @@ class MainWindow(QMainWindow):
         self.new_chat_rounds=0
         self.new_background_rounds=0
         self.last_summary=''
-        self.update_opti_bar()
         self.update_chat_history()
 
     # 系统提示预设更新
@@ -1721,21 +1721,10 @@ class MainWindow(QMainWindow):
         load_start_time=time.perf_counter()
         chathistory=self.chathistory_file_manager.load_chathistory(file_path)
         if chathistory:
-            self.chathistory=ChatHistoryTools.patch_history_0_25_1(
-                    chathistory,
-                    names={
-                        'user':APP_SETTINGS.names.user,
-                        'assistant':APP_SETTINGS.names.ai
-                        },
-                    avatar={
-                    'user':'',
-                    'assistant':''
-                    }
-                )
             self.new_chat_rounds=min(APP_SETTINGS.generation.max_message_rounds,len(self.chathistory))
             self.new_background_rounds=min(APP_SETTINGS.background.max_rounds,len(self.chathistory))
             self.last_summary=''
-            self.update_opti_bar()
+            
             self._update_preset_to_ui_by_system_message()
             self.update_chat_history()  # 更新聊天历史显示
             tool_list=chathistory[0].get('info',{}).get('tools',[])

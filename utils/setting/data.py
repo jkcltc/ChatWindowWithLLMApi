@@ -102,6 +102,8 @@ class LciSettings(BaseSettings):
     placement: str = ''
     """上下文压缩结果的放置位置"""  # long_chat_placement
 
+    mode : Literal['single','dispersed','mix'] = 'single'
+
 class WebSearchSettings(BaseSettings):
     """手动强制搜索"""
     web_search_enabled: bool = False
@@ -133,8 +135,6 @@ class GenerationSettings(BaseSettings):
     max_message_rounds: int = 50   
     """最大发送长度"""
 
-    character_enforce: bool = False
-    """是否在消息中注入name字段"""
 
 class InputLimitSettings(BaseSettings): 
     """长度限制与对话阈值"""
@@ -167,6 +167,9 @@ class NameSettings(BaseSettings):
     """默认/回退名称"""
     user: str = "user"
     ai: str = 'assistant'
+
+    character_enforce: bool = False
+    """是否在消息中注入name字段"""
 
 class TTSSettings(BaseSettings): 
     """语音合成配置"""
@@ -405,6 +408,7 @@ class AppPaths(BaseSettings):
     # 先定义成普通字段，给个空字符串当占位符
     application_path: str = ""
     history_path: str = ""
+    theme_path: str = ""
 
     @model_validator(mode='after')
     def calculate_paths(self):
@@ -421,6 +425,9 @@ class AppPaths(BaseSettings):
         # 2. 如果没传值，就根据 application_path 算出 history_path
         if not self.history_path:
             self.history_path = os.path.join(self.application_path, "history")
+            
+        if not self.theme_path:
+            self.theme_path = os.path.join(self.application_path, "theme")
 
         return self
 

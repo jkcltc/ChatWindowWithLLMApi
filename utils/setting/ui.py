@@ -16,11 +16,8 @@ class QuickSeparator(QFrame):
 
 
 class MainSettingWindow(QWidget):
-    # ====== 信号精简到4个 ======
-    window_closed = pyqtSignal()
     lci_enabled_changed = pyqtSignal(bool)       
-    title_provider_changed = pyqtSignal(str, str)
-    name_changed = pyqtSignal(str, str)          
+    title_provider_changed = pyqtSignal(str, str)    
 
     def __init__(self, settings: AppSettings = None, parent=None):
         super().__init__(parent)
@@ -259,17 +256,42 @@ class MainSettingWindow(QWidget):
         name_tab = QWidget()
         layout = QVBoxLayout()
 
+        layout.setContentsMargins(15, 15, 15, 15)
+        layout.setSpacing(15)
+
         # 代称设置组
         name_group = QGroupBox("对话代称设置")
         name_layout = QGridLayout()
 
-        name_layout.addWidget(QLabel("聊天记录中你的代称:"), 0, 0)
-        self.user_name_edit = QLineEdit()  # 不设初始值
-        name_layout.addWidget(self.user_name_edit, 0, 1)
+        name_layout.setContentsMargins(10, 20, 10, 10) 
+        name_layout.setVerticalSpacing(12)
+        name_layout.setHorizontalSpacing(10)
 
-        name_layout.addWidget(QLabel("聊天记录中AI的代称:"), 1, 0)
-        self.ai_name_edit = QLineEdit()  # 不设初始值
-        name_layout.addWidget(self.ai_name_edit, 1, 1)
+        name_layout.addWidget(QuickSeparator(), 0, 0, 1, 2)
+
+        self.character_enforce_checkbox = QCheckBox("消息携带额外name字段")
+
+        name_layout.addWidget(self.character_enforce_checkbox, 1, 0, 1, 2)
+
+        name_layout.addWidget(QuickSeparator(), 2, 0, 1, 2)
+
+        # 标签和输入框对齐
+        name_layout.addWidget(QLabel("你的代称:"), 3, 0)
+        self.user_name_edit = QLineEdit() 
+        name_layout.addWidget(self.user_name_edit, 3, 1)
+
+        name_layout.addWidget(QLabel("AI的代称:"), 4, 0)
+        self.ai_name_edit = QLineEdit() 
+        name_layout.addWidget(self.ai_name_edit, 4, 1)
+
+        name_layout.addWidget(QuickSeparator(), 5, 0, 1, 2)
+
+        desc_label = QLabel("设置后，如果预设未设置代称，"
+                           "则对话中将使用这些代称。"
+                           "如果全部为空，将使用模型名。")
+        desc_label.setWordWrap(True)
+
+        name_layout.addWidget(desc_label, 6, 0, 1, 2) 
 
         name_group.setLayout(name_layout)
         layout.addWidget(name_group)
@@ -315,8 +337,8 @@ class MainSettingWindow(QWidget):
         llm_layout = QVBoxLayout()
 
         # 启用系统提示
-        self.title_system_prompt_checkbox = QCheckBox("启用系统提示")
-        self.title_system_prompt_checkbox.setToolTip("为标题生成使用专门的系统提示")
+        self.title_system_prompt_checkbox = QCheckBox("携带系统提示")
+        self.title_system_prompt_checkbox.setToolTip("系统提示将作为标题生成的上下文")
         llm_layout.addWidget(self.title_system_prompt_checkbox)
 
         # 最大标题长度
@@ -365,71 +387,114 @@ class MainSettingWindow(QWidget):
 
     def setup_connections(self):
         s = self.settings
+        to_bool = lambda state: state != 0
+        to_float = float
+
+        # 通用绑定函数：信号 -> 转换 -> 赋值
+        def bind(signal, setter, converter=None):
+            def _slot(value):
+                try:
+                    if converter:
+                        value = converter(value)
+                    setter(value)
+                except ValueError as e:
+                    print(f"转换失败: {e}")
+                    pass # 忽略 float 转换时的非法输入
+            signal.connect(_slot)
+
+        # 3. 无参绑定函数：专门对付 QTextEdit 这种信号不带参数的组件
+        def bind_text_edit(signal, ui_getter, setter):
+            signal.connect(lambda: setter(ui_getter()))
 
         # === 最大轮数 ===
         self.max_rounds_edit.textChanged.connect(self._handle_max_rounds_text)
         self.max_rounds_slider.valueChanged.connect(self._handle_max_rounds_slider)
 
         # === 流式接收 ===
-        self.stream_receive_radio.toggled.connect(
-            lambda checked: setattr(s.generation, 'stream_receive', checked)
-        )
+        def set_stream(v): s.generation.stream_receive = v
+        bind(self.stream_receive_radio.toggled, set_stream)
 
-        # === 生成参数 ===
-        self.top_p_checkbox.stateChanged.connect(
-            lambda state: setattr(s.generation, 'top_p_enable', state != 0))
-        self.top_p_edit.textChanged.connect(
-            lambda text: self._set_float(s.generation, 'top_p', text))
+        # === 生成参数 (TopP / Temp / Penalty) ===
 
-        self.temp_checkbox.stateChanged.connect(
-            lambda state: setattr(s.generation, 'temperature_enable', state != 0))
-        self.temp_edit.textChanged.connect(
-            lambda text: self._set_float(s.generation, 'temperature', text))
+        # Top P
+        def set_top_p_en(v): s.generation.top_p_enable = v
+        bind(self.top_p_checkbox.stateChanged, set_top_p_en, to_bool)
 
-        self.penalty_checkbox.stateChanged.connect(
-            lambda state: setattr(s.generation, 'presence_penalty_enable', state != 0))
-        self.penalty_edit.textChanged.connect(
-            lambda text: self._set_float(s.generation, 'presence_penalty', text))
+        def set_top_p(v): s.generation.top_p = v
+        bind(self.top_p_edit.textChanged, set_top_p, to_float)
 
-        # === LCI ===
-        self.long_chat_checkbox.stateChanged.connect(self._handle_lci_enabled)
-        self.include_system_prompt.stateChanged.connect(
-            lambda state: setattr(s.lci, 'collect_system_prompt', state != 0))
-        self.placement_combo.currentTextChanged.connect(
-            lambda text: setattr(s.lci, 'placement', text))
-        self.api_provider_combo.currentTextChanged.connect(self._handle_lci_provider)
-        self.model_combo.currentTextChanged.connect(
-            lambda text: setattr(s.lci, 'model', text))
-        self.custom_hint_edit.textChanged.connect(
-            lambda: setattr(s.lci, 'hint', self.custom_hint_edit.toPlainText()))
+        # Temperature
+        def set_temp_en(v): s.generation.temperature_enable = v
+        bind(self.temp_checkbox.stateChanged, set_temp_en, to_bool)
+
+        def set_temp(v): s.generation.temperature = v
+        bind(self.temp_edit.textChanged, set_temp, to_float)
+
+        # Penalty
+        def set_penalty_en(v): s.generation.presence_penalty_enable = v
+        bind(self.penalty_checkbox.stateChanged, set_penalty_en, to_bool)
+
+        def set_penalty(v): s.generation.presence_penalty = v
+        bind(self.penalty_edit.textChanged, set_penalty, to_float)
+
+        # === LCI (长上下文) ===
+        self.long_chat_checkbox.stateChanged.connect(self._handle_lci_enabled) # 复杂联动保留
+
+        def set_lci_sys(v): s.lci.collect_system_prompt = v
+        bind(self.include_system_prompt.stateChanged, set_lci_sys, to_bool)
+
+        def set_lci_place(v): s.lci.placement = v
+        bind(self.placement_combo.currentTextChanged, set_lci_place)
+
+        self.api_provider_combo.currentTextChanged.connect(self._handle_lci_provider) # 复杂联动保留
+
+        def set_lci_model(v): s.lci.model = v
+        bind(self.model_combo.currentTextChanged, set_lci_model)
+
+        # 特殊：QTextEdit 信号不带参数，需主动获取
+        def set_lci_hint(v): s.lci.hint = v
+        bind_text_edit(self.custom_hint_edit.textChanged, 
+                       self.custom_hint_edit.toPlainText, 
+                       set_lci_hint)
 
         # === 自动替换 ===
-        self.autoreplace_checkbox.stateChanged.connect(
-            lambda state: setattr(s.replace, 'autoreplace_var', state != 0))
-        self.autoreplace_from_edit.textChanged.connect(
-            lambda text: setattr(s.replace, 'autoreplace_from', text))
-        self.autoreplace_to_edit.textChanged.connect(
-            lambda text: setattr(s.replace, 'autoreplace_to', text))
+        def set_replace_en(v): s.replace.autoreplace_var = v
+        bind(self.autoreplace_checkbox.stateChanged, set_replace_en, to_bool)
 
-        # === 代称 ===
-        self.user_name_edit.textChanged.connect(
-            lambda text: (setattr(s.names, 'user', text), self.name_changed.emit('user', text)))
-        self.ai_name_edit.textChanged.connect(
-            lambda text: (setattr(s.names, 'ai', text), self.name_changed.emit('assistant', text)))
+        def set_replace_from(v): s.replace.autoreplace_from = v
+        bind(self.autoreplace_from_edit.textChanged, set_replace_from)
+
+        def set_replace_to(v): s.replace.autoreplace_to = v
+        bind(self.autoreplace_to_edit.textChanged, set_replace_to)
+
+        # === 代称 (带信号发射) ===
+        def set_user_name(v): s.names.user = v
+        bind(self.user_name_edit.textChanged, set_user_name)
+
+        def set_ai_name(v): s.names.ai = v
+        bind(self.ai_name_edit.textChanged, set_ai_name)
+
+        def set_char_enforce(v): s.names.character_enforce = v
+        bind(self.character_enforce_checkbox.stateChanged, set_char_enforce, to_bool)
 
         # === 标题生成 ===
         self.title_local_radio.toggled.connect(self._handle_title_method)
-        self.title_system_prompt_checkbox.stateChanged.connect(
-            lambda state: setattr(s.title, 'include_sys_pmt', state != 0))
+
+        def set_title_sys(v): s.title.include_sys_pmt = v
+        bind(self.title_system_prompt_checkbox.stateChanged, set_title_sys, to_bool)
+
         self.title_max_length_edit.textChanged.connect(self._handle_title_max_length_text)
         self.title_max_length_slider.valueChanged.connect(self._handle_title_max_length_slider)
         self.title_provider_combo.currentTextChanged.connect(self._handle_title_provider)
-        self.title_model_combo.currentTextChanged.connect(
-            lambda text: (setattr(s.title, 'model', text),
-                        self.title_provider_changed.emit(s.title.provider, text)))
+
+        def update_title_model(text):
+            s.title.model = text
+            self.title_provider_changed.emit(s.title.provider, text)
+        bind(self.title_model_combo.currentTextChanged, update_title_model)
 
         # === 确认按钮 ===
         self.confirm_button.clicked.connect(self.close)
+
 
 
 
@@ -556,6 +621,7 @@ class MainSettingWindow(QWidget):
         # 代称
         self.user_name_edit.setText(s.names.user)
         self.ai_name_edit.setText(s.names.ai)
+        self.character_enforce_checkbox.setChecked(s.names.character_enforce)
 
         # 标题生成
         self.title_local_radio.setChecked(s.title.use_local)
@@ -590,7 +656,3 @@ class MainSettingWindow(QWidget):
         ]
         for w in widgets:
             w.blockSignals(block)
-
-    def closeEvent(self, event):
-        self.window_closed.emit()
-        super().closeEvent(event)

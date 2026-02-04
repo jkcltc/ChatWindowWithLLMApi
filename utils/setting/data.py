@@ -321,6 +321,8 @@ class ModelPollSettings(BaseSettings):
     enabled : bool = False
     """启用模型轮询"""
 
+    mode: Literal['random','order'] = 'order'
+
     model_map : list[LLMUsagePack] = Field(default_factory=list)
     """模型轮询顺序"""
 

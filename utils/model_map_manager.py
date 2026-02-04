@@ -13,6 +13,7 @@ from PyQt6.QtCore import *
 from PyQt6.QtGui import *
 from utils.setting import APP_RUNTIME,APP_SETTINGS, ConfigManager
 from utils.tools.patch_manager import GlobalPatcher
+from utils.setting.data import LLMUsagePack,ApiConfig,ModelPollSettings
 
 
 class ModelMapManager:
@@ -1083,114 +1084,174 @@ class Ui_random_model_selecter(object):
         self.groupBox_view_model.setTitle(_translate("random_model_selecter", "模型库-使用的模型将在其中选择"))
         self.remove_model.setText(_translate("random_model_selecter", "移除选中项"))
 
-
 class RandomModelSelecter(QWidget):
-    def __init__(self, parent=None, logger=None):
+    def __init__(self, api_config: ApiConfig, poll_settings: ModelPollSettings, parent=None, logger=None):
         super().__init__(parent)
         self.ui = Ui_random_model_selecter()
         self.ui.setupUi(self)
-        self.setGeometry(100, 100, 600, 350)
 
-        # 初始化数据
-        # self.model_map = model_map  <-- 这种过时的东西不需要了
-        self.current_models = []  # 存储已添加的模型信息
-        self.last_check = 0
+        # 引用传入的 Pydantic 配置对象
+        self.api_config = api_config
+        self.poll_settings = poll_settings
         self.logger = logger
 
-        # 初始化UI组件
-        self.init_providers()
-        self.init_connections()
-        self.init_list_view()
+        # 运行时状态
+        self.last_check = 0
 
-        # 初始更新模型列表
+        # 初始化流程
+        self.init_list_view()
+        self.init_providers()
+
+        # 核心：加载数据和模式设置
+        self.load_settings_to_ui()
+
+
+        self.init_connections()
+
+        
+
+        # UI 初始刷新
         self.update_model_names()
 
     def init_providers(self):
         """初始化模型提供商下拉框"""
-        # 直接从单例配置中获取 keys
-        self.ui.model_provider.addItems(APP_SETTINGS.api.model_map.keys())
+        self.ui.model_provider.clear()
+        if self.api_config and self.api_config.providers:
+            self.ui.model_provider.addItems(list(self.api_config.providers.keys()))
 
     def init_connections(self):
         """建立信号槽连接"""
-        # 提供商变化时更新模型名称
+        # 1. 下拉框与按钮
         self.ui.model_provider.currentTextChanged.connect(self.update_model_names)
-        # 添加模型按钮
         self.ui.add_model_to_list.clicked.connect(self.add_model_to_list)
-        # 移除模型按钮
         self.ui.remove_model.clicked.connect(self.remove_selected_model)
-        # 确认按钮
         self.ui.confirm_button.clicked.connect(self.hide)
 
+        # 2. 模式切换 (顺序/随机) 绑定到配置对象
+        self.ui.order_radio.toggled.connect(self._on_mode_changed)
+        self.ui.random_radio.toggled.connect(self._on_mode_changed)
+
+    def _on_mode_changed(self):
+        """
+        当单选框状态改变时，更新 poll_settings.mode
+        """
+        if self.ui.order_radio.isChecked():
+            self.poll_settings.mode = 'order'
+        else:
+            self.poll_settings.mode = 'random'
+
     def init_list_view(self):
-        """初始化列表视图模型"""
+        """初始化列表视图"""
         self.list_model = QStandardItemModel()
         self.ui.random_model_list_viewer.setModel(self.list_model)
-        self.ui.random_model_list_viewer.setSelectionMode(QListView.SelectionMode.SingleSelection)
+        self.ui.random_model_list_viewer.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.ui.random_model_list_viewer.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
 
     def update_model_names(self):
-        """更新模型名称下拉框"""
-        current_provider = self.ui.model_provider.currentText()
-
-        # 改用 APP_SETTINGS 获取对应提供商的模型列表
-        models = APP_SETTINGS.api.model_map.get(current_provider, [])
-
+        """更新右侧具体的模型名称"""
+        current_provider_key = self.ui.model_provider.currentText()
         self.ui.model_name.clear()
-        if models:
-            self.ui.model_name.addItems(models)
+
+        if not current_provider_key:
+            return
+
+        provider_config = self.api_config.providers.get(current_provider_key)
+        if provider_config and provider_config.models:
+            self.ui.model_name.addItems(provider_config.models)
             self.ui.model_name.setCurrentIndex(0)
 
+    def load_settings_to_ui(self):
+        """
+        将 poll_settings 中的数据（列表和模式）加载到 UI
+        """
+        # 1. 加载模型列表
+        self.list_model.clear()
+        if self.poll_settings.model_map:
+            for pack in self.poll_settings.model_map:
+                self._add_item_to_view(pack.provider, pack.model)
+
+        # 2. 加载模式 (Order / Random)
+        # 根据 poll_settings.mode 设置 UI 状态
+        if self.poll_settings.mode == 'order':
+            self.ui.order_radio.setChecked(True)
+        else:
+            # 默认为 random 或其他情况
+            self.ui.random_radio.setChecked(True)
+
+    def _add_item_to_view(self, provider: str, model: str):
+        """仅向 UI 列表添加视觉项"""
+        item_text = f"{provider} - {model}"
+        item = QStandardItem(item_text)
+        item.setData({"provider": provider, "model": model})
+        self.list_model.appendRow(item)
+
     def add_model_to_list(self):
-        """添加当前选择的模型到列表"""
+        """添加模型到配置对象和UI"""
         self.last_check = 0
         provider = self.ui.model_provider.currentText()
         model_name = self.ui.model_name.currentText()
 
-        # 防止重复添加
-        if (provider, model_name) in self.current_models:
-            QMessageBox.warning(self, "警告", "该模型已存在于列表中！")
+        if not provider or not model_name:
             return
 
-        # 创建列表项
-        item_text = f"{provider} - {model_name}"
-        item = QStandardItem(item_text)
-        item.setData({"provider": provider, "model": model_name})
+        # 查重
+        for pack in self.poll_settings.model_map:
+            if pack.provider == provider and pack.model == model_name:
+                QMessageBox.warning(self, "警告", "该模型已存在于列表中！")
+                return
 
-        self.list_model.appendRow(item)
-        self.current_models.append((provider, model_name))
+        # 更新配置对象
+        new_pack = LLMUsagePack(provider=provider, model=model_name)
+        self.poll_settings.model_map.append(new_pack)
 
-    def remove_selected_model(self):
-        """移除选中的模型"""
-        selected = self.ui.random_model_list_viewer.selectedIndexes()
-        if not selected:
-            return
-
-        # 倒序删除防止索引错位，虽然单选模式下无所谓，但这是好习惯
-        for index in sorted(selected, key=lambda x: x.row(), reverse=True):
-            row = index.row()
-            # 从数据存储中移除
-            del self.current_models[row]
-            # 从列表模型中移除
-            self.list_model.removeRow(row)
-
-    def collect_selected_models(self):
-        """收集最终选择的模型信息"""
-        if not self.current_models:
-            if self.logger:
-                self.logger.log("[模型轮询] 警告：没有选择任何模型！")
-            return None
-
-        # 结果已实时存储在self.current_models中
-        if self.ui.order_radio.isChecked():
-            self.last_check += 1
-            return_model = self.current_models[self.last_check % len(self.current_models)]
-        else:
-            return_model = random.choice(self.current_models)
+        # 更新UI
+        self._add_item_to_view(provider, model_name)
 
         if self.logger:
-            self.logger.log(f"[模型轮询]当前轮换至:{return_model}")
-        return return_model
+            self.logger.log(f"[模型轮询] 添加: {provider}/{model_name}")
 
-    def get_selected_models(self):
-        """获取最终选择的模型列表"""
-        return self.current_models
+    def remove_selected_model(self):
+        """移除模型"""
+        selected_indexes = self.ui.random_model_list_viewer.selectedIndexes()
+        if not selected_indexes:
+            return
+
+        for index in sorted(selected_indexes, key=lambda x: x.row(), reverse=True):
+            row = index.row()
+            if 0 <= row < len(self.poll_settings.model_map):
+                removed = self.poll_settings.model_map.pop(row)
+                if self.logger:
+                    self.logger.log(f"[模型轮询] 移除: {removed.provider}/{removed.model}")
+            self.list_model.removeRow(row)
+
+        self.last_check = 0
+
+    def get_next_model(self) -> LLMUsagePack | None:
+        """
+        运行时调用：获取下一个模型
+        直接依据 poll_settings.mode 决定逻辑，不再依赖 UI 状态
+        """
+        if not self.poll_settings.model_map:
+            if self.logger:
+                self.logger.error("[模型轮询] 警告：列表为空，无法轮询！")
+            return None
+
+        models = self.poll_settings.model_map
+
+        # 读取配置中的模式
+        mode = self.poll_settings.mode
+
+        if mode == 'order':
+            self.last_check += 1
+            selected_pack = models[self.last_check % len(models)]
+            log_prefix = "顺序"
+        else:
+            # mode == 'random'
+            selected_pack = random.choice(models)
+            log_prefix = "随机"
+
+        if self.logger:
+            self.logger.log(f"[模型轮询][{log_prefix}] 切至: {selected_pack.provider} - {selected_pack.model}")
+
+        return selected_pack
 

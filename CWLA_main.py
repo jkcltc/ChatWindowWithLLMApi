@@ -248,7 +248,11 @@ class MainWindow(QMainWindow):
         self.init_system_prompt_window()
         
         # 模型轮询器
-        self.ordered_model=RandomModelSelecter(logger=self.info_manager)
+        self.ordered_model=RandomModelSelecter(
+            api_config=APP_SETTINGS.api,
+            poll_settings=APP_SETTINGS.model_poll,
+            logger=self.info_manager
+        )
 
         # 创建主布局
         self.main_layout = QGridLayout()
@@ -1480,7 +1484,9 @@ class MainWindow(QMainWindow):
         self.main_message_process_timer_start=time.time()*1000
         if self.send_button.isEnabled() and self.sending_rule():
             if APP_SETTINGS.model_poll.enabled:
-                provider,modelname=self.ordered_model.collect_selected_models()
+                s=self.ordered_model.get_next_model()
+                provider=s.provider
+                modelname=s.model
                 if provider and modelname:
                     self.api_var.setCurrentText(provider)
                     self.model_combobox.setCurrentText(modelname)
@@ -1721,6 +1727,7 @@ class MainWindow(QMainWindow):
         load_start_time=time.perf_counter()
         chathistory=self.chathistory_file_manager.load_chathistory(file_path)
         if chathistory:
+            self.chathistory=chathistory
             self.new_chat_rounds=min(APP_SETTINGS.generation.max_message_rounds,len(self.chathistory))
             self.new_background_rounds=min(APP_SETTINGS.background.max_rounds,len(self.chathistory))
             self.last_summary=''

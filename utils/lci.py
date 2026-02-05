@@ -175,10 +175,11 @@ class LongChatImprove(QObject):
 
             self.sig_log.emit("log", f"LCI 开始执行。模式: {mode} | 新增内容长度: {len(new_content_str)}")
 
+            summary_system_prompt = preset.summary_prompt
+
             # --- Mode: Single (完整总结模式) ---
             # 合并旧总结 + 新对话 -> 生成全新完整总结
             if mode == 'single':
-                summary_system_prompt = preset.summary_prompt
                 summary_user_template = preset.single_update_prompt
 
                 # 处理 Hint 注入
@@ -215,9 +216,13 @@ class LongChatImprove(QObject):
             elif mode == 'dispersed':
                 prompt_template = preset.dispersed_summary_prompt
 
-                # 格式化 Prompt
-                # 如果没有旧背景，填"无"
-                context_summary = ctx["last_summary"] if ctx["last_summary"] else "无已知背景，这是故事的开始。"
+                all_summaries_list = ctx.get("all_summaries", [])
+
+                if all_summaries_list:
+                    # 结构由 Prompt 模板控制，这里只负责提供纯文本数据。
+                    context_summary = "\n\n".join(all_summaries_list)
+                else:
+                    context_summary = "无"
 
                 final_prompt = prompt_template.format(
                     new_content=new_content_str,
@@ -225,6 +230,7 @@ class LongChatImprove(QObject):
                 )
 
                 messages = [
+                    {"role": "system", "content": summary_system_prompt},
                     {"role": "user", "content": final_prompt}
                 ]
 
@@ -236,9 +242,18 @@ class LongChatImprove(QObject):
                 generated_items.append(item)
 
             # --- Mode: Mix (混合模式) ---
-            # 步骤1: 生成增量摘要
             elif mode == 'mix':
-                context_summary = ctx["last_summary"] if ctx["last_summary"] else "无"
+                # ===========================
+                # 步骤 1: 生成增量摘要 (与 Dispersed 逻辑保持一致)
+                # ===========================
+
+                # 1.1 准备背景：拼接所有历史总结，而不是只取最后一个
+                all_past_summaries = ctx.get("all_summaries", [])
+                if all_past_summaries:
+                    context_summary = "\n\n".join(all_past_summaries)
+                else:
+                    context_summary = "无"
+
                 dispersed_prompt = preset.dispersed_summary_prompt.format(
                     new_content=new_content_str,
                     context_summary=context_summary
@@ -246,24 +261,30 @@ class LongChatImprove(QObject):
 
                 resp1 = client.chat.completions.create(
                     model=model,
-                    messages=[{"role": "user", "content": dispersed_prompt}]
+                    messages=[
+                        {"role": "system", "content": summary_system_prompt},
+                        {"role": "user", "content": dispersed_prompt}
+                    ]
                 )
                 dispersed_text = resp1.choices[0].message.content
 
-                # 创建 Dispersed Item (这是要插入到对话流中的)
+                # 创建 Dispersed Item (插入时间轴)
                 dispersed_item = self._create_lci_item(dispersed_text, "dispersed", ctx["related_ids"])
                 generated_items.append(dispersed_item)
 
                 self.sig_log.emit("log", "Mix模式：增量总结完成，开始执行全局整合...")
 
-                # 步骤2: 整合所有摘要片段 -> 生成全局总结
-                all_summaries = ctx["all_summaries"]
-                all_summaries.append(dispersed_text) # 把最新的加进去
+                # ===========================
+                # 步骤 2: 整合所有摘要片段 -> 生成全局总结
+                # ===========================
 
-                # 拼接所有碎片文本
-                dispersed_contents_str = ""
-                for idx, summary in enumerate(all_summaries):
-                    dispersed_contents_str += f"\n[摘要片段 {idx+1}]:\n{summary}\n"
+                # 2.1 收集所有：历史 + 最新
+                # 为了不影响 ctx 中的原始数据，建议新建一个 list
+                full_chain_summaries = all_past_summaries + [dispersed_text]
+
+                # 2.2 拼接：
+                # 让 mix_consolidation_prompt 模板去决定如何看待这些文本
+                dispersed_contents_str = "\n\n".join(full_chain_summaries)
 
                 mix_prompt = preset.mix_consolidation_prompt.format(
                     dispersed_contents=dispersed_contents_str
@@ -271,13 +292,16 @@ class LongChatImprove(QObject):
 
                 resp2 = client.chat.completions.create(
                     model=model,
-                    messages=[{"role": "user", "content": mix_prompt}]
+                    messages=[
+                        {"role": "system", "content": summary_system_prompt},
+                        {"role": "user", "content": mix_prompt}
+                    ]
                 )
                 grand_text = resp2.choices[0].message.content
 
-                # 创建 Grand Item (这是可能需要置顶或替换头部的)
-                # 注意：related_ids 理论上是所有相关的，这里暂时只填新的，或者留空
-                grand_item = self._create_lci_item(grand_text, "single", [], is_global=True)
+                # 创建 Grand Item (全局置顶用)
+                # 这里的 related_ids 可以填空，因为它不是用来替换某几条具体消息的，而是全局概览
+                grand_item = self._create_lci_item(grand_text, "mix", [], is_global=True)
                 generated_items.append(grand_item)
 
             # --- 执行完成 ---

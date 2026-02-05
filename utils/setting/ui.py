@@ -1,3 +1,4 @@
+from typing import Optional, Union, Callable
 from PyQt6.QtCore import *
 from PyQt6.QtWidgets import *
 from PyQt6.QtGui import QFont
@@ -17,14 +18,14 @@ class QuickSeparator(QFrame):
 
 class LongChatSettingsWidget(QWidget):
     """
-    长对话优化设置控件 (Refactored v4)
+    长对话优化设置控件
     交互逻辑：
     1. 默认显示居中的开启按钮。
     2. 开启后进入分栏配置界面。
     3. 右侧面板根据左侧选择的模式动态切换显示的模板编辑框。
     """
 
-    def __init__(self, settings, parent=None):
+    def __init__(self, settings: AppSettings, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self.settings = settings
 
@@ -36,7 +37,7 @@ class LongChatSettingsWidget(QWidget):
         self.setup_connections()
         self._init_data() # 初始化数据
 
-    def _init_disabled_page(self):
+    def _init_disabled_page(self) -> None:
         """页面 0: 未启用状态 (居中显示开关)"""
         page = QWidget()
         layout = QVBoxLayout(page)
@@ -51,7 +52,7 @@ class LongChatSettingsWidget(QWidget):
         layout.addWidget(self.center_cb)
         self.main_stack.addWidget(page)
 
-    def _init_enabled_page(self):
+    def _init_enabled_page(self) -> None:
         """页面 1: 启用状态 (左右分栏)"""
         page = QWidget()
         main_layout = QHBoxLayout(page)
@@ -230,14 +231,14 @@ class LongChatSettingsWidget(QWidget):
 
     # ================= 辅助控件生成 =================
 
-    def _create_separator(self):
+    def _create_separator(self) -> QFrame:
         line = QFrame()
         line.setFrameShape(QFrame.Shape.HLine)
         line.setFrameShadow(QFrame.Shadow.Sunken)
         line.setStyleSheet("background-color: #dcdcdc;")
         return line
 
-    def _create_slider_widget(self, edit, slider):
+    def _create_slider_widget(self, edit: QLineEdit, slider: QSlider) -> QWidget:
         """组合 滑块+输入框 (左:右 = 1:3)"""
         w = QWidget()
         l = QHBoxLayout(w)
@@ -254,7 +255,7 @@ class LongChatSettingsWidget(QWidget):
         l.addWidget(slider)
         return w
 
-    def _create_code_edit(self):
+    def _create_code_edit(self) -> QTextEdit:
         edit = QTextEdit()
         font = QFont("Consolas, Menlo, Monaco, Courier New, monospace")
         font.setStyleHint(QFont.StyleHint.Monospace)
@@ -263,7 +264,7 @@ class LongChatSettingsWidget(QWidget):
         edit.setLineWrapMode(QTextEdit.LineWrapMode.NoWrap)
         return edit
 
-    def _init_data(self):
+    def _init_data(self) -> None:
         """核心数据初始化：从 Settings 读取并填充 UI"""
         s = self.settings
         lci = s.lci
@@ -318,11 +319,11 @@ class LongChatSettingsWidget(QWidget):
         self.mix_consolidation_prompt_edit.setText(lci.preset.mix_consolidation_prompt)
         self.summary_prompt_edit.setText(lci.preset.summary_prompt)
 
-    def _toggle_view(self, enabled):
+    def _toggle_view(self, enabled: bool) -> None:
         """切换 居中CB视图(0) 和 详细配置视图(1)"""
         self.main_stack.setCurrentIndex(1 if enabled else 0)
 
-    def _refresh_models(self):
+    def _refresh_models(self) -> None:
         """根据当前选中的 API Provider 刷新 Model 列表"""
         provider = self.api_provider_combo.currentText()
         if not provider:
@@ -346,7 +347,7 @@ class LongChatSettingsWidget(QWidget):
 
         self.model_combo.blockSignals(False)
 
-    def setup_connections(self):
+    def setup_connections(self) -> None:
         """绑定 UI 事件到 Settings 数据 (无外部信号)"""
         s = self.settings
         lci = s.lci
@@ -402,17 +403,17 @@ class LongChatSettingsWidget(QWidget):
         self._bind_text(self.mix_consolidation_prompt_edit, lambda v: setattr(preset, 'mix_consolidation_prompt', v))
         self._bind_text(self.summary_prompt_edit, lambda v: setattr(preset, 'summary_prompt', v))
 
-    def _update_template_stack(self, mode):
+    def _update_template_stack(self, mode: str) -> None:
         """根据模式切换右侧 Stack 的页面"""
         idx_map = {"single": 0, "dispersed": 1, "mix": 2}
         if mode in idx_map:
             self.template_stack.setCurrentIndex(idx_map[mode])
 
-    def _setup_slider_link(self, edit, slider, attr):
+    def _setup_slider_link(self, edit: QLineEdit, slider: QSlider, attr: str) -> None:
         edit.textChanged.connect(lambda: [slider.setValue(int(edit.text())), setattr(self.settings.lci, attr, int(edit.text()))] if edit.text().isdigit() else None)
         slider.valueChanged.connect(lambda v: [edit.setText(str(v)), setattr(self.settings.lci, attr, v)])
 
-    def _bind_text(self, widget, setter):
+    def _bind_text(self, widget: Union[QTextEdit, QLineEdit], setter: Callable[[str], None]) -> None:
         if isinstance(widget, QTextEdit):
             widget.textChanged.connect(lambda: setter(widget.toPlainText()))
         elif isinstance(widget, QLineEdit):

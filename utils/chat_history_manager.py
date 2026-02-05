@@ -63,9 +63,25 @@ class ChatHistoryTools:
         ]
     
     @staticmethod
-    def to_readable_str(chathistory,
+    def to_readable_str(chathistory:list[dict],
                         names={}
                         ):
+        """
+        将聊天历史转换为LLM友好的对话脚本文本。
+        1. 忽略 'system' 角色消息。
+        2. 自动兼容普通字符串 content 和多模态 list content
+        3. 使用 names 字典映射角色显示名称。
+
+        输出:
+        -------------------------------------------
+
+        user:
+        你好，帮我写一段代码。
+
+        assistant:
+        好的，请问您需要使用什么编程语言？
+        -------------------------------------------
+        """
         lines = []
         names=names
         default={'user':'user','assistant':'assistant','tool':'tool'}
@@ -76,7 +92,27 @@ class ChatHistoryTools:
             if message['role']=='system':
                 continue
             lines.append(f"\n{names[message['role']]}:")
-            lines.append(f"{message['content']}")
+
+            # 初始值
+            content=''
+
+            # 不用get，没content不是我的问题
+            content_meta=message["content"]
+
+            #多模态的content内是个list
+            if isinstance(content_meta,list):
+                # 复合消息中可能有间断的text消息
+                # 对话模板真的会读这个吗
+                for items in content_meta:
+                    if items['type']=='text':
+                        content+=items['text']
+            elif isinstance(content_meta,str):
+                content=content_meta
+            else:
+                # 什么怪东西传进来了
+                raise ValueError(f"content type error:{content_meta}")
+
+            lines.append(content)
         return '\n'.join(lines)
 
 class ChatHistoryTextView(QWidget):

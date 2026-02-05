@@ -131,9 +131,20 @@ class LongChatImprovePersetVars(BaseSettings):
     summary_merge_prompt:str='将两段内容的信息组合。1.禁止缺少或省略信息。\n2.格式符合[背景要求]。\n3.不要做出推断，保留原事件内容。\n内容1：\n'
     summary_merge_prompt_and:str='\n\n内容2：\n'
 
-    dispersed_summary_prompt:str='''请对这段新对话进行增量总结：
-新内容：{new_content}
-旧背景：{context_summary}'''
+    dispersed_summary_prompt:str="""请基于背景信息，仅为最新的对话片段撰写摘要。
+{hint_text}
+### 🎞️ 前情提要 (背景参考，请勿重复)
+{context_summary}
+
+### 💬 刚刚发生的对话 (本次总结目标)
+{new_content}
+
+### 📝 摘要指令
+1. **理解上下文**：利用【前情提要】来解析新对话中的代词（如“他”、“这件事”）指代的对象。
+2. **专注当下**：你的输出**必须仅包含**【刚刚发生的对话】中的内容摘要。不要复述前情提要。
+3. **客观陈述**：使用第三人称（如“用户询问了...”，“助手回答说...”）。
+4. **输出限制**：直接输出摘要文本。
+"""
 
     mix_consolidation_prompt:str='''请将以下片段整合成完整剧情：
 {dispersed_contents}'''

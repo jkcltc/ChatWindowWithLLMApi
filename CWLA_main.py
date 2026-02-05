@@ -38,10 +38,6 @@ LOGGER=LOGMANAGER
 
 from utils.custom_widget import *
 from utils.system_prompt_manager import SystemPromptManager,SystemPromptComboBox
-#from utils.settings import *
-# 先patch
-from utils.settings import ConfigManager as ConfigManagerOld
-
 from utils.setting import APP_SETTINGS,MainSettingWindow,APP_RUNTIME,ConfigManager
 
 from utils.model_map_manager import APIConfigWidget,RandomModelSelecter
@@ -1848,10 +1844,10 @@ class MainWindow(QMainWindow):
             self.save_hotkey_config()
         except Exception as e:
             LOGGER.error(f"save_hotkey_config fail: {e}")
-        try:
-            ConfigManagerOld.config_save(self)
-        except Exception as e:
-            LOGGER.error(f"config_save fail: {e}")
+        #try:
+        #    ConfigManagerOld.config_save(self)
+        #except Exception as e:
+        #    LOGGER.error(f"config_save fail: {e}")
         #ModelMapManager().save_model_map(MODEL_MAP)
         ConfigManager.save_settings(APP_SETTINGS)
         self.mod_configer.run_close_event()

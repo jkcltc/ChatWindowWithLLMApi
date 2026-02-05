@@ -348,9 +348,9 @@ class FullFunctionRequestHandler(QObject):
                 if not line:
                     continue
 
-                # 处理 SSE 格式
-                if line.startswith('data: '):
-                    data = line[6:]  # 去掉 'data: ' 前缀
+                # 处理 SSE 格式（同时支持标准 OpenAI 格式和 Kimi 格式）
+                if line.startswith('data:'):
+                    data = line[5:].lstrip()  # 去掉 'data:' 前缀，并去除前导空格
 
                     if data == '[DONE]':
                         break

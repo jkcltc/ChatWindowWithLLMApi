@@ -1,14 +1,17 @@
 # utils\lci.py
 
+from __future__ import annotations
 import threading
 import uuid
 import datetime
 import openai
+from typing import TYPE_CHECKING
 from PyQt6.QtCore import QObject, pyqtSignal
 
-from utils.setting.data import APP_SETTINGS
-from utils.preset_data import LongChatImprovePersetVars
 from utils.chat_history_manager import ChatHistoryTools
+
+if TYPE_CHECKING:
+    from utils.setting.data import LciSettings, ApiConfig
 
 class LongChatImprove(QObject):
     """
@@ -17,7 +20,7 @@ class LongChatImprove(QObject):
     """
 
     # level: "info" | "log" | "warning", message: 内容
-    sig_log = pyqtSignal(str, str) 
+    sig_log = pyqtSignal(str, str)
 
     # 修改：回传 (生成的LCI消息列表, 锚点消息ID)
     # 接收端需要根据 anchor_id 将 new_lci_items 插入到对应位置
@@ -26,14 +29,16 @@ class LongChatImprove(QObject):
     sig_update_bar = pyqtSignal()
     sig_finished = pyqtSignal()
 
-    def __init__(self):
+    def __init__(self, lci_settings: "LciSettings", api_settings: "ApiConfig") -> None:
         super().__init__()
-        self._new_chat_rounds = 0
+        self._new_chat_rounds: int = 0
+        self._lci_settings: "LciSettings" = lci_settings
+        self._api_settings: "ApiConfig" = api_settings
 
-    def increment_rounds(self):
+    def increment_rounds(self) -> None:
         self._new_chat_rounds += 1
 
-    def start_optimize(self, chathistory: list):
+    def start_optimize(self, chathistory: list[dict]) -> None:
         """
         启动优化线程
         注意：不再需要传入 current_sysrule，所有信息应包含在 chathistory 中
@@ -55,23 +60,23 @@ class LongChatImprove(QObject):
         ).start()
 
     def _validate_config(self) -> bool:
-        if not APP_SETTINGS.lci.api_provider:
+        if not self._lci_settings.api_provider:
              self.sig_log.emit("warning", "LCI配置错误：未指定 API Provider")
              return False
-        if not APP_SETTINGS.lci.model:
+        if not self._lci_settings.model:
              self.sig_log.emit("warning", "LCI配置错误：未指定 Model")
              return False
         return True
 
-    def _get_client(self):
+    def _get_client(self) -> openai.Client:
         """获取 OpenAI 客户端实例"""
-        provider = APP_SETTINGS.lci.api_provider
+        provider = self._lci_settings.api_provider
         return openai.Client(
-            api_key=APP_SETTINGS.api.providers[provider].key,
-            base_url=APP_SETTINGS.api.providers[provider].url
+            api_key=self._api_settings.providers[provider].key,
+            base_url=self._api_settings.providers[provider].url
         )
 
-    def _create_lci_item(self, content: str, mode: str, related_ids: list, is_global: bool = False) -> dict:
+    def _create_lci_item(self, content: str, mode: str, related_ids: list[str], is_global: bool = False) -> dict:
         """构造标准的 LCI 消息对象"""
         now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         item = {
@@ -90,10 +95,10 @@ class LongChatImprove(QObject):
         }
         return item
 
-    def _parse_context(self, chathistory: list):
+    def _parse_context(self, chathistory: list[dict]) -> dict:
         """
         核心解析逻辑：
-        倒序扫描，找到最近的一个 LCI 节点，确定哪些是“新对话”，哪些是“旧总结”。
+        倒序扫描，找到最近的一个 LCI 节点，确定哪些是"新对话"，哪些是"旧总结"。
         """
         new_messages = []
         related_ids = []
@@ -146,7 +151,7 @@ class LongChatImprove(QObject):
             "all_summaries": all_dispersed_summaries # 所有历史总结列表
         }
 
-    def _run_thread(self, chathistory: list):
+    def _run_thread(self, chathistory: list[dict]) -> None:
         """执行逻辑"""
         try:
             # 1. 解析上下文
@@ -161,40 +166,41 @@ class LongChatImprove(QObject):
             # 将新对话转为文本
             new_content_str = ChatHistoryTools.to_readable_str(new_msgs)
 
-            mode = APP_SETTINGS.lci.mode
+            mode = self._lci_settings.mode
             client = self._get_client()
-            model = APP_SETTINGS.lci.model
+            model = self._lci_settings.model
+            preset = self._lci_settings.preset
 
             generated_items = []
 
             self.sig_log.emit("log", f"LCI 开始执行。模式: {mode} | 新增内容长度: {len(new_content_str)}")
 
-            # ================= BRANCH: SINGLE =================
+            # --- Mode: Single (完整总结模式) ---
+            # 合并旧总结 + 新对话 -> 生成全新完整总结
             if mode == 'single':
-                # 逻辑：合并旧总结 + 新对话 -> 全新完整总结
-                summary_prompt = LongChatImprovePersetVars.summary_prompt
-                user_summary_req = LongChatImprovePersetVars.user_summary
+                summary_system_prompt = preset.summary_prompt
+                summary_user_template = preset.single_update_prompt
 
-                # 构造 Prompt
-                full_input = ""
-                if ctx["last_summary"]:
-                    # 如果有旧总结，先拼接
-                    full_input = (
-                        LongChatImprovePersetVars.before_last_summary + 
-                        ctx["last_summary"] + 
-                        "\n" + 
-                        LongChatImprovePersetVars.after_last_summary
-                    )
+                # 处理 Hint 注入
+                hint_text = ""
+                if self._lci_settings.hint:
+                    # 如果有提示词，按照预设前缀组合
+                    hint_text = f"{preset.long_chat_hint_prefix}{self._lci_settings.hint}\n"
 
-                full_input += new_content_str
+                # 处理旧背景
+                # 如果没有旧总结，提供一个默认文本，避免看起来像数据缺失
+                context_summary = ctx["last_summary"] if ctx["last_summary"] else "（无先前总结，这是故事的开始）"
 
-                # 如果有 Hint
-                if APP_SETTINGS.lci.hint:
-                    user_summary_req += LongChatImprovePersetVars.long_chat_hint_prefix + APP_SETTINGS.lci.hint
+                # 格式化 Prompt
+                full_user_content = summary_user_template.format(
+                    hint_text=hint_text,
+                    context_summary=context_summary,
+                    new_content=new_content_str
+                )
 
                 messages = [
-                    {"role": "system", "content": summary_prompt},
-                    {"role": "user", "content": user_summary_req + "\n" + full_input}
+                    {"role": "system", "content": summary_system_prompt},
+                    {"role": "user", "content": full_user_content}
                 ]
 
                 resp = client.chat.completions.create(model=model, messages=messages)
@@ -204,13 +210,13 @@ class LongChatImprove(QObject):
                 item = self._create_lci_item(result_text, "single", ctx["related_ids"])
                 generated_items.append(item)
 
-            # ================= BRANCH: DISPERSED =================
+            # --- Mode: Dispersed (增量摘要模式) ---
+            # 基于旧背景(只读) + 新对话 -> 生成增量摘要
             elif mode == 'dispersed':
-                # 逻辑：基于旧背景(只读) + 新对话 -> 增量摘要
-                prompt_template = LongChatImprovePersetVars.dispersed_summary_prompt
+                prompt_template = preset.dispersed_summary_prompt
 
                 # 格式化 Prompt
-                # 如果没有旧背景，填“无”
+                # 如果没有旧背景，填"无"
                 context_summary = ctx["last_summary"] if ctx["last_summary"] else "无已知背景，这是故事的开始。"
 
                 final_prompt = prompt_template.format(
@@ -229,18 +235,17 @@ class LongChatImprove(QObject):
                 item = self._create_lci_item(result_text, "dispersed", ctx["related_ids"])
                 generated_items.append(item)
 
-            # ================= BRANCH: MIX =================
+            # --- Mode: Mix (混合模式) ---
+            # 步骤1: 生成增量摘要
             elif mode == 'mix':
-                # 步骤 1: 先执行 Dispersed 逻辑，生成当下的碎片总结
-                # ------------------------------------------------
                 context_summary = ctx["last_summary"] if ctx["last_summary"] else "无"
-                dispersed_prompt = LongChatImprovePersetVars.dispersed_summary_prompt.format(
+                dispersed_prompt = preset.dispersed_summary_prompt.format(
                     new_content=new_content_str,
                     context_summary=context_summary
                 )
 
                 resp1 = client.chat.completions.create(
-                    model=model, 
+                    model=model,
                     messages=[{"role": "user", "content": dispersed_prompt}]
                 )
                 dispersed_text = resp1.choices[0].message.content
@@ -251,8 +256,7 @@ class LongChatImprove(QObject):
 
                 self.sig_log.emit("log", "Mix模式：增量总结完成，开始执行全局整合...")
 
-                # 步骤 2: 收集所有碎片 + 刚刚生成的碎片，合成 Grand Summary
-                # ------------------------------------------------
+                # 步骤2: 整合所有摘要片段 -> 生成全局总结
                 all_summaries = ctx["all_summaries"]
                 all_summaries.append(dispersed_text) # 把最新的加进去
 
@@ -261,7 +265,7 @@ class LongChatImprove(QObject):
                 for idx, summary in enumerate(all_summaries):
                     dispersed_contents_str += f"\n[摘要片段 {idx+1}]:\n{summary}\n"
 
-                mix_prompt = LongChatImprovePersetVars.mix_consolidation_prompt.format(
+                mix_prompt = preset.mix_consolidation_prompt.format(
                     dispersed_contents=dispersed_contents_str
                 )
 
@@ -276,7 +280,7 @@ class LongChatImprove(QObject):
                 grand_item = self._create_lci_item(grand_text, "single", [], is_global=True)
                 generated_items.append(grand_item)
 
-            # ================= FINISH =================
+            # --- 执行完成 ---
             self.sig_log.emit("log", f"LCI 执行完成。生成了 {len(generated_items)} 条总结。")
 
             # 发送结果

@@ -75,10 +75,73 @@ class BackgroundSettings(BaseSettings):
     image_model: str = 'foddaxlPhotorealism_v45_122788.safetensors'
     """图像生成模型"""  # back_ground_image_model
 
+class LongChatImprovePersetVars(BaseSettings):
+    summary_prompt:str="""
+[背景要求]详细提取关键信息，需要严格符合格式。
+格式：
+所有角色的个人资料:[名字是##,性别是##,年龄是##,关键特征]（名字不明也需要，关键特征两条或更多）
+所有角色的人际关系:[角色1:##,角色2:##,..](A对B的关系/感情/评价/事件/关键交互或其他,优先合并同类项)
+主线情节总结:[]（总结对话完整发展，着重于发展节点）
+支线事件:[##,##,##]（总结所有过去非主线的事件起因和发展节点）
+物品栏:[##,##,##]（物品来源，作用）
+
+
+注意：
+1. 提取内容必须客观、完整。禁止遗漏。
+2. 使用书面、正式的语言,避免"行业黑话"和趣味性语言。不对思考过程进行解释。
+3. 不需要提到暗示，伏笔等内容。
+4. 优先使用一句主谓宾齐全的表述，而不是名词组合。
+5. 以下可选项如果被显式或直接提到，则写进个人资料的"关键特征"中；如果没有提到，则省略。
+
+
+可选项：
+性格、语言特征
+常用修辞方式
+情绪表达（压抑型/外放型）
+童年经历
+关键人生转折点（例：15岁目睹凶案→决定成为警察）
+教育/训练经历（例：军校出身→纪律性极强）
+核心行为逻辑
+决策原则（功利优先/道德优先）
+应激反应模式（战斗/逃避/伪装）
+价值排序（亲情>友情>理想）
+深层心理画像
+潜意识恐惧（例：深海→童年溺水阴影）
+自我认知偏差（例：自认冷血→实际多次救人）
+时代印记（例：90年代人不用智能手机）
+地域特征（例：高原住民）
+身体特征（例：草药味体香）
+动态标识（例：思考时转笔）
+空间偏好（例：总坐在窗边位置）
+物品偏好（例：动物/植物）
+色彩偏好（例：只穿冷色调）
+"""
+
+    # [新增] Single模式的完整模板，替代了原来的 before/after 拼接
+    single_update_prompt:str='''基于要求详细提取关键信息。保留之前的信息，加入新总结的信息。
+{hint_text}
+**已发生事件和当前人物形象**
+{context_summary}
+
+**之后的事件**
+{new_content}'''
+
+    long_chat_hint_prefix:str='以最高的优先级处理：'
+
+    summary_merge_prompt:str='将两段内容的信息组合。1.禁止缺少或省略信息。\n2.格式符合[背景要求]。\n3.不要做出推断，保留原事件内容。\n内容1：\n'
+    summary_merge_prompt_and:str='\n\n内容2：\n'
+
+    dispersed_summary_prompt:str='''请对这段新对话进行增量总结：
+新内容：{new_content}
+旧背景：{context_summary}'''
+
+    mix_consolidation_prompt:str='''请将以下片段整合成完整剧情：
+{dispersed_contents}'''
+
 class LciSettings(BaseSettings):
     """上下文自动压缩设置"""
 
-    enabled: bool = True      
+    enabled: bool = True
     """启用LCI"""  # long_chat_improve_var
 
     collect_system_prompt: bool = True
@@ -90,10 +153,10 @@ class LciSettings(BaseSettings):
     max_segment_length: int = 8000
     """触发压缩最少的距离上次对话长度"""  # max_segment_length (unchanged)
 
-    api_provider: Optional[str] = None
+    api_provider: Optional[str] = "deepseek"
     """上下文压缩的API供应商"""  # long_chat_improve_api_provider
 
-    model: Optional[str] = None
+    model: Optional[str] = "deepseek-chat"
     """上下文压缩的模型"""  # long_chat_improve_model
 
     hint: str = ''
@@ -103,6 +166,8 @@ class LciSettings(BaseSettings):
     """上下文压缩结果的放置位置"""  # long_chat_placement
 
     mode : Literal['single','dispersed','mix'] = 'single'
+
+    preset : LongChatImprovePersetVars = Field(default_factory=LongChatImprovePersetVars)
 
 class WebSearchSettings(BaseSettings):
     """手动强制搜索"""

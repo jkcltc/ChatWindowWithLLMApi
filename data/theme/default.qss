@@ -1,0 +1,215 @@
+QToolBox {  
+    border: 1px solid #dddddd;         
+    border-radius: 4px;  
+    padding: 2px;  
+    font-family: "Arial", sans-serif;  
+}  
+
+QToolBox::tab {
+    background-color:  #e0e0e0;
+    color: white;
+    padding: 2px;
+    border-radius: 4px;
+    border: none;
+}
+
+QToolBox::tab:selected {
+    background-color: #45a049;
+}
+
+QToolBox::tab:!selected {
+    background-color: #94D097;
+}
+
+QToolBox::tab:hover {
+    background-color: #45a049;
+}
+
+QPushButton {
+    border: none;
+    background-color: #4CAF50;
+    color: white;
+    padding: 5px 10px;
+    text-align: center;
+    text-decoration: none;
+    font-size: 12px;
+    border-radius: 2px;
+}
+
+QPushButton:hover {
+    background-color: #45a049;
+}
+
+QPushButton:pressed {
+    background-color: #3d8b40;
+}
+
+QPushButton:disabled {
+    background-color: #ccc;
+    color: #999;
+}
+QLineEdit {
+    background-color: #ffffff;
+    color: #333333;
+    border: 1px solid #dddddd;
+    border-radius: 4px;
+    padding: 3px 5px;
+    font-size: 12px;
+    font-family: "Arial", sans-serif;
+    outline: none;
+}
+
+QLineEdit:focus {
+    border-color: #008080;
+}
+
+QLineEdit:hover {
+    border-color: #4CAF50;
+}
+
+QLineEdit:disabled {
+    background-color: #f5f5f5;
+    color: #999999;
+    border-color: #e0e0e0;
+}
+
+QLineEdit::placeholder-text {
+    color: #999999;
+    opacity: 1;
+}
+QTextEdit {
+    background-color: #ffffff;
+    color: #333333;
+    border: 1px solid #dddddd;
+    border-radius: 4px;
+    padding: 10px;
+    font-size: 14px;
+    font-family: "Arial", sans-serif;
+    outline: none;
+}
+
+QTextEdit:focus {
+    border-color: #008080;
+}
+
+QTextEdit:hover {
+    border-color: #b3b3b3;
+}
+
+QTextEdit:disabled {
+    background-color: #f5f5f5;
+    color: #999999;
+    border-color: #e0e0e0;
+}
+QTreeView {
+    border: 1px solid #8f8f91;
+    border-radius: 4px;
+    padding: 2px;
+    background-color: #f0f0f0;
+    outline: none;
+}
+
+QTreeView::item {
+    padding: 3px;
+    border: 1px solid transparent;
+    border-radius: 2px;
+    background-color: #ffffff;
+    color: #333333;
+    font-size: 12px;
+    font-family: "Arial", sans-serif;
+}
+
+QTreeView::item:selected {
+    background-color: #4CAF50;
+    color: #ffffff;
+    border: 1px solid #4CAF50;
+}
+
+QTreeView::item:hover {
+    background-color: #4CAF50;
+    color: #333333;
+}
+
+QTreeView::branch {
+    background-color: #f0f0f0;
+    color: #333333;
+}
+
+QTreeView::branch:selected {
+    background-color: #e0e0e0;
+    color: #ffffff;
+}
+
+QTreeView::branch:hover {
+    background-color: #4CAF50;
+    color: #333333;
+}/* 复选框基础样式 */
+QCheckBox {
+    spacing: 8px;  /* 文字与方框间距 */
+    color: #333333;  /* 文字颜色 */
+    font-size: 12px;
+    font-family: "Arial", sans-serif;
+}
+
+/* 复选框方框默认状态 */
+/* 复选框基础样式 */
+QCheckBox {
+    spacing: 8px;
+    color: #333333;
+    font-size: 12px;
+    font-family: "Arial", sans-serif;
+    padding: 2px 0px;  /* 关键修复1：增加垂直padding */
+}
+
+/* 复选框容器对齐 */
+QCheckBox::indicator {
+    width: 16px;
+    height: 16px;
+    subcontrol-position: left center;  /* 关键修复2：垂直居中定位 */
+    margin-top: -1px;  /* 关键修复3：微调字体基线偏移 */
+}
+
+/* 方框基础样式 */
+QCheckBox::indicator {
+    border: 1px solid #dddddd;
+    border-radius: 3px;
+    background-color: #ffffff;
+}
+
+/* 以下状态样式保持原有设计... */
+QCheckBox::indicator:hover { border-color: #4CAF50; }
+QCheckBox::indicator:checked {
+    background-color: #4CAF50;
+    border-color: #45a049;
+}
+QCheckBox::indicator:checked:hover { background-color: #45a049; }
+QCheckBox:disabled { color: #999999; }
+QCheckBox::indicator:disabled {
+    background-color: #f5f5f5;
+    border-color: #e0e0e0;
+}
+QCheckBox::indicator:indeterminate {
+    background-color: #94D097;
+    border-color: #45a049;
+}
+QProgressBar {
+    border: 2px solid #E0E0E0;
+    border-radius: 8px;
+    background-color: #F0F9F0;
+    text-align: center;
+    padding: 1px;
+}
+
+QProgressBar::chunk {
+    background-color: qlineargradient(
+        x1:0, y1:0,
+        x2:1, y2:0,
+        stop:0 #6DD47C,
+        stop:1 #4CAF50
+    );
+    border-radius: 6px;
+    border-bottom-right-radius: 6px;
+    border-top-right-radius: 6px;
+    margin: 1px;
+    border: 1px solid #45A049;
+}

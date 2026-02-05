@@ -20,43 +20,14 @@ MODEL_MAP={#临时测试用
 class ConcurrentorTools:
     @staticmethod
     def get_default_apis(testpath=False):
-        current_path = os.path.abspath(__file__)
-        if testpath:
-            parent_dir = os.path.dirname(os.path.dirname(current_path))
-            config_path = os.path.join(parent_dir, "api_config.ini")
-        else:
-            config_path="api_config.ini"
-        
-        if not os.path.exists(config_path):
-            print(f"配置文件不存在: {config_path}")
-            return {}
-
-        config = configparser.ConfigParser()
-        config.read(config_path,encoding='utf=8')
-        
-        api_configs = {}
-        for section in config.sections():
-            try:
-                url = config.get(section, "url").strip()
-                key = config.get(section, "key").strip()
-                api_configs[section] = {"url": url, "key": key}
-            except (configparser.NoOptionError, configparser.NoSectionError) as e:
-                print(f"配置解析错误[{section}]: {str(e)}")
+        from config import APP_SETTINGS
+        api_configs = APP_SETTINGS.api.endpoints
         
         return api_configs
     @staticmethod
     def get_model_map():
-        current_path = os.path.abspath(__file__)
-        parent_dir = os.path.dirname(os.path.dirname(current_path))
-
-        file_path = os.path.join(parent_dir,"utils")
-        file_path = os.path.join(file_path,"global_presets")
-        file_path = os.path.join(file_path,"MODEL_MAP.json")
-        if not os.path.exists(file_path):
-            print(f"配置文件不存在: {file_path}")
-            return {}
-        with open(file_path, 'r', encoding='utf-8') as f:
-            return json.load(f)
+        from config import APP_SETTINGS
+        return APP_SETTINGS.api.model_map
 
 
 class ConvergenceDialogueOptiUI(QWidget):
@@ -510,7 +481,7 @@ class ConvergenceDialogueOptiUI(QWidget):
         return selections
 
 class ConvergenceSettingsWindow(QWidget):
-    PRESETS_PATH = "utils/global_presets/convergence_presets.json"
+    PRESETS_PATH = "data/convergence_presets.json"
     
     def __init__(self, processor, parent=None):
         super().__init__(parent)
@@ -1554,7 +1525,7 @@ class RequestDispatcher(QObject):
         self.current_result = result
 
 class ConvergenceDialogueOptiProcessor(QWidget):
-    PRESETS_PATH = "utils/global_presets/convergence_presets.json"
+    PRESETS_PATH = "data/convergence_presets.json"
     concurrentor_reasoning=pyqtSignal(str,str)
     concurrentor_content=pyqtSignal(str,str)
     concurrentor_finish=pyqtSignal(str,str)

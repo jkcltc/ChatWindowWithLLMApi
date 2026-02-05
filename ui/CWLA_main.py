@@ -2,8 +2,6 @@ import time
 start_time_stamp=time.time()
 print(f'CWLA init timer start, time cost:{time.time()-start_time_stamp:.2f}s')
 import configparser
-import copy
-import ctypes
 import json
 import os
 import re
@@ -16,7 +14,7 @@ warnings.filterwarnings("ignore", category=DeprecationWarning)
 warnings.filterwarnings("ignore", message="libpng warning: iCCP: known incorrect sRGB profile")
 
 #基础类初始化
-from utils.tools.init_functions import DEFAULT_APIS,api_init,install_packages
+from common.init_functions import install_packages
 
 print(f'CWLA iner import finished, time cost:{time.time()-start_time_stamp:.2f}s')
 
@@ -33,34 +31,36 @@ print(f'CWLA 3rd party lib import finished, time cost:{time.time()-start_time_st
 
 #自定义类初始化
 
-from utils.info_module import InfoManager,LOGMANAGER
+from common.info_module import InfoManager,LOGMANAGER
 LOGGER=LOGMANAGER
 
-from utils.custom_widget import *
-from utils.system_prompt_manager import SystemPromptManager,SystemPromptComboBox
-from utils.setting import APP_SETTINGS,MainSettingWindow,APP_RUNTIME,ConfigManager
-
-from utils.model_map_manager import APIConfigWidget,RandomModelSelecter
-from utils.theme_manager import ThemeSelector
-from utils.tool_core import FunctionManager,get_functions_events
-from utils.concurrentor import ConvergenceDialogueOptiProcessor
+from ui.custom_widget import *
+from core.session.system_prompt_manager import SystemPromptManager,SystemPromptComboBox
+from config import APP_SETTINGS,APP_RUNTIME,ConfigManager
+from ui.setting.main_setting_window import MainSettingWindow
+from config.model_map_manager import APIConfigWidget,RandomModelSelecter
+from ui.setting.theme_manager import ThemeSelector
+from core.tool_call.tool_core import FunctionManager,get_functions_events
+from core.session.concurrentor import ConvergenceDialogueOptiProcessor
 from utils.preset_data import *
 from utils.usage_analysis import TokenAnalysisWidget
-from utils.chat_history_manager import ChatHistoryEditor,ChathistoryFileManager,TitleGenerator,ChatHistoryTools,ChatHistoryTextView,HistoryListWidget
-from utils.message.preprocessor import MessagePreprocessor,PreprocessorPatch
-from utils.avatar import AvatarCreatorWindow
-from utils.background_generate import BackgroundAgent
-from utils.tools.one_shot_api_request import FullFunctionRequestHandler,APIRequestHandler
+from core.session.chat_history_manager import ChatHistoryEditor,ChathistoryFileManager,TitleGenerator,ChatHistoryTools,ChatHistoryTextView,HistoryListWidget
+from ui.chat.user_input import MultiModalTextEdit
+from ui.chat.chathistory_widget import ChatapiTextBrowser,ChatHistoryWidget
+from core.session.preprocessor import MessagePreprocessor,PreprocessorPatch
+from core.multimodal_coordination.avatar import AvatarCreatorWindow
+from core.multimodal_coordination.background_generate import BackgroundAgent
+from service.chat_completion import FullFunctionRequestHandler,APIRequestHandler
 from utils.status_analysis import StatusAnalyzer
-from utils.tools.str_tools import StrTools
+from utils.str_tools import StrTools
 
 LOGGER.log(f'CWLA custom lib import finished, time cost:{time.time()-start_time_stamp:.2f}s')
 
 #TTS初始化
-from mods.chatapi_tts import TTSAgent
+from service.tts.chatapi_tts import TTSAgent
 
 #小功能初始化
-from mods.mod_manager import ModConfiger
+from core.story.mod_manager import ModConfiger
 
 LOGGER.log(f'CWLA mod lib import finished, time cost:{time.time()-start_time_stamp:.2f}s')
 
@@ -679,7 +679,9 @@ class MainWindow(QMainWindow):
 
     
     def init_system_prompt_window(self):
-        self.system_prompt_override_window = SystemPromptManager()#folder_path='utils/system_prompt_presets'
+        self.system_prompt_override_window = SystemPromptManager(
+            folder_path=APP_RUNTIME.paths.system_prompt_preset_path
+        )
         self.system_prompt_override_window.update_tool_selection.connect(self.function_manager.set_active_tools)
         self.system_prompt_override_window.update_preset.connect(self.update_system_preset)
 
@@ -787,7 +789,7 @@ class MainWindow(QMainWindow):
         self.chat_history_text.setOpenExternalLinks(False)
 
         self.quick_system_prompt_changer = SystemPromptComboBox(
-            folder_path='utils/system_prompt_presets',
+            folder_path='data/system_prompt_presets',
             parent=None,
             include_placeholder=False,
             current_filename_base='当前对话',
@@ -827,7 +829,7 @@ class MainWindow(QMainWindow):
 
     def init_sysrule(self):
         # 定义文件路径
-        file_path = os.path.join(APP_RUNTIME.paths.application_path,'utils','system_prompt_presets','当前对话.json')
+        file_path = os.path.join(APP_RUNTIME.paths.application_path,'data','system_prompt_presets','当前对话.json')
         
         # 检查文件是否存在
         if os.path.exists(file_path):
@@ -890,7 +892,7 @@ class MainWindow(QMainWindow):
     def init_web_searcher(self):
         """懒导入，不常用模块，加速启动"""
         if not hasattr(self, 'web_searcher'):
-            from utils.online_rag import WebSearchSettingWindows
+            from service.web_search.online_rag import WebSearchSettingWindows
             self.web_searcher = WebSearchSettingWindows()
     
     def create_one_time_use_title_creator(self):
@@ -907,8 +909,6 @@ class MainWindow(QMainWindow):
         return title_generator
         
     def add_tts_page(self):
-        if not "mods.chatapi_tts" in sys.modules:
-            return
         self.tts_handler=TTSAgent(setting=APP_SETTINGS.tts,application_path=APP_RUNTIME.paths.application_path)
         self.stat_tab_widget.addTab(self.tts_handler, "语音生成")
 

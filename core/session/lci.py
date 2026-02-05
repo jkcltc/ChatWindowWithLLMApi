@@ -1,4 +1,4 @@
-# utils\lci.py
+# session\lci.py
 
 from __future__ import annotations
 import threading
@@ -8,10 +8,10 @@ import openai
 from typing import TYPE_CHECKING
 from PyQt6.QtCore import QObject, pyqtSignal
 
-from utils.chat_history_manager import ChatHistoryTools
+from session.chat_history_manager import ChatHistoryTools
 
 if TYPE_CHECKING:
-    from utils.setting.data import LciSettings, ApiConfig
+    from config.settings import LciSettings, ApiConfig
 
 class LongChatImprove(QObject):
     """

@@ -1,6 +1,6 @@
 import time
 from collections import deque
-from utils.tools.str_tools import StrTools
+from utils.str_tools import StrTools
 #tps处理
 class StatusAnalyzer:
     def __init__(self):

@@ -1,10 +1,9 @@
-# utils/theme_manager.py
 import os
 import configparser
 from PyQt6.QtWidgets import *
 from PyQt6.QtCore import *
 from PyQt6.QtGui import *
-from utils.setting import APP_SETTINGS,APP_RUNTIME
+from config import APP_SETTINGS,APP_RUNTIME
 
 class ThemeSelector(QWidget):
     def __init__(self, init_path=None):

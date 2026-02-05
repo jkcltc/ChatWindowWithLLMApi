@@ -10,7 +10,7 @@ import threading
 import asyncio
 import random
 import json
-from utils.setting.data import TTSSettings
+from config.settings import TTSSettings
 
 class WindowAnimator:
     @staticmethod

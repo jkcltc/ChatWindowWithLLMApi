@@ -7,14 +7,10 @@ from jsonfinder import jsonfinder
 import copy
 import time
 
-if __name__=='__main__':
-    from chat_history_manager import ChatHistoryTools
-    from tools.one_shot_api_request import APIRequestHandler
-    from text_to_image.image_agents import ImageAgent
-else:
-    from .tools.one_shot_api_request import APIRequestHandler
-    from .chat_history_manager import ChatHistoryTools
-    from .text_to_image.image_agents import ImageAgent
+
+from service.chat_completion import APIRequestHandler
+from core.session.chat_history_manager import ChatHistoryTools
+from service.text_to_image import ImageAgent
 
 
 

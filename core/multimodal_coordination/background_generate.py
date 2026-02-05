@@ -3,12 +3,12 @@ from PyQt6.QtWidgets import *
 from PyQt6.QtGui import QPixmap
 from jsonfinder import jsonfinder
 import os
-from utils.chat_history_manager import ChatHistoryTools
+from core.session.chat_history_manager import ChatHistoryTools
 from utils.preset_data import BackGroundPresetVars,LongChatImprovePersetVars
-from utils.tools.one_shot_api_request import APIRequestHandler
-from utils.text_to_image.image_agents import ImageAgent
-from utils.custom_widget import AspectLabel
-from utils.setting import APP_SETTINGS,APP_RUNTIME
+from service.chat_completion import APIRequestHandler
+from service.text_to_image import ImageAgent
+from ui.custom_widget import AspectLabel
+from config import APP_SETTINGS,APP_RUNTIME
 
 
 

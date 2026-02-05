@@ -1,26 +1,16 @@
 from PyQt6.QtWidgets import (
-    QApplication, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QFrame,
-    QLabel, QPushButton, QToolButton, QScrollArea, QTextEdit, QStackedWidget,
-    QSizePolicy, QGraphicsOpacityEffect,QTextBrowser,QScrollBar
+    QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QSizePolicy
 )
 from PyQt6.QtCore import (
-    Qt, QTimer, QThread, pyqtSignal, QPoint, QSize, QPropertyAnimation,QEasingCurve, QRectF,QEvent
+    Qt, QTimer, pyqtSignal, QPoint, QSize, QPropertyAnimation,QEasingCurve, QRectF
 )
 from PyQt6.QtGui import (
-    QFont, QFontMetrics, QPixmap, QIcon, QColor, QPainter, QPainterPath,
-    QLinearGradient, QTextCursor, QTextOption, QPalette
+    QFontMetrics, QPixmap, QIcon, QColor, QPainter, QPainterPath,
+    QLinearGradient
 )
 import sys
-import json
-import html
-import os
-from pygments import highlight
-from pygments.lexers import get_lexer_by_name
-from pygments.formatters import HtmlFormatter
-import markdown,re
 
-from utils.assets.user_input import MultiModalTextEdit
-from utils.assets.chathistory_widget import ChatHistoryWidget,ChatapiTextBrowser
+from ui.chat.chathistory_widget import ChatHistoryWidget
 
 
 #窗口大小过渡器

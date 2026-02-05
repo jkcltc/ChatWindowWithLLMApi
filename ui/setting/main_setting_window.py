@@ -2,7 +2,7 @@ from typing import Optional, Union, Callable
 from PyQt6.QtCore import *
 from PyQt6.QtWidgets import *
 from PyQt6.QtGui import QFont
-from utils.setting.data import APP_SETTINGS, AppSettings
+from config import APP_SETTINGS, AppSettings
 
 # 简易小组件
 class QuickSeparator(QFrame):

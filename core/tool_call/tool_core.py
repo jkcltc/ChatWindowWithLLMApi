@@ -368,11 +368,11 @@ def web_search(keywords: str,engine='bing',timeout_sec: float = 40,result_num=10
    
     # 根据引擎创建搜索器
     if engine == "baidu":
-        from utils.online_rag import baidu_search
+        from service.web_search.online_rag import baidu_search
         searcher = baidu_search()
         searcher.TOTAL_SEARCH_RESULTS = result_num
     elif engine == "bing":
-        from utils.online_rag import bing_search
+        from service.web_search.online_rag import bing_search
         searcher = bing_search()
     try:
         result = searcher.get_search_results(query=keywords)
@@ -507,7 +507,7 @@ class ToolsListModel(QtCore.QAbstractListModel):
         for t in tools:
             # 识别来源（内置/用户）
             mod = getattr(t.handler, "__module__", "") or ""
-            if mod.startswith("utils.functions"):
+            if mod.startswith("core.tool_call.function_lib"):
                 source = "user"
             else:
                 source = mod or "builtin"
@@ -766,13 +766,13 @@ class ReloadSummary:
 # -----------------------
 class FunctionsPluginManager(QtCore.QObject):
     """
-    负责 utils/functions 的脚手架、文件监控、加载/重载与冲突处理。
+    负责 core.tool_call.function_lib 的脚手架、文件监控、加载/重载与冲突处理。
     - 每个模块（.py 文件）导入时，记录其注册的工具名集合，便于卸载/重载。
     - 监控文件变化，防抖后自动重载。
     - 发出事件总线信号，驱动 UI 刷新。
     """
 
-    DEFAULT_PACKAGE = "utils.functions"
+    DEFAULT_PACKAGE = "core.tool_call.function_lib"
 
     def __init__(self, package: str = None, parent=None):
         super().__init__(parent)
@@ -803,7 +803,7 @@ class FunctionsPluginManager(FunctionsPluginManager):  # 继续类定义
 
     def _resolve_dir(self) -> Path:
         """
-        解析 utils/functions 目录实际路径；若未安装包，默认使用 CWD 下 utils/functions。
+        解析 core.tool_call.function_lib 目录实际路径；若未安装包，默认使用 CWD 下 core/tool_call/function_lib。
         """
         try:
             pkg = importlib.import_module(self.package)
@@ -816,19 +816,19 @@ class FunctionsPluginManager(FunctionsPluginManager):  # 继续类定义
 
     def ensure_scaffold(self):
         """
-        创建 utils/functions 目录及 __init__.py、functions_api.py（如不存在）。
+        创建 core/tool_call/function_lib 目录及 __init__.py、functions_api.py（如不存在）。
         functions_api.py 提供 user_tool 装饰器，桥接到 get_tool_registry().tool
         """
         self._dir.mkdir(parents=True, exist_ok=True)
         init_file = self._dir / "__init__.py"
         if not init_file.exists():
-            init_file.write_text("# utils.functions package\n", encoding="utf-8")
+            init_file.write_text("# core.tool_call.function_lib package\n", encoding="utf-8")
 
         # functions_api 提供 user_tool 简化导入
-        api_file = self._dir.parent / "functions_api.py"  # utils/functions_api.py
+        api_file = self._dir.parent / "functions_api.py"  # core/tool_call/function_lib/functions_api.py
         if not api_file.exists():
             api_code = (
-                "from utils.tool_core import get_tool_registry\n"
+                "from core.tool_call.function_lib import get_tool_registry\n"
                 "def user_tool(name=None, description=None, parameters=None, **meta):\n"
                 "    \"\"\"装饰器：桥接到全局 ToolRegistry 单例。\"\"\"\n"
                 "    return get_tool_registry().tool(name=name, description=description, parameters=parameters, **meta)\n"
@@ -925,7 +925,7 @@ class FunctionsPluginManager(FunctionsPluginManager):  # 继续类定义
         self.ensure_scaffold()
         importlib.invalidate_caches()
 
-        # 先确保 utils/functions 是包
+        # 先确保 core.tool_call.function_lib 是包
         try:
             importlib.import_module(self.package)
         except ModuleNotFoundError:
@@ -999,7 +999,7 @@ class FunctionsPluginManager(FunctionsPluginManager):  # 继续类定义
         overwrite: bool = False,
     ) -> Path:
         """
-        生成一个工具文件（模板），放在 utils/functions 下。
+        生成一个工具文件（模板），放在 core/tool_call/function_lib 下。
         返回文件路径。不会自动重载，需调用 reload_all。
         """
         assert name, "Tool name required"
@@ -1027,7 +1027,7 @@ class FunctionsPluginManager(FunctionsPluginManager):  # 继续类定义
 """
 Auto-generated tool: {name}
 """
-from utils.functions_api import user_tool
+from core.tool_call.function_lib.functions_api import user_tool
 
 @user_tool(
     name={json.dumps(name, ensure_ascii=False)},
@@ -1084,7 +1084,7 @@ class FunctionEditorDialog(QtWidgets.QDialog):
     用户工具编辑器：
       - 左侧表单（名称/描述/标签/权限/超时/参数Schema）
       - 右侧代码（可编辑；表单可一键生成模板覆盖）
-      - 保存到 utils/functions 下并触发热重载
+      - 保存到 core.tool_call.function_lib 下并触发热重载
     """
     def __init__(self, parent=None, existing_file: Path | None = None):
         super().__init__(parent)
@@ -1630,7 +1630,7 @@ class FunctionManager(QtWidgets.QWidget):
         name = self._model.data(src, ToolsListModel.NameRole)
         fp = self._pm.find_tool_file(name)
         if not fp:
-            QtWidgets.QMessageBox.information(self, "提示", "只能编辑用户工具（utils/functions 下的工具）")
+            QtWidgets.QMessageBox.information(self, "提示", "只能编辑用户工具（core.tool_call.function_lib 下的工具）")
             return
         dlg = FunctionEditorDialog(self, existing_file=fp)
         if dlg.exec():
@@ -1645,7 +1645,7 @@ class FunctionManager(QtWidgets.QWidget):
         name = self._model.data(src, ToolsListModel.NameRole)
         fp = self._pm.find_tool_file(name)
         if not fp:
-            QtWidgets.QMessageBox.information(self, "提示", "只能删除用户工具（utils/functions 下的工具）")
+            QtWidgets.QMessageBox.information(self, "提示", "只能删除用户工具（core.tool_call.function_lib 下的工具）")
             return
 
         ret = QtWidgets.QMessageBox.question(self, "确认删除", f"确定删除用户工具文件：\n{fp} ？",

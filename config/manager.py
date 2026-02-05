@@ -1,6 +1,6 @@
 import os, json
 from pydantic import ValidationError
-from utils.info_module import LOGMANAGER
+from common.info_module import LOGMANAGER
 
 class ConfigManager:
     """
@@ -35,7 +35,7 @@ class ConfigManager:
 
 
     @staticmethod
-    def save_settings(singleton_obj, filename: str = 'config.json'):
+    def save_settings(singleton_obj, filename: str = 'data/config.json'):
         """
         保存单例对象的状态到文件。
         """

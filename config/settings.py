@@ -1,7 +1,7 @@
 import os,sys
 from typing import List, Dict, Optional,Literal
 from pydantic import Field, model_validator
-from utils.setting.model import BaseSettings
+from config.base import BaseSettings
 
 # ==================== 快捷编组 ====================
 class LLMUsagePack(BaseSettings):
@@ -487,6 +487,8 @@ class AppPaths(BaseSettings):
     application_path: str = ""
     history_path: str = ""
     theme_path: str = ""
+    system_prompt_preset_path: str = ""
+    config_path:str = ""
 
     @model_validator(mode='after')
     def calculate_paths(self):
@@ -497,15 +499,19 @@ class AppPaths(BaseSettings):
                 base_path = os.path.dirname(sys.executable)
             else:
                 base_path = os.path.dirname(os.path.abspath(sys.argv[0]))
-
             self.application_path = base_path
-
         # 2. 如果没传值，就根据 application_path 算出 history_path
         if not self.history_path:
-            self.history_path = os.path.join(self.application_path, "history")
+            self.history_path = os.path.join(self.application_path,"data", "history")
             
         if not self.theme_path:
-            self.theme_path = os.path.join(self.application_path, "theme")
+            self.theme_path = os.path.join(self.application_path,"data", "theme")
+        
+        if not self.system_prompt_preset_path:
+            self.system_prompt_preset_path = os.path.join(self.application_path, "data","system_prompt_presets")
+
+        if not self.config_path:
+            self.config_path = os.path.join(self.application_path, "data","config")
 
         return self
 

@@ -14,12 +14,9 @@ from requests.adapters import HTTPAdapter
 from requests.exceptions import RequestException
 from lxml import etree
 from bs4 import BeautifulSoup
-if __name__=='__main__':
-    from preset_data import WebRagPresetVars
-else:
-    from .preset_data import WebRagPresetVars
 
-from utils.setting import APP_SETTINGS
+from utils.preset_data import WebRagPresetVars
+from config import APP_SETTINGS
 
 #爬虫组件
 class bing_search:

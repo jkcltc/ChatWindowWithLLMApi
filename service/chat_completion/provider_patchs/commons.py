@@ -1,4 +1,3 @@
-# utils/tools/provider_patch/commons.py
 import re
 
 def filter_and_transform_content(messages, ability, provider_type, im=None):

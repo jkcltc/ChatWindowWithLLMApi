@@ -1,8 +1,8 @@
 import sys
 from PyQt6.QtWidgets import QTabWidget, QWidget, QGridLayout, QLabel, QPushButton, QCheckBox, QApplication
-from mods.status_monitor import StatusMonitorWindow, StatusMonitorInstruction
-from mods.story_creator import MainStoryCreaterInstruction
-from utils.custom_widget import GradientLabel
+from .status_monitor import StatusMonitorWindow, StatusMonitorInstruction
+from .story_creator import MainStoryCreaterInstruction
+from ui.custom_widget import GradientLabel
 
 #mod管理器
 class ModConfiger(QTabWidget):
@@ -65,11 +65,6 @@ class ModConfiger(QTabWidget):
         self.status_monitor_enable_box=QCheckBox("启用挂载")
         status_monitor_layout.addWidget(self.status_monitor_enable_box, 2, 0, 1, 1)
         self.status_monitor_enable_box.setToolTip("模块可以使用")
-        if not "mods.status_monitor" in sys.modules:
-            self.status_monitor_enable_box.setText('未安装')
-            self.status_monitor_enable_box.setEnabled(False)
-            self.status_monitor_enable_box.setToolTip("模块未安装")
-            return
         
         self.status_monitor = StatusMonitorWindow()
 
@@ -103,6 +98,7 @@ class ModConfiger(QTabWidget):
         self.creator_manager_layout.addWidget(self.main_story_creator_placeholder,1,0,1,1)
         
     def finish_story_creator_init(self):
+        self.main_story_creator_placeholder=QLabel()
         self.main_story_creator_placeholder.hide()
         self.story_creator=MainStoryCreaterInstruction.mod_configer()
         self.creator_manager_layout.addWidget(self.story_creator,1,0,1,1)
@@ -125,5 +121,5 @@ class ModConfiger(QTabWidget):
 
     def run_close_event(self):
         if "mods.story_creator" in sys.modules and hasattr(self,"story_creator"):
-            self.story_creator.save_settings('utils')
+            self.story_creator.save_settings('data')
 

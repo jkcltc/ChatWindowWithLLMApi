@@ -5,7 +5,7 @@ from typing import List, Dict, Any
 import json
 from typing import List, Tuple, Optional
 import hashlib
-from utils.tool_core import FunctionsSelectorWidget
+from core.tool_call.tool_core import FunctionsSelectorWidget
 import uuid
 
 @dataclass
@@ -55,7 +55,7 @@ class SystemPromptPreset:
         }
 
 class SystemPromptStore:
-    def __init__(self, folder_path: str = "utils/system_prompt_presets"):
+    def __init__(self, folder_path: str = "data/system_prompt_presets"):
         self.folder_path = folder_path
         os.makedirs(self.folder_path, exist_ok=True)
 
@@ -120,7 +120,7 @@ class SystemPromptManager(QtWidgets.QWidget):
     update_tool_selection = QtCore.pyqtSignal(list)
     update_preset = QtCore.pyqtSignal(dict)
 
-    def __init__(self, store=None, parent=None):
+    def __init__(self, store=None, parent=None,folder_path=''):
         super().__init__(parent)
         self.setObjectName("systemPromptEditor")
         self.setWindowTitle("system prompt")
@@ -136,7 +136,7 @@ class SystemPromptManager(QtWidgets.QWidget):
 
         # 外部依赖（需由外部提供）
         if store is None:
-            store = SystemPromptStore()
+            store = SystemPromptStore(folder_path=folder_path)
         self.store = store
 
         # 内部状态

@@ -7,7 +7,7 @@ from PyQt6.QtCore import QObject,pyqtSignal
 
 
 class NovitaModelPresetVars:
-    model_list_path=r'utils\text_to_image\providers\novita\NOVITA_MODEL_OPTIONS.json'
+    model_list_path=r'service\text_to_image\providers\novita\NOVITA_MODEL_OPTIONS.json'
 
 class NovitaModelManager:
     _DEFAULT_MODEL_OPTIONS = [

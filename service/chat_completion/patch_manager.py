@@ -1,8 +1,8 @@
 import importlib
 import pkgutil
 import inspect
-from utils.tools import provider_patchs
-from utils.info_module import LOGMANAGER
+from . import provider_patchs
+from common.info_module import LOGMANAGER
 
 # 现在的注册表
 _REGISTRY = {}
@@ -34,7 +34,7 @@ class GlobalPatcher:
         count = 0
         for finder, name, ispkg in pkgutil.iter_modules(provider_patchs.__path__):
             try:
-                module_name = f"utils.tools.provider_patchs.{name}"
+                module_name = f"service.chat_completion.provider_patchs.{name}"
                 importlib.import_module(module_name)
                 count += 1
             except Exception as e:

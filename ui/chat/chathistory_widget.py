@@ -14,7 +14,7 @@ from PyQt6.QtWidgets import (
     QSizePolicy, QGraphicsOpacityEffect, 
     QPlainTextEdit, QFormLayout
 )
-from utils.assets.markdown_browser import MarkdownTextBrowser
+from ui.chat.markdown_browser import MarkdownTextBrowser
 ChatapiTextBrowser=MarkdownTextBrowser
 
 def _clear_layout(layout) -> None:

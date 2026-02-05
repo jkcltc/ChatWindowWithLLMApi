@@ -81,7 +81,7 @@ class OtherModelManager:
     }
 
     def __init__(self,application_path=''):
-        self.file_path = os.path.join(application_path, 'utils','text_to_image','providers','other','OTHER_IMAGE_MODELS.json')
+        self.file_path = os.path.join(application_path, 'service','text_to_image','providers','other','OTHER_IMAGE_MODELS.json')
         self._ensure_file_exists()
        
     def _ensure_file_exists(self):

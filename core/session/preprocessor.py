@@ -1,15 +1,13 @@
 import copy
 import time
 import sys
-from utils.message.data import ChatCompletionPack
-from utils.setting import APP_SETTINGS,APP_RUNTIME
-from utils.info_module import LOGMANAGER
-from utils.tools.patch_manager import GlobalPatcher
+from core.session.data import ChatCompletionPack
+from config import APP_SETTINGS,APP_RUNTIME
+from common import LOGMANAGER
+from service.chat_completion import GlobalPatcher
 LOGGER = LOGMANAGER
 
-#from utils.message.data import ChatCompletionPack
-# from utils.api.patcher import GlobalPatcher 
-from utils.tools.str_tools import StrTools 
+from utils.str_tools import StrTools 
 
 from utils.preset_data import LongChatImprovePersetVars
 

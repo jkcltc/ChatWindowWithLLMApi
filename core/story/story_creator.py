@@ -14,31 +14,13 @@ class StoryCreatorGlobalVar:
 
     def _read_api_config(self):
         """读取api_config.ini文件并返回配置字典"""
-        import configparser
-        
-        script_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        config_path = os.path.join(script_dir, "api_config.ini")
-        
-        if not os.path.exists(config_path):
-            print(f"配置文件不存在: {config_path}")
-            return {}
-
-        config = configparser.ConfigParser()
-        config.read(config_path,encoding='utf-8')
-        
-        api_configs = {}
-        for section in config.sections():
-            try:
-                url = config.get(section, "url").strip()
-                key = config.get(section, "key").strip()
-                api_configs[section] = {"url": url, "key": key}
-            except (configparser.NoOptionError, configparser.NoSectionError) as e:
-                print(f"配置解析错误[{section}]: {str(e)}")
+        from config import APP_SETTINGS
+        api_configs = APP_SETTINGS.api.endpoints
         return api_configs
     
     def _update_model_map(self):
-        with open(r'utils/global_presets/MODEL_MAP.json', 'r', encoding='utf-8') as f:
-            return json.load(f)
+        import config
+        return config.APP_SETTINGS.api.model_map
 
 class Ui_story_manager(QWidget):
     def setupUi(self, story_manager):
@@ -640,7 +622,7 @@ class Analysier(QObject):
         return returning_system_prompt
 
 class StoryManagerBackend(QWidget):
-    def __init__(self, parent=None,save_path='utils'):
+    def __init__(self, parent=None,save_path='data'):
         super().__init__(parent)
         # 初始化UI
         self.ui = Ui_story_manager()
@@ -1137,7 +1119,7 @@ class MainStoryCreaterInstruction:
         window =StoryManagerBackend()
         return {"ui":window,"name":"status_monitor_window"}
     def mod_configer():
-        window =StoryManagerBackend(save_path='utils')
+        window =StoryManagerBackend(save_path='data')
         return window
 
 if __name__ == "__main__":

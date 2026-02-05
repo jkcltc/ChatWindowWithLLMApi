@@ -9,7 +9,7 @@ class ChatCompletionPack:
 
     model: str
 
-    provider: Any = None# actually utils.setting.data -> ProviderConfig(BaseSettings)
+    provider: Any = None# actually config.settings -> ProviderConfig(BaseSettings)
 
     tool_list: List[str] = field(default_factory=list)
     """function_manager.selected_tools=>list"""

@@ -144,6 +144,4 @@ class BackGroundPresetVars:
 
     IRAG_USE_CHINESE='在本次回复中，你需要使用中文填充"prompt"字段中的内容。'
 
-class NovitaModelPresetVars:
-    model_list_path=r'\utils\global\NOVITA_MODEL_OPTIONS.json'
 

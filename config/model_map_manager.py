@@ -1,71 +1,17 @@
 import json
-import os
 from pathlib import Path
 import random
 
 import requests, urllib
 import urllib.parse
-import configparser
 import threading
 from typing import Optional, Dict, List, Tuple, Any
 from PyQt6.QtWidgets import *
 from PyQt6.QtCore import *
 from PyQt6.QtGui import *
-from utils.setting import APP_RUNTIME,APP_SETTINGS, ConfigManager
-from utils.tools.patch_manager import GlobalPatcher
-from utils.setting.data import LLMUsagePack,ApiConfig,ModelPollSettings
-
-
-class ModelMapManager:
-    _DEFAULT_FILE_PATH = Path("utils/global_presets/MODEL_MAP.json")
-    
-    def __init__(self, file_path: str = None):
-        if file_path:
-            self.file_path = Path(file_path)
-        else:
-            self.file_path = self._DEFAULT_FILE_PATH
-    
-    def get_model_map(self) -> dict:
-        try:
-            self.file_path.parent.mkdir(parents=True, exist_ok=True)
-            
-            if not self.file_path.exists():
-                return self.get_default_model_map()
-            
-            with open(self.file_path, 'r', encoding='utf-8') as f:
-                return json.load(f)
-                
-        except (json.JSONDecodeError, OSError) as e:
-            print(f"Error reading model map: {e}")
-            return {}
-
-    def save_model_map(self, model_map: dict):
-        try:
-            self.file_path.parent.mkdir(parents=True, exist_ok=True)
-            
-            with open(self.file_path, 'w', encoding='utf-8') as f:
-                json.dump(model_map, f, indent=2, ensure_ascii=False)
-                
-        except (TypeError, OSError) as e:
-            print(f"Error saving model map: {e}")
-
-    def get_default_model_map(self) -> dict:
-        return {
-            "baidu": [
-                "ernie-4.5-turbo-32k",
-                "qwen3-0.6b",
-            ],
-            "deepseek": ["deepseek-chat", "deepseek-reasoner"],
-            "tencent": ["deepseek-r1", "deepseek-v3"],
-            "siliconflow": [
-                'deepseek-ai/DeepSeek-V3',
-                'deepseek-ai/DeepSeek-R1',
-                'Pro/deepseek-ai/DeepSeek-R1',
-                'SeedLLM/Seed-Rice-7B',
-                'Qwen/QwQ-32B'
-            ]
-        }
-
+from config import APP_RUNTIME,APP_SETTINGS, ConfigManager
+from service.chat_completion import GlobalPatcher
+from config.settings import LLMUsagePack,ApiConfig,ModelPollSettings
 
 class ModelListUpdater:
     _lock = threading.Lock()

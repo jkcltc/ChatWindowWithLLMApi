@@ -13,7 +13,7 @@ from PyQt6.QtCore import *
 from PyQt6.QtGui import *
 from PyQt6.QtWidgets import *
 
-from utils.tools.one_shot_api_request import APIRequestHandler
+from service.chat_completion import APIRequestHandler
 
 class ChatHistoryTools:
     @staticmethod

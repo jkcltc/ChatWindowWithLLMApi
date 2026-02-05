@@ -1,4 +1,4 @@
-from utils.tools.patch_manager import register_provider
+from ..patch_manager import register_provider
 # 别忘了从隔壁把公共工具借过来
 from .commons import filter_and_transform_content
 

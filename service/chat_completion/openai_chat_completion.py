@@ -4,7 +4,7 @@ import openai
 import time
 import json
 import requests
-from utils.tool_core import get_tool_registry
+from core.tool_call.tool_core import get_tool_registry
 import traceback
 
 class DeltaObject:

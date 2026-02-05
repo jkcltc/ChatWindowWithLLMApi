@@ -1,9 +1,7 @@
 from PyQt6.QtCore import QObject, pyqtSignal
-from utils.text_to_image.providers.novita.novita_model_manager import NovitaAgent
-from utils.text_to_image.providers.siliconflow.siliconflow_agent import SiliconFlowAgent
-from utils.text_to_image.providers.baidu.baidu_agent import BaiduAgent
+from .providers import BaiduAgent, NovitaAgent, SiliconFlowAgent
 
-from utils.setting import APP_SETTINGS, APP_RUNTIME
+from config import APP_SETTINGS, APP_RUNTIME
 
 
 class ImageAgent(QObject):

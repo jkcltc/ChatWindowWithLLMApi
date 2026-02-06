@@ -10,8 +10,6 @@ from PyQt6.QtGui import (
 )
 import sys
 
-from ui.chat.chathistory_widget import ChatHistoryWidget
-
 
 #窗口大小过渡器
 class WindowAnimator:
@@ -539,8 +537,3 @@ class SwitchButton(QPushButton):
         self._updateLabelPosition()
 
 
-if __name__=='__main__':
-    app = QApplication(sys.argv)
-    window = ChatHistoryWidget()
-    window.show()
-    sys.exit(app.exec())

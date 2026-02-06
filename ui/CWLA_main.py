@@ -1,6 +1,6 @@
 import time
 start_time_stamp=time.time()
-print(f'CWLA init timer start, time cost:{time.time()-start_time_stamp:.2f}s')
+print(f'CWLA init timer start, time stamp:{time.time()-start_time_stamp:.2f}s')
 import configparser
 import json
 import os
@@ -16,7 +16,7 @@ warnings.filterwarnings("ignore", message="libpng warning: iCCP: known incorrect
 #基础类初始化
 from common.init_functions import install_packages
 
-print(f'CWLA iner import finished, time cost:{time.time()-start_time_stamp:.2f}s')
+print(f'CWLA iner import finished, time stamp:{time.time()-start_time_stamp:.2f}s')
 
 install_packages()
 
@@ -27,42 +27,53 @@ from PyQt6.QtGui import *
 from PyQt6.QtSvg import *
 import openai
 
-print(f'CWLA 3rd party lib import finished, time cost:{time.time()-start_time_stamp:.2f}s')
+print(f'CWLA 3rd party lib import finished, time stamp:{time.time()-start_time_stamp:.2f}s')
 
 #自定义类初始化
 
 from common.info_module import InfoManager,LOGMANAGER
 LOGGER=LOGMANAGER
+LOGGER.log(f'CWLA Log init finished, time stamp:{time.time()-start_time_stamp:.2f}s')
+from config import APP_SETTINGS,APP_RUNTIME,ConfigManager
+
+LOGGER.log(f'CWLA config recover finished, time stamp:{time.time()-start_time_stamp:.2f}s')
+
+from service.chat_completion import FullFunctionRequestHandler,APIRequestHandler
+from service.tts.chatapi_tts import TTSAgent
+
+LOGGER.log(f'CWLA service import finished, time stamp:{time.time()-start_time_stamp:.2f}s')
+
+from core.session.chat_history_manager import ChathistoryFileManager,TitleGenerator,ChatHistoryTools
+from core.session.preprocessor import MessagePreprocessor,PreprocessorPatch
+from core.tool_call.tool_core import get_functions_events
+from core.multimodal_coordination.background_generate import BackgroundAgent
+from core.story.mod_manager import ModConfiger
+from core.session.concurrentor import ConvergenceDialogueOptiProcessor
+
+LOGGER.log(f'CWLA core import finished, time stamp:{time.time()-start_time_stamp:.2f}s')
 
 from ui.custom_widget import *
-from core.session.system_prompt_manager import SystemPromptManager,SystemPromptComboBox
-from config import APP_SETTINGS,APP_RUNTIME,ConfigManager
+from ui.setting.system_prompt_widget import SystemPromptManager,SystemPromptComboBox
 from ui.setting.main_setting_window import MainSettingWindow
-from config.model_map_manager import APIConfigWidget,RandomModelSelecter
+from ui.setting.api_config_widget import APIConfigWidget
+from ui.setting.model_poll_setting_widget import RandomModelSelecter
 from ui.setting.theme_manager import ThemeSelector
-from core.tool_call.tool_core import FunctionManager,get_functions_events
-from core.session.concurrentor import ConvergenceDialogueOptiProcessor
+from ui.avatar import AvatarCreatorWindow
+from ui.tool_call.tool_manager_widget import FunctionManager
+from ui.chat.user_input import MultiModalTextEdit
+from ui.chat.chathistory_view_widget import ChatapiTextBrowser,ChatHistoryWidget,ChatHistoryTextView,HistoryListWidget
+from ui.chat.chathistory_manage_widget import ChatHistoryEditor
+
+LOGGER.log(f'CWLA UI import finished, time stamp:{time.time()-start_time_stamp:.2f}s')
+
 from utils.preset_data import *
 from utils.usage_analysis import TokenAnalysisWidget
-from core.session.chat_history_manager import ChatHistoryEditor,ChathistoryFileManager,TitleGenerator,ChatHistoryTools,ChatHistoryTextView,HistoryListWidget
-from ui.chat.user_input import MultiModalTextEdit
-from ui.chat.chathistory_widget import ChatapiTextBrowser,ChatHistoryWidget
-from core.session.preprocessor import MessagePreprocessor,PreprocessorPatch
-from core.multimodal_coordination.avatar import AvatarCreatorWindow
-from core.multimodal_coordination.background_generate import BackgroundAgent
-from service.chat_completion import FullFunctionRequestHandler,APIRequestHandler
 from utils.status_analysis import StatusAnalyzer
 from utils.str_tools import StrTools
 
-LOGGER.log(f'CWLA custom lib import finished, time cost:{time.time()-start_time_stamp:.2f}s')
+LOGGER.log(f'CWLA utils import finished, time stamp:{time.time()-start_time_stamp:.2f}s')
 
-#TTS初始化
-from service.tts.chatapi_tts import TTSAgent
-
-#小功能初始化
-from core.story.mod_manager import ModConfiger
-
-LOGGER.log(f'CWLA mod lib import finished, time cost:{time.time()-start_time_stamp:.2f}s')
+LOGGER.log(f'CWLA import finished, time stamp:{time.time()-start_time_stamp:.2f}s')
 
 #路径初始化
 if getattr(sys, 'frozen', False):
@@ -198,7 +209,6 @@ class MainWindow(QMainWindow):
     update_background_signal= pyqtSignal(str)
 
     def setupUi(self):
-        print(APP_SETTINGS.ui.theme)
         self.theme_selector = ThemeSelector()
         self.theme_selector.apply_saved_theme()
 
@@ -650,7 +660,7 @@ class MainWindow(QMainWindow):
         self.recover_ui_status()
         #UI创建后
         self.init_post_ui_creation()
-        self.info_manager.log(f'CWLA init finished, time cost:{time.time()-start_time_stamp:.2f}s',level='debug')
+        self.info_manager.log(f'CWLA init finished, time stamp:{time.time()-start_time_stamp:.2f}s',level='debug')
 
     def init_self_params(self):
         self.chathistory=[]
@@ -2435,8 +2445,16 @@ class MainWindow(QMainWindow):
     
     #头像注入气泡
     def update_avatar_to_chat_bubbles(self):
-        ai_avatar_path=os.path.join(APP_RUNTIME.paths.application_path,'pics','avatar','AI_avatar.png')
-        user_avatar_path=os.path.join(APP_RUNTIME.paths.application_path,'pics','avatar','USER_avatar.png')
+        ai_avatar_path=os.path.join(
+            APP_RUNTIME.paths.application_path,
+            'data','pics','avatar',
+            'AI_avatar.png'
+        )
+        user_avatar_path=os.path.join(
+            APP_RUNTIME.paths.application_path,
+            'data','pics','avatar',
+            'USER_avatar.png'
+        )
         if 'avatar' in self.chathistory[0]['info']:
             avatar_path=self.chathistory[0]['info']['avatar']
             if not avatar_path['user'] or not os.path.exists(avatar_path['user']):
@@ -2561,13 +2579,13 @@ class MainWindow(QMainWindow):
             self.chathistory_file_manager.autosave_save_chathistory(self.chathistory)
             self.grab_past_chats()
 
-LOGGER.log(f'CWLA Class import finished, time cost:{time.time()-start_time_stamp:.2f}s',level='debug')
+LOGGER.log(f'CWLA Class import finished, time stamp:{time.time()-start_time_stamp:.2f}s',level='debug')
 
 def start():
     app = QApplication(sys.argv)
     window = MainWindow()
     window.show()
-    LOGGER.log(f'CWLA shown on desktop, time cost:{time.time()-start_time_stamp:.2f}s',level='debug')
+    LOGGER.log(f'CWLA shown on desktop, time stamp:{time.time()-start_time_stamp:.2f}s',level='debug')
     sys.exit(app.exec())
 
 if __name__=="__main__":

@@ -8,7 +8,7 @@ class ConfigManager:
     """
 
     @staticmethod
-    def load_settings(singleton_obj, filename: str = 'config.json'):
+    def load_settings(singleton_obj, filename: str = 'data/config.json'):
         """
         读取配置文件，并将数据原地注入到传入的单例对象中。
         确保内存地址不变，全局引用不断连。

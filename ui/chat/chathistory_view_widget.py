@@ -1,6 +1,6 @@
 import json
 import os
-from typing import Any, List, Optional, Tuple
+from typing import Any, List, Optional, Tuple,Dict
 
 from PyQt6.QtCore import (
     Qt, QTimer, pyqtSignal, QPoint, QPropertyAnimation, QEvent
@@ -12,7 +12,8 @@ from PyQt6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QFrame,
     QLabel, QPushButton, QToolButton, QScrollArea, QTextEdit, QStackedWidget,
     QSizePolicy, QGraphicsOpacityEffect, 
-    QPlainTextEdit, QFormLayout
+    QPlainTextEdit, QFormLayout,QTextBrowser,
+    QGroupBox,QCheckBox,QRadioButton,QListWidget,QListWidgetItem
 )
 from ui.chat.markdown_browser import MarkdownTextBrowser
 ChatapiTextBrowser=MarkdownTextBrowser
@@ -1133,3 +1134,345 @@ class ChatHistoryWidget(QFrame):
             self.is_auto_scroll_enabled = True
             self.streaming_scroll()
 
+
+class ChatHistoryTextView(QWidget):
+    """A dialog window for displaying full chat history with right-aligned controls."""
+    
+    def __init__(self, chat_history):
+        super().__init__()
+        self.chat_history = chat_history
+        self.user_name = 'USER'
+        self.ai_name = 'ASSISTANT'
+
+        if chat_history and isinstance(chat_history[0], dict):
+            first_msg = chat_history[0]
+            info = first_msg.get('info', {})
+            name_data = info.get('name', {}) if isinstance(info, dict) else {}
+            
+            if isinstance(name_data, dict):
+                if name_data.get('user'):
+                    self.user_name = name_data['user']
+                if name_data.get('assistant'):
+                    self.ai_name = name_data['assistant']
+        
+        self.setWindowTitle("聊天历史-文本")
+        self.setMinimumSize(1280, 720)  # 增加最小宽度以适应右侧面板
+        
+        # 显示选项默认值
+        self.show_reasoning = False
+        self.show_tools = True
+        self.show_metadata = False
+        self.use_markdown = True
+        
+        self._init_ui()
+        self._load_chat_history()
+    
+    def _init_ui(self):
+        """初始化UI组件，控制面板在右侧"""
+        main_layout = QHBoxLayout()  # 使用水平布局
+        
+        # 创建文本浏览区域（左侧）
+        self.text_browser = QTextBrowser()
+        self.text_browser.setOpenExternalLinks(True)
+        main_layout.addWidget(self.text_browser, 3)  # 文本区域占3/4宽度
+        
+        # 创建右侧面板布局
+        controls_layout = QVBoxLayout()
+        controls_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+        
+        # 添加"显示选项"分组框（右侧）
+        options_group = QGroupBox("显示选项")
+        options_layout = QVBoxLayout()
+        
+        # 添加思考链选项
+        reasoning_group = QGroupBox("思考链")
+        reasoning_layout = QVBoxLayout()
+        self.reasoning_cb = QCheckBox("显示思考链")
+        self.reasoning_cb.stateChanged.connect(self._toggle_reasoning)
+        reasoning_layout.addWidget(self.reasoning_cb)
+        reasoning_group.setLayout(reasoning_layout)
+        options_layout.addWidget(reasoning_group)
+        
+        # 添加工具调用选项
+        tools_group = QGroupBox("工具调用")
+        tools_layout = QVBoxLayout()
+        self.tools_cb = QCheckBox("显示工具调用")
+        self.tools_cb.setChecked(True)
+        self.tools_cb.stateChanged.connect(self._toggle_tools)
+        tools_layout.addWidget(self.tools_cb)
+        tools_group.setLayout(tools_layout)
+        options_layout.addWidget(tools_group)
+        
+        # 添加元数据显示选项
+        metadata_group = QGroupBox("元数据")
+        metadata_layout = QVBoxLayout()
+        self.metadata_cb = QCheckBox("显示消息元数据")
+        self.metadata_cb.stateChanged.connect(self._toggle_metadata)
+        metadata_layout.addWidget(self.metadata_cb)
+        metadata_group.setLayout(metadata_layout)
+        options_layout.addWidget(metadata_group)
+        
+        # 添加格式选项（右下角）
+        format_group = QGroupBox("显示格式")
+        format_layout = QVBoxLayout()
+        
+        self.markdown_rb = QRadioButton("Markdown格式")
+        self.markdown_rb.setChecked(True)
+        self.markdown_rb.toggled.connect(self._toggle_format)
+        
+        self.plaintext_rb = QRadioButton("纯文本格式")
+        self.plaintext_rb.toggled.connect(self._toggle_format)
+        
+        format_layout.addWidget(self.markdown_rb)
+        format_layout.addWidget(self.plaintext_rb)
+        format_group.setLayout(format_layout)
+        options_layout.addWidget(format_group)
+        
+        # 添加重载按钮
+        reload_btn = QPushButton("刷新视图")
+        reload_btn.clicked.connect(self._load_chat_history)
+        options_layout.addWidget(reload_btn)
+        
+        # 添加间距
+        options_layout.addSpacing(20)
+
+        options_group.setLayout(options_layout)
+        controls_layout.addWidget(options_group)
+        
+        # 创建右侧容器
+        controls_container = QWidget()
+        controls_container.setLayout(controls_layout)
+        
+        main_layout.addWidget(controls_container, 1)  # 右侧面板占1/4宽度
+        
+        self.setLayout(main_layout)
+    
+    def _toggle_reasoning(self, state):
+        self.show_reasoning = (state == Qt.CheckState.Checked)
+        self._load_chat_history()
+    
+    def _toggle_tools(self, state):
+        self.show_tools = (state == Qt.CheckState.Checked)
+        self._load_chat_history()
+    
+    def _toggle_metadata(self, state):
+        self.show_metadata = (state == Qt.CheckState.Checked)
+        self._load_chat_history()
+    
+    def _toggle_format(self):
+        self.use_markdown = self.markdown_rb.isChecked()
+        self._load_chat_history()
+    
+    def _load_chat_history(self):
+        """根据选项加载和格式化聊天历史"""
+        buffer = []
+        
+        for index, msg in enumerate(self.chat_history):
+            # 获取发送者名称
+            role = msg.get('role', '')
+            name = self._get_sender_name(role)
+            
+            # 过滤工具调用消息（如果不显示）
+            if role == 'tool' and not self.show_tools:
+                continue
+                
+            # 添加消息头部标识
+            if self.use_markdown:
+                buffer.append(f"\n\n**{name}**")
+            else:
+                buffer.append(f"\n\n{name}")
+
+            # 添加思考链（如果存在且需要显示）
+            msg: Dict[str, str]
+            if self.show_reasoning and 'reasoning_content' in msg:
+                reasoning_content = msg['reasoning_content'].replace('### AI 思考链\n---', '').strip()
+                if reasoning_content:
+                    if self.use_markdown:
+                        buffer.append(f"\n```  \n Think: {reasoning_content}  \n  ```  \n---  \n  ")
+                    else:
+                        buffer.append(f"\n```  \n Think: {reasoning_content}  \n  ```  \n---  \n  ")
+            
+            # 添加消息内容
+            content = msg.get('content', '')
+            if content:
+                buffer.append(f"\n\n{content}")
+            
+            # 添加元数据（如果存在且需要显示）
+            if self.show_metadata and 'info' in msg:
+                info:dict = msg['info']
+                if info:
+                    if self.use_markdown:
+                        buffer.append("\n\n<small>")
+                        buffer.append("\n \n ")
+                        if msg['role'] == 'system':
+                            buffer.append("系统提示设置")
+                        else:
+                            parts = []
+                            if info.get('model'):
+                                parts.append(f"模型: {info['model']}")
+                            if info.get('time'):
+                                parts.append(f"时间: {info['time']}")
+                            if info.get('id'):
+                                parts.append(f"ID: {info['id']}")
+                            buffer.append(" | ".join(parts))
+                        buffer.append("</small>")
+                    else:
+                        buffer.append("\n[元数据]")
+                        if msg['role'] == 'system':
+                            buffer.append("系统提示设置")
+                        else:
+                            if info.get('model'):
+                                buffer.append(f"  模型: {info['model']}")
+                            if info.get('time'):
+                                buffer.append(f"  时间: {info['time']}")
+                            if info.get('id'):
+                                buffer.append(f"  消息ID: {info['id']}")
+            
+            # 添加消息分隔线（不是最后一条消息）
+            if index < len(self.chat_history) - 1:
+                buffer.append("\n" + ("---" if self.use_markdown else "─"*10))
+        
+        # 根据格式设置文本
+        full_text = '\n'.join(buffer).strip()
+        if self.use_markdown:
+            self.text_browser.setMarkdown(full_text)
+        else:
+            self.text_browser.setPlainText(full_text)
+    
+    def _get_sender_name(self, role):
+        if role == 'system':
+            return '系统提示'
+        elif role == 'user':
+            return self.user_name
+        elif role == 'assistant':
+            return self.ai_name
+        elif role == 'tool':
+            return f"{self.ai_name} called tool"
+        return role
+
+
+class HistoryListWidget(QListWidget):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        # 性能与体验优化（可选）
+        self.setUniformItemSizes(True)  # 每项统一高度，加速布局计算
+        self.setAlternatingRowColors(True)
+        self._history_signature = None  # 用于跳过重复刷新
+
+    def populate_history(self, history_data):
+        """
+        高效填充历史记录：
+        - 增量更新：只改动变化的项
+        - 暂停重绘/信号，减少 UI 开销
+        - 保留当前选中项
+        """
+        # 若数据完全一致，则跳过
+        sig = tuple(
+            (item.get('file_path'), item.get('modification_time'), item.get('title'))
+            for item in history_data or []
+        )
+        if sig == self._history_signature:
+            return
+        self._history_signature = sig
+
+        # 记录当前选中项（按 file_path）
+        selected_fp = None
+        cur = self.currentItem()
+        if cur:
+            data = cur.data(Qt.ItemDataRole.UserRole)
+            if isinstance(data, dict):
+                selected_fp = data.get('file_path')
+
+        # 暂停信号与重绘
+        self.blockSignals(True)
+        self.setUpdatesEnabled(False)
+        sorting_prev = self.isSortingEnabled()
+        self.setSortingEnabled(False)  # 防止排序影响插入顺序
+
+        try:
+            # 新数据的顺序与精简映射
+            new_order = []
+            new_map = {}
+            for d in (history_data or []):
+                fp = d.get('file_path')
+                if not fp:
+                    continue  # 跳过无效数据
+                lean = {
+                    'file_path': fp,
+                    'title': d.get('title', 'Untitled Chat'),
+                    'modification_time': d.get('modification_time', 0),
+                }
+                new_order.append(fp)
+                new_map[fp] = lean
+
+            # 旧项映射：file_path -> QListWidgetItem
+            old_map = {}
+            for row in range(self.count()):
+                item = self.item(row)
+                data = item.data(Qt.ItemDataRole.UserRole)
+                fp = data.get('file_path') if isinstance(data, dict) else None
+                if fp:
+                    old_map[fp] = item
+
+            # 删除不再存在的项（从底部开始避免重排成本）
+            to_remove_rows = sorted(
+                (self.row(item) for fp, item in old_map.items() if fp not in new_map),
+                reverse=True
+            )
+            for row in to_remove_rows:
+                it = self.takeItem(row)
+                del it  # 提示 GC 回收
+
+            # 按新顺序逐个处理：更新/移动/新增
+            for target_row, fp in enumerate(new_order):
+                data = new_map[fp]
+                if fp in old_map:
+                    item:QListWidgetItem = old_map[fp]
+                    # 文本变化才更新，减少不必要的刷新
+                    if item.text() != data['title']:
+                        item.setText(data['title'])
+                    # 更新存储数据
+                    item.setData(Qt.ItemDataRole.UserRole, data)
+                    # 若位置不对，移动到目标位置
+                    cur_row = self.row(item)
+                    if cur_row != target_row:
+                        self.takeItem(cur_row)
+                        self.insertItem(target_row, item)
+                else:
+                    # 新增项
+                    item = QListWidgetItem(data['title'])
+                    item.setData(Qt.ItemDataRole.UserRole, data)
+                    self.insertItem(target_row, item)
+
+            # 恢复选中项（若仍存在）
+            if selected_fp and selected_fp in new_map:
+                for row in range(self.count()):
+                    item = self.item(row)
+                    data = item.data(Qt.ItemDataRole.UserRole)
+                    if isinstance(data, dict) and data.get('file_path') == selected_fp:
+                        self.setCurrentRow(row)
+                        break
+            else:
+                # 无选中项则选择第一项（可按需调整）
+                if self.count() and self.currentRow() < 0:
+                    self.setCurrentRow(0)
+
+        finally:
+            self.setSortingEnabled(sorting_prev)
+            self.setUpdatesEnabled(True)
+            self.blockSignals(False)
+    
+    def get_selected_file_path(self):
+        """获取当前选中项的文件路径"""
+        current_item = self.currentItem()
+        if current_item:
+            item_data = current_item.data(Qt.ItemDataRole.UserRole)
+            return item_data.get('file_path')
+        return None
+
+    def get_selected_item_data(self):
+        """获取当前选中项的完整数据"""
+        current_item = self.currentItem()
+        if current_item:
+            return current_item.data(Qt.ItemDataRole.UserRole)
+        return None

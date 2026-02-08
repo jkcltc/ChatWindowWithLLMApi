@@ -21,7 +21,7 @@ class ConcurrentorTools:
     @staticmethod
     def get_default_apis(testpath=False):
         from config import APP_SETTINGS
-        api_configs = APP_SETTINGS.api.endpoints
+        api_configs = APP_SETTINGS.api.providers
         
         return api_configs
     @staticmethod
@@ -1061,8 +1061,8 @@ class ConcurrentorSender(QObject):
     def run(self):
         default_apis=ConcurrentorTools.get_default_apis()
         api_config={
-            "url": default_apis[self.api_provider]["url"],
-            "key": default_apis[self.api_provider]["key"]
+            "url": default_apis[self.api_provider].url,
+            "key": default_apis[self.api_provider].key
         }
 
         self.requester=APIRequestHandler(api_config)
@@ -1103,8 +1103,8 @@ class RatingSender(QObject):
         
         default_apis = ConcurrentorTools.get_default_apis()
         api_config = {
-            "url": default_apis[api_provider]["url"],
-            "key": default_apis[api_provider]["key"]
+            "url": default_apis[api_provider].url,
+            "key": default_apis[api_provider].key
         }
         
         # 创建API请求处理器
@@ -1202,8 +1202,8 @@ class SummarySender(QObject):
             
             default_apis = ConcurrentorTools.get_default_apis()
             api_config = {
-                "url": default_apis[api_provider]["url"],
-                "key": default_apis[api_provider]["key"]
+                "url": default_apis[api_provider].url,
+                "key": default_apis[api_provider].key
             }
             
             # 创建API请求处理器
@@ -1281,8 +1281,8 @@ class StyleSender(QObject):
             # 从全局获取API配置
             default_apis = ConcurrentorTools.get_default_apis()
             api_config = {
-                "url": default_apis[api_provider]["url"],
-                "key": default_apis[api_provider]["key"]
+                "url": default_apis[api_provider].url,
+                "key": default_apis[api_provider].key
             }
             
             # 创建API请求处理器
@@ -1334,8 +1334,8 @@ class CorrectionSender(QObject):
         
         default_apis = ConcurrentorTools.get_default_apis()
         api_config = {
-            "url": default_apis[api_provider]["url"],
-            "key": default_apis[api_provider]["key"]
+            "url": default_apis[api_provider].url,
+            "key": default_apis[api_provider].key
         }
         
         # 创建API请求处理器

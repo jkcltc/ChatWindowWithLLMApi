@@ -1,6 +1,7 @@
 import copy
 import time
 import sys
+import re
 from core.session.data import ChatCompletionPack
 from config import APP_SETTINGS,APP_RUNTIME
 from common import LOGMANAGER
@@ -121,7 +122,7 @@ class PreprocessorPatch:
         return self.god.mod_configer.story_creator.process_income_chat_history(messages)
 
 
-class MessagePreprocessor:
+class Preprocessor:
     def __init__(self):
         pass
 
@@ -382,3 +383,21 @@ class MessagePreprocessor:
             params['tools'] = pack.tool_list
 
         return params
+
+
+class PostProcessor:
+        #打包一个从返回信息中做re替换的方法
+    def _replace_for_receive_message(self,message):
+        for item in message:
+            content=item['content']
+            content = re.sub(r'<think>.*?</think>', '', content, flags=re.DOTALL)
+            if content.startswith("\n\n"):
+                content = content[2:]
+            content = content.replace('</think>', '')
+            content = StrTools.combined_remove_var_vast_replace(
+                content=content,
+                setting=APP_SETTINGS.replace,
+                mod_enabled=self.mod_configer.status_monitor_enable_box.isChecked()
+            )
+            item['content']=content
+        return message

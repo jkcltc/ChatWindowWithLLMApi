@@ -247,16 +247,21 @@ class FullFunctionRequestHandler(QObject):
                 self._handle_non_stream_request(request_data, headers)
 
         except Exception as e:
-            error_message=f'Error in sending request: {e}'
+            # 1. 获取详细的堆栈信息
+            stack_trace = traceback.format_exc()
+
+            # 2. 构造简短的错误消息
+            error_message = f'Error: {e}\nLocation: Line {e.__traceback__.tb_lineno}'
+
+            # 打印到控制台，方便调试
+            print(stack_trace) 
+
             self.completion_failed.emit(
                 self.request_id,
-                error_message,
+                error_message, 
                 self._assembly_message(error_message)
             )
             return
-        
-        if self.chatting_tool_call:
-            self.ask_repeat_request.emit()
 
     def _build_headers(self):
         """构建请求头"""

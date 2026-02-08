@@ -4,7 +4,6 @@ import os
 import re
 import time
 import uuid
-import copy
 from typing import Any, Dict, List, Optional, Tuple
 from pathlib import Path
 import heapq
@@ -14,6 +13,8 @@ from PyQt6.QtGui import *
 from PyQt6.QtWidgets import *
 
 from service.chat_completion import APIRequestHandler
+from core.session.session_model import ChatSession
+
 
 class ChatHistoryTools:
     @staticmethod
@@ -23,37 +24,7 @@ class ChatHistoryTools:
             if str(info.get('id')) == str(request_id):
                 return i
         return None
-    
-    @staticmethod
-    def patch_history_0_25_1(chathistory, names=None, avatar=None, title='New Chat'):
-        # chathistory 保证非空
-        import uuid
 
-        request_id = 100001
-
-        for i, item in enumerate(chathistory):
-            info = item.get('info')
-            if info is None:
-                info = {'id': f'patch_{request_id}'}
-                item['info'] = info
-                request_id += 1
-
-            if i == 0:
-                if names and not 'name' in info:
-                    info['name'] = names
-                if avatar and not 'avatar' in info:
-                    info['avatar'] = avatar
-                role = item.get('role')
-                if role in ('system', 'developer'):
-                    info['id'] = 'system_prompt'
-                if not 'chat_id' in info:
-                    info['chat_id'] = str(uuid.uuid4())
-                if not 'title' in info:
-                    info['title'] = title
-                if not 'tools' in info:
-                    info['tools'] = []
-        return chathistory
-    
     @staticmethod
     def clean_history(chathistory,unnecessary_items=['info']):
         exclude = set(unnecessary_items)
@@ -102,7 +73,6 @@ class ChatHistoryTools:
             #多模态的content内是个list
             if isinstance(content_meta,list):
                 # 复合消息中可能有间断的text消息
-                # 对话模板真的会读这个吗
                 for items in content_meta:
                     if items['type']=='text':
                         content+=items['text']
@@ -114,6 +84,309 @@ class ChatHistoryTools:
 
             lines.append(content)
         return '\n'.join(lines)
+
+
+class ChatHistoryVersionPatcher:
+    """
+    聊天历史版本补丁管理器。
+    
+    负责将旧版本的聊天历史数据结构迁移到最新版本。
+    
+    版本历史：
+    - V0: 最初的无版本格式（0.25.1 之前）
+    - V1: 通过 patch_history_0_25_1 升级后的格式（info 中包含 name, avatar, chat_id, title, tools）
+    - V2: ChatSession 数据结构（将 name, avatar, chat_id, title, tools 从 history[0].info 提取到 ChatSession 顶层字段）
+    """
+
+    CURRENT_VERSION = 'V2'
+
+    # 有序的版本列表，用于确定升级路径
+    _VERSION_ORDER = ['V0', 'V1', 'V2']
+
+    # 版本到升级函数的映射：key 为源版本，value 为 (目标版本, 升级函数)
+    # 升级函数签名：(data: dict) -> dict
+    # data 是整个 ChatSession 的序列化表示（对于 V0/V1，是以 history 为核心的结构）
+
+    def __init__(self):
+        self._patchers = {
+            'V0': ('V1', self._patch_v0_to_v1),
+            'V1': ('V2', self._patch_v1_to_v2),
+        }
+
+    def detect_version(self, data: Any) -> str:
+        """
+        检测数据的版本。
+        
+        Args:
+            data: 可能是旧格式的 list（V0/V1 的 history）或新格式的 dict（V2 的 ChatSession）
+            
+        Returns:
+            版本字符串: 'V0', 'V1', 'V2'
+        """
+        # V2: ChatSession 序列化后是 dict，且有 _version 字段
+        if isinstance(data, dict):
+            version = data.get('_version', None)
+            if version and version in self._VERSION_ORDER:
+                return version
+            # 如果是 dict 但没有 _version，检查是否有 history 字段（可能是不完整的 V2）
+            if 'history' in data and 'chat_id' in data:
+                return 'V2'
+            # 不认识的 dict 格式
+            return 'V0'
+
+        # V0 或 V1: 旧格式是一个 list
+        if isinstance(data, list):
+            if len(data) == 0:
+                return 'V0'
+
+            first_item = data[0]
+            if not isinstance(first_item, dict):
+                return 'V0'
+
+            info = first_item.get('info')
+            if info is None:
+                return 'V0'
+
+            # V1 的特征：第一条消息的 info 中包含 chat_id, title, tools 等字段
+            if 'chat_id' in info and 'title' in info:
+                return 'V1'
+
+            return 'V0'
+
+        return 'V0'
+
+    def validate_history_version(self, data: Any) -> Tuple[bool, str, Optional[str]]:
+        """
+        验证历史数据的版本，并返回验证结果。
+        
+        Args:
+            data: 待验证的数据
+            
+        Returns:
+            Tuple of (is_current: bool, detected_version: str, message: Optional[str])
+            - is_current: 是否已经是最新版本
+            - detected_version: 检测到的版本
+            - message: 如果不是最新版本，返回说明信息；否则为 None
+        """
+        detected = self.detect_version(data)
+        if detected == self.CURRENT_VERSION:
+            return True, detected, None
+        else:
+            return (
+                False,
+                detected,
+                f"数据版本为 {detected}，需要升级到 {self.CURRENT_VERSION}"
+            )
+
+    def patch(
+        self,
+        data: Any,
+        names: Optional[Dict[str, str]] = None,
+        avatar: Optional[Dict[str, str]] = None,
+        title: str = 'New Chat',
+    ) -> dict:
+        """
+        将任意版本的聊天历史数据升级到最新版本 (V2 ChatSession dict)。
+        
+        Args:
+            data: 旧格式的 list（V0/V1）或 dict（V2）
+            names: 可选的 name 字典 {"user": ..., "assistant": ...}，用于 V0 升级
+            avatar: 可选的 avatar 字典 {"user": ..., "assistant": ...}，用于 V0 升级
+            title: 标题，用于 V0 升级时的默认标题
+            
+        Returns:
+            符合 V2 (ChatSession) 结构的 dict
+        """
+        detected = self.detect_version(data)
+
+        # 对于 V0 和 V1，先将 list 包装成统一的内部表示
+        if detected in ('V0', 'V1'):
+            # 内部用 dict 表示，携带额外的迁移参数
+            data = {
+                '_history_list': data,
+                '_migration_params': {
+                    'names': names,
+                    'avatar': avatar,
+                    'title': title,
+                },
+                '_version': detected,
+            }
+        elif detected == 'V2':
+            # 已经是最新版本，直接返回
+            if isinstance(data, dict):
+                return data
+
+        current = detected
+        current_idx = self._VERSION_ORDER.index(current)
+        target_idx = self._VERSION_ORDER.index(self.CURRENT_VERSION)
+
+        while current_idx < target_idx:
+            if current not in self._patchers:
+                raise ValueError(
+                    f"没有从 {current} 升级的补丁，无法继续迁移"
+                )
+            next_version, patcher_fn = self._patchers[current]
+            data = patcher_fn(data)
+            current = next_version
+            current_idx = self._VERSION_ORDER.index(current)
+
+        return data
+
+    # ==================== 内部补丁方法 ====================
+
+    @staticmethod
+    def _patch_v0_to_v1(data: dict) -> dict:
+        """
+        将 V0 格式升级到 V1 格式。
+        
+        V0 -> V1 的变更：
+        - 确保每条消息都有 info 字段
+        - 第一条消息的 info 中添加 name, avatar, chat_id, title, tools
+        - system/developer 角色的 id 设为 'system_prompt'
+        
+        等价于旧的 patch_history_0_25_1。
+        """
+        history_list = data.get('_history_list', [])
+        params = data.get('_migration_params', {})
+        names = params.get('names')
+        avatar = params.get('avatar')
+        title = params.get('title', 'New Chat')
+
+        if not history_list:
+            # 空列表，创建默认的 system 消息
+            history_list = [
+                {
+                    "role": "system",
+                    "content": "",
+                    "info": {
+                        "id": "system_prompt",
+                        "name": names or {"user": "", "assistant": ""},
+                        "avatar": avatar or {"user": "", "assistant": ""},
+                        "chat_id": str(uuid.uuid4()),
+                        "title": title,
+                        "tools": [],
+                    }
+                }
+            ]
+        else:
+            request_id = 100001
+            for i, item in enumerate(history_list):
+                info = item.get('info')
+                if info is None:
+                    info = {'id': f'patch_{request_id}'}
+                    item['info'] = info
+                    request_id += 1
+
+                if i == 0:
+                    if names and 'name' not in info:
+                        info['name'] = names
+                    if avatar and 'avatar' not in info:
+                        info['avatar'] = avatar
+                    role = item.get('role')
+                    if role in ('system', 'developer'):
+                        info['id'] = 'system_prompt'
+                    if 'chat_id' not in info:
+                        info['chat_id'] = str(uuid.uuid4())
+                    if 'title' not in info:
+                        info['title'] = title
+                    if 'tools' not in info:
+                        info['tools'] = []
+
+        return {
+            '_history_list': history_list,
+            '_migration_params': params,
+            '_version': 'V1',
+        }
+
+    @staticmethod
+    def _patch_v1_to_v2(data: dict) -> dict:
+        """
+        将 V1 格式升级到 V2 (ChatSession dict) 格式。
+        
+        V1 -> V2 的变更：
+        - 将 history[0].info 中的 name, avatar, chat_id, title, tools 提取到顶层
+        - 清理 history 中每条消息的 info，只保留 id, time, model 等消息级别的元数据
+        - 添加 _version = 'V2'
+        """
+        history_list = data.get('_history_list', [])
+        params = data.get('_migration_params', {})
+
+        # 从第一条消息的 info 中提取会话级别的元数据
+        chat_id = str(uuid.uuid4())
+        title = params.get('title', 'New Chat')
+        name = {"user": "", "assistant": ""}
+        avatar_data = {"user": "", "assistant": ""}
+        tools = []
+
+        if history_list:
+            first_info = history_list[0].get('info', {})
+            chat_id = first_info.pop('chat_id', chat_id)
+            title = first_info.pop('title', title)
+            name = first_info.pop('name', name)
+            avatar_data = first_info.pop('avatar', avatar_data)
+            tools = first_info.pop('tools', tools)
+
+        # 清理每条消息的 info，只保留消息级别的字段
+        cleaned_history = []
+        for item in history_list:
+            msg = {
+                'role': item['role'],
+                'content': item.get('content', ''),
+            }
+
+            old_info = item.get('info', {})
+            new_info: Dict[str, Any] = {}
+
+            # 保留消息级别的元数据
+            if 'id' in old_info:
+                new_info['id'] = old_info['id']
+            if 'time' in old_info:
+                new_info['time'] = old_info['time']
+            if 'model' in old_info:
+                new_info['model'] = old_info['model']
+
+            # 保留 usage 相关的字段
+            for key in ('completion_tokens', 'prompt_tokens', 'total_tokens'):
+                if key in old_info:
+                    new_info[key] = old_info[key]
+
+            msg['info'] = new_info
+
+            # 对于 assistant 消息，保留 reasoning_content
+            if item['role'] == 'assistant':
+                if 'reasoning_content' in item:
+                    msg['reasoning_content'] = item['reasoning_content']
+
+            cleaned_history.append(msg)
+
+        # 确保 name 和 avatar 是正确格式
+        if isinstance(name, dict):
+            name = {
+                "user": name.get("user", ""),
+                "assistant": name.get("assistant", ""),
+            }
+        else:
+            name = {"user": "", "assistant": ""}
+
+        if isinstance(avatar_data, dict):
+            avatar_data = {
+                "user": avatar_data.get("user", ""),
+                "assistant": avatar_data.get("assistant", ""),
+            }
+        else:
+            avatar_data = {"user": "", "assistant": ""}
+
+        return {
+            'history': cleaned_history,
+            'chat_id': chat_id,
+            'new_chat_rounds': 0,
+            'new_background_rounds': 0,
+            'title': title,
+            'name': name,
+            'avatar': avatar_data,
+            'tools': tools,
+            '_version': 'V2',
+        }
 
 class TitleGenerator(QObject):
     """标题生成器：支持本地/调用API生成标题，并与编辑器联动"""
@@ -303,235 +576,56 @@ class TitleGenerator(QObject):
             text = text[:max_length]
         return text
 
-class ChathistoryFileManager(QObject):
+class ChathistoryFileManager:
     '''
-    ChathistoryFileManager(history_path: str = 'history', title_generator: TitleGenerator() = None)
-    A Qt-aware helper class responsible for loading, saving, deleting and enumerating chat history
-    files stored in JSON format. Designed for use in PyQt/PySide GUI applications, this manager
-    emits Qt signals for logging, warnings and errors and encapsulates file-system safety checks,
-    simple filename sanitization, JSON schema validation and a small metadata cache to speed up
-    directory listing.
-    Signals
-    -------
-    log_signal(str)
-        Emitted for informational messages (e.g. successful saves or deletions).
-    warning_signal(str)
-        Emitted for recoverable issues (e.g. skipped files, missing files).
-    error_signal(str)
-        Emitted for unrecoverable problems (e.g. invalid path, permission errors).
-    Constructor
-    -----------
-    history_path: str
-        Default directory where chat histories are stored (used by autosave and listing).
-    title_generator: TitleGenerator
-        Optional object used to generate titles for histories when not provided in file metadata.
-        Can be bound later via bind_title_generator().
-    Behavior summary
-    ----------------
-    - Chat histories are JSON files. A valid chat history is represented as a list of dicts where
-      each item has a "role" key in {"user","system","assistant","tool"} and contents consistent
-      with the role (see validate_json_structure in load_past_chats).
-    - The first item in a valid chat history is expected to be the system prompt/info dictionary
-      and may contain metadata under the "info" key, e.g. info['chat_id'] and info['title'].
-    - Files are read/written with UTF-8 encoding. The manager attempts to create directories as needed.
-    - Basic filename sanitation is applied for saving: a set of unsupported characters (newlines,
-      angle brackets, slashes, spaces, punctuation, etc.) are removed from the base filename and the
-      extension is normalized to ".json".
-    - A small metadata cache file ".chat_index.json" inside the history_path is used to avoid
-      reparsing each JSON file every time; entries contain at least {"mtime": float, "title": str}.
-    - load_past_chats enumerates JSON files in a directory, selects the newest N files efficiently,
-      optionally parses files concurrently using a ThreadPoolExecutor (I/O-bound), validates their
-      structure, extracts titles (prefers info['title'] when available) and returns a list of
-      metadata dicts sorted by modification time.
-    - delete_chathistory performs input validation, resolves paths to absolute and real paths,
-      restricts deletions to files with allowed extensions ('.json' by default), and refuses to
-      delete directories.
-    Public methods
-    --------------
-    bind_title_generator(title_generator: TitleGenerator) -> None
-        Bind or replace the title generator used when autosave needs to produce a title.
-    load_chathistory(file_path: Optional[str] = None) -> List[dict]
-        Prompt the user (via QFileDialog) if file_path is not provided; otherwise load and return
-        the parsed JSON content. Emits warning_signal if loading fails. Returns an empty list on failure.
-    save_chathistory(chathistory: List[dict], file_path: Optional[str] = None) -> None
-        If file_path is None, prompts the user for a save location and regenerates a new chat_id
-        (UUID) into chathistory[0]['info']['chat_id'] to avoid ID collisions while preserving
-        a user-provided name. Calls internal writer which applies filename sanitation and writes
-        JSON (indent=4, ensure_ascii=False). Emits log_signal on success and error_signal on failure,
-        and displays a QMessageBox on write errors.
-    delete_chathistory(file_path: str) -> None
-        Validate input, resolve to an absolute real path and ensure the file has an allowed extension.
-        Ensure the target is a file (not a directory) and attempt to delete it. Emits appropriate
-        log/warning/error signals for success/failure.
-    _aut write helper_
-    _write_chathistory_to_file(chathistory: List[dict], file_path: str) -> None
-        Internal method that sanitizes file names, ensures the directory exists, writes the JSON
-        safely and emits signals / message boxes on failure. Ensures stored filenames end with ".json".
-    autosave_save_chathistory(chathistory: List[dict]) -> None
-        Save automatically to the configured history_path. The default filename is taken from
-        chathistory[0]['info']['chat_id'] and autosave will call save_chathistory() with that path.
-        Only performs save if there is more than one message (i.e. not an empty/initial-only history).
-    load_sys_pmt_from_past_record(chathistory: Optional[List[dict]] = None,
-                                  file_path: Optional[str] = None) -> str
-        Retrieve the system prompt/content from either the provided current chathistory or by loading
-        a past record at file_path. Returns the system content string when available, otherwise emits
-        error_signal and returns an empty string.
-    load_past_chats(application_path: str = '', file_count: int = 100) -> List[Dict[str, Any]]
-        Enumerate and return up to `file_count` latest valid chat JSON files in `application_path`
-        (defaults to the instance's history_path). Each returned dict contains:
-          - "file_path": full path to the file
-          - "title": extracted title (or "Untitled Chat")
-          - "modification_time": float mtime used for sorting
-        Uses a lightweight cache file ".chat_index.json" to skip re-parsing unchanged files, and
-        parses uncached files concurrently. Emits warning_signal for skipped/invalid files and
-        warning_signal if cache update fails.
-    is_equal(hist1: List[dict], hist2: List[dict]) -> bool
-        Compare two chat histories for identity based on length and the chat_id in the first
-        element's info dict. Returns True if they appear to be the same conversation, False otherwise.
-    Validation rules (as applied by load_past_chats)
-    -----------------------------------------------
-    - The JSON root must be a list.
-    - Each list item must be a dict with a "role" key equal to one of {"user","system","assistant","tool"}.
-    - "user" and "system" items must have a string "content".
-    - "assistant" items must have at least one of "content" (string or None) or "tool_calls" (list).
-    - "tool" items must include "tool_call_id" and a string "content".
-    Thread-safety and concurrency
-    -----------------------------
-    - The class is intended to be used from the GUI thread for methods that trigger dialogs or
-      emit QMessageBox. load_past_chats offloads JSON parsing to a ThreadPoolExecutor because
-      parsing is I/O-bound; signals are emitted from the calling thread (the executor callbacks are
-      awaited in the same thread before emitting).
-    - Access to the on-disk cache is not synchronized beyond simple atomic file write; if multiple
-      processes may modify the same history directory simultaneously, external synchronization is
-      recommended.
-    Error handling and user feedback
-    --------------------------------
-    - Non-fatal issues (bad files, skipped files, cache write failures) produce warning_signal.
-    - Fatal or unusual errors that prevent an operation (invalid path format, permission errors)
-      produce error_signal and, when applicable, a QMessageBox to alert the user.
-    - Methods generally prefer to fail gracefully (returning empty lists or doing nothing) rather
-      than raising exceptions to the caller; however, unexpected exceptions in worker threads are
-      caught and surfaced via warning/error signals.
-    Example (conceptual)
-    --------------------
-    mgr = ChathistoryFileManager(history_path='~/.my_app/history', title_generator=my_title_gen)
-    mgr.log_signal.connect(lambda s: print('LOG:', s))
-    mgr.warning_signal.connect(lambda s: print('WARN:', s))
-    mgr.error_signal.connect(lambda s: print('ERR:', s))
-    past = mgr.load_past_chats(file_count=20)
-    if past:
-        # open the latest chat, etc.
-        pass
-    Notes
-    -----
-    - This manager expects chat JSON files to follow the application's chosen schema. If your
-      persisted files differ, adjust validate_json_structure and extract_chat_title accordingly.
-    - Filename sanitation is intentionally conservative to maximize cross-platform compatibility.
+    聊天历史文件管理器
+    该类负责管理聊天历史记录的文件操作，包括加载、保存、删除聊天记录，
+    以及批量加载历史聊天记录。支持多个版本的聊天记录格式（V0/V1/V2）。
+    Attributes:
+        history_path (str): 聊天历史文件的存储路径，默认为 'data/history'
+        patcher (ChatHistoryVersionPatcher): 聊天历史版本补丁器，用于处理不同版本的格式转换
+    Methods:
+        load_chathistory: 从指定文件路径加载单个聊天历史记录
+        save_chathistory: 保存聊天会话到指定的文件夹或文件路径
+        delete_chathistory: 安全地删除指定的聊天历史文件
+        load_past_chats: 并行加载并验证指定数量的历史聊天记录，支持缓存机制
     '''
-    log_signal = pyqtSignal(str)
-    warning_signal = pyqtSignal(str)
-    error_signal = pyqtSignal(str)
 
-    def __init__(self, history_path='history', title_generator=TitleGenerator()):
-        super().__init__()
+    def __init__(self, history_path='data/history'):
         self.history_path = history_path
-        self.title_generator = title_generator
-        self.history_map = {}  # 记录历史文件的id和路径对应关系
-
-    def bind_title_generator(self, title_generator: TitleGenerator):
-        self.title_generator = title_generator
+        self.patcher= ChatHistoryVersionPatcher()
 
     # 载入记录
-    def load_chathistory(self, file_path=None) -> list:
-        # 弹出文件选择窗口
-        chathistory = []
-        if not file_path:
-            file_path, _ = QFileDialog.getOpenFileName(
-                None, "导入聊天记录", "", "JSON files (*.json);;All files (*)"
-            )
-        if file_path and os.path.exists(file_path):
-            try:
-                with open(file_path, "r", encoding="utf-8") as file:
-                    chathistory = json.load(file)
-            except json.JSONDecodeError as e:
-                self.error_signal.emit(f'JSON解析错误: {e}')
-                return []
-            except Exception as e:
-                self.error_signal.emit(f'文件读取错误: {e}')
-                return []
-        else:
-            self.warning_signal.emit(f'failed loading chathistory from {file_path}')
-            return []
-        chathistory=ChatHistoryTools.patch_history_0_25_1(
-                    chathistory,
-                    names={
-                        'user':'',
-                        'assistant':''
-                        },
-                    avatar={
-                    'user':'',
-                    'assistant':''
-                    }
-                )
-        return chathistory
+    def load_chathistory(self, file_path) -> ChatSession:
+        chathistory = {}
+        if not(file_path and os.path.exists(file_path)):
+            raise FileNotFoundError(f"文件不存在: {file_path}")
+        with open(file_path, "r", encoding="utf-8") as file:
+            chathistory = json.load(file)
+        if not chathistory:
+            raise ValueError(f"文件为空: {file_path}")
+
+        return ChatSession.from_dict(self.patcher.patch(chathistory))
 
     # 保存聊天记录
-    def save_chathistory(self, chathistory, file_path=None):
-        if len(chathistory) == 1 or len(chathistory) == 0:
-            self.warning_signal.emit(f'save_chathistory|false activity:空记录')
-            QMessageBox.warning(None, '警告', '空记录，保存已取消')
-            return
-        if not file_path:
-            # 弹出文件保存窗口
-            file_path, _ = QFileDialog.getSaveFileName(
-                None, "保存聊天记录", "", "JSON files (*.json);;All files (*)"
-            )
-            # 更新历史的UUID，防止重复，用户自定义的名字保留
-            chathistory[0]['info']['chat_id'] = str(uuid.uuid4())
-        self._write_chathistory_to_file(chathistory, file_path)
+    def save_chathistory(self, chat_session:ChatSession,folder_path='', file_path='') -> str:
 
-    def delete_chathistory(self, file_path: str):
-        # 输入验证
-        if not file_path or not isinstance(file_path, str):
-            self.warning_signal.emit(f"Invalid file path provided: {file_path}")
-            return
-        
-        # 路径规范化检查
-        try:
-            # 转换为绝对路径并解析符号链接
-            normalized_path = os.path.realpath(os.path.abspath(file_path))
-        except Exception as e:
-            self.error_signal.emit(f"Invalid path format: {e}")
-            return
-        
-        
-        # 文件扩展名检查
-        allowed_extensions = {'.json'}  # 根据实际需求调整
-        file_extension = Path(normalized_path).suffix.lower()
-        if allowed_extensions and file_extension not in allowed_extensions:
-            self.error_signal.emit(f"File type not allowed: {file_extension}")
-            return
-        
-        # 执行删除操作
-        if os.path.exists(normalized_path):
-            try:
-                # 额外检查：确保是文件而不是目录
-                if not os.path.isfile(normalized_path):
-                    self.error_signal.emit("Cannot delete directories")
-                    return
-                    
-                os.remove(normalized_path)
-                self.log_signal.emit(f"Deleted chat history file: {normalized_path}")
-            except Exception as e:
-                self.error_signal.emit(f"Failed to delete file {normalized_path}: {e}")
-        else:
-            self.warning_signal.emit(f"File not found for deletion: {normalized_path}")
+        chathistory = chat_session.to_json()
 
-    # 写入聊天记录到本地
-    def _write_chathistory_to_file(self, chathistory: list, file_path: str):
-        # 分离路径和文件名，只清洗文件名部分
-        dir_path = os.path.dirname(file_path)
-        file_name = os.path.basename(file_path)
+        if not folder_path and not file_path:
+            raise ValueError("必须指定文件夹或文件路径")
+
+        # 指定文件名时不走从聊天记录自动生成文件名的逻辑
+        if file_path:
+            # 分离路径和文件名，只清洗文件名部分
+            dir_path = os.path.dirname(file_path)
+            file_name = os.path.basename(file_path)
+        
+        # 指定文件夹，需要自动生成文件名
+        elif folder_path:
+            dir_path = folder_path
+            file_name = chat_session.chat_id+".json"
+
         
         # 清洗文件名（不包括扩展名）
         unsupported_chars = ["\n", '<', '>', ':', '"', '/', '\\', '|', '?', '*', '{', '}', ',', '，', '。', ' ', '!', '！']
@@ -547,79 +641,63 @@ class ChathistoryFileManager(QObject):
         
         file_path = os.path.join(dir_path, cleaned_file_name) if dir_path else cleaned_file_name
 
-        if file_path and file_name:  # 检查 file_path 是否有效, file_name 不为空
-            self.log_signal.emit(f'saving chathistory to {file_path}')
-            try:
-                # 确保目录存在
-                if dir_path and not os.path.exists(dir_path):
-                    os.makedirs(dir_path, exist_ok=True)
-                    
-                with open(file_path, "w", encoding="utf-8") as file:
-                    json.dump(chathistory, file, ensure_ascii=False, indent=4)
-            except Exception as e:
-                self.error_signal.emit(f'failed saving chathistory {chathistory}')
-                QMessageBox.critical(None, "保存失败", f"保存聊天记录时发生错误：{e}")
-        else:
-            QMessageBox.warning(None, "取消保存", "未选择保存路径，聊天记录未保存。")
+        if not(file_path and file_name):  # 检查 file_path 是否有效, file_name 不为空
+            raise ValueError("Internal Error : empty file_path | empty file_path")
+        # 确保目录存在
+        if dir_path and not os.path.exists(dir_path):
+            os.makedirs(dir_path, exist_ok=True)
+        with open(file_path, "w", encoding="utf-8") as file:
+            file.write(chathistory) 
 
-    # 自动保存
-    def autosave_save_chathistory(self, chathistory):
-        '''
-        自动保存聊天记录到默认路径
-        文件名称如果没有保存在info里，就用本地生成的标题
-        仅在自动保存时，chat_id同时作为文件名和对话ID
-        '''
-        file_id = chathistory[0]['info']['chat_id']
-        # file_title = chathistory[0]['info'].get('title', '')
+        return file_path
 
-        file_path = os.path.join(self.history_path, file_id)
-        if file_path and len(chathistory) > 1:
-            self.save_chathistory(chathistory, file_path=file_path)
+    def delete_chathistory(self, file_path: str):
+        # 1. 基础参数检查
+        if not file_path:
+            raise ValueError("File path is empty")
 
-    # 读取过去system prompt
-    def load_sys_pmt_from_past_record(self, chathistory=[], file_path=None):
+        # 2. 路径解析 (处理符号链接等)
+        normalized_path = os.path.realpath(os.path.abspath(file_path))
+
+        # 3. 安全守卫：必须存在，必须是文件，必须是 json
+        # (这部分不能省，这是防止误删的关键)
+        if not os.path.exists(normalized_path):
+            raise FileNotFoundError(f"File not found: {normalized_path}")
+
+        if not os.path.isfile(normalized_path):
+            raise IsADirectoryError(f"Target is not a file: {normalized_path}")
+
+        if Path(normalized_path).suffix.lower() != '.json':
+            raise ValueError(f"Security restrict: Cannot delete non-json file: {normalized_path}")
+
+        # 4. 直接执行，出错让它自己爆
+        # 如果文件被占用，os.remove 会自动抛出 OSError (PermissionError)，上层捕获即可
+        os.remove(normalized_path)
+
+    def load_past_chats(self, history_path: str = '', file_count: int = 100) -> List[Dict[str, Any]]:
         """
-        从当前或过去的聊天记录中加载系统提示
-        Args:
-            chathistory (list): 当前聊天记录
-            file_path (str): 过去聊天记录的完整路径
-
-        """
-        if chathistory:
-            return chathistory[0]["content"]
-        elif file_path:
-            past_chathistory = self.load_chathistory(file_path)
-            if past_chathistory and isinstance(past_chathistory, list) and len(past_chathistory) > 0 and past_chathistory[0]["role"] == "system":
-                return past_chathistory[0]["content"]
-            else:
-                self.error_signal.emit(f'failed loading chathistory from {file_path}')
-                return ''
-        else:
-            self.error_signal.emit(f"didn't get any valid input to load sys pmt")
-            return ''
-
-    # 获取聊天记录清单
-    def load_past_chats(self, application_path: str = '', file_count: int = 100) -> List[Dict[str, Any]]:
-        """
-        并行获取并验证历史聊天记录（优化版：减少 IO、避免重复计算）
+        并行获取并验证历史聊天记录（支持 V0/V1/V2 混存格式）
         """
         # 路径准备
-        if not application_path:
-            application_path = self.history_path
-        os.makedirs(application_path, exist_ok=True)
+        if not history_path:
+            history_path = self.history_path
+        os.makedirs(history_path, exist_ok=True)
 
         def load_json_from_file(path: str):
             with open(path, "r", encoding="utf-8") as f:
                 return json.load(f)
 
-        # 读取/初始化元数据缓存（减少重复解析）
-        cache_path = os.path.join(application_path, ".chat_index.json")
+        # 读取/初始化元数据缓存
+        cache_path = os.path.join(history_path, ".chat_index.json")
         try:
             with open(cache_path, "r", encoding="utf-8") as cf:
                 meta_cache: Dict[str, Dict[str, Any]] = json.load(cf)
         except Exception:
             meta_cache = {}
 
+        # ------------------------------------------------------------------ #
+        #  文件筛选
+        # ------------------------------------------------------------------ #
         def select_latest_jsons(base: str, n: int) -> List[Tuple[str, str, float]]:
             """高效获取按修改时间降序的前 n 个 JSON 文件 (path, name, mtime)"""
             entries = []
@@ -629,7 +707,6 @@ class ChathistoryFileManager(QObject):
                         if not e.is_file():
                             continue
                         name = e.name
-                        # 跳过缓存与隐藏文件
                         if not name.endswith(".json") or name.startswith("."):
                             continue
                         st = e.stat()
@@ -639,85 +716,126 @@ class ChathistoryFileManager(QObject):
 
             if len(entries) <= n:
                 entries.sort(key=lambda t: t[0], reverse=True)
-                return [(p, name, mtime) for mtime, p, name in entries]
+                return [(p, nm, mt) for mt, p, nm in entries]
 
             top = heapq.nlargest(n, entries, key=lambda t: t[0])
-            top.sort(key=lambda t: t[0], reverse=True)  # 保持降序输出
-            return [(p, name, mtime) for mtime, p, name in top]
+            top.sort(key=lambda t: t[0], reverse=True)
+            return [(p, nm, mt) for mt, p, nm in top]
 
-        def extract_chat_title(chat_data: List[Dict[str, Any]]) -> str:
-            """从聊天数据中提取标题"""
-            for message in chat_data:
-                if message.get("role") == "system":
-                    info = message.get("info") or {}
-                    title = info.get("title")
-                    if title:
-                        return title
-            return "Untitled Chat"
+        # ------------------------------------------------------------------ #
+        #  消息级校验（兼容 OpenAI Chat Completion API 全部 role）
+        # ------------------------------------------------------------------ #
+        _VALID_ROLES = frozenset(("system", "user", "assistant", "tool"))
 
-        def validate_json_structure(data) -> bool:
-            """验证JSON数据结构，支持工具调用格式"""
-            if not isinstance(data, list):
+        def validate_message(item: dict) -> bool:
+            if not isinstance(item, dict):
                 return False
 
-            role_set = {"user", "system", "assistant", "tool"}
+            role = item.get("role")
+            if role not in _VALID_ROLES:
+                return False
 
-            for item in data:
-                if not isinstance(item, dict):
+            if role in ("system", "user"):
+                # V2 user content 可以是 str 或 list（多模态）
+                content = item.get("content")
+                if not isinstance(content, (str, list)):
                     return False
 
-                role = item.get("role")
-                if role not in role_set:
+            elif role == "assistant":
+                has_content = "content" in item
+                has_tool_calls = "tool_calls" in item
+                if not (has_content or has_tool_calls):
+                    return False
+                if has_content and not isinstance(item["content"], (str, type(None))):
+                    return False
+                if has_tool_calls and not isinstance(item["tool_calls"], list):
                     return False
 
-                if role in ("user", "system"):
-                    content = item.get("content")
-                    if not isinstance(content, str):
-                        return False
-
-                elif role == "assistant":
-                    has_content = "content" in item
-                    has_tool_calls = "tool_calls" in item
-                    if not (has_content or has_tool_calls):
-                        return False
-                    if has_content and not isinstance(item["content"], (str, type(None))):
-                        return False
-                    if has_tool_calls and not isinstance(item["tool_calls"], list):
-                        return False
-
-                else:  # role == "tool"
-                    if "tool_call_id" not in item or "content" not in item:
-                        return False
-                    if not isinstance(item["content"], str):
-                        return False
+            else:  # tool
+                if "tool_call_id" not in item or "content" not in item:
+                    return False
+                if not isinstance(item["content"], (str, list)):
+                    return False
 
             return True
 
-        def parse_one(path: str, name: str, mtime: float) -> Tuple[bool, str, str, float, str, str]:
-            """返回: ok, name, path, mtime, err_msg, title"""
+        # ------------------------------------------------------------------ #
+        #  文件级校验（自动区分 V0/V1 list 与 V2 dict）
+        # ------------------------------------------------------------------ #
+        def validate_json_structure(data) -> bool:
+            if isinstance(data, list):
+                # V0 / V1：顶层直接是消息列表
+                return all(validate_message(m) for m in data)
+
+            if isinstance(data, dict):
+                # V2：ChatSession dict，history 是消息列表
+                history = data.get("history")
+                if not isinstance(history, list):
+                    return False
+                return all(validate_message(m) for m in history)
+
+            return False
+
+        # ------------------------------------------------------------------ #
+        #  标题提取（按版本走不同路径，不做完整 patch）
+        # ------------------------------------------------------------------ #
+        def extract_title(data, version: str) -> str:
+            if version == "V2":
+                # V2 title 是 ChatSession 顶层字段
+                return data.get("title") or "Untitled Chat"
+
+            # V0 / V1：title 存放在 system message 的 info 里
+            if isinstance(data, list):
+                for msg in data:
+                    if msg.get("role") == "system":
+                        info = msg.get("info")
+                        if isinstance(info, dict):
+                            title = info.get("title")
+                            if title:
+                                return title
+            return "Untitled Chat"
+
+        # ------------------------------------------------------------------ #
+        #  单文件解析
+        # ------------------------------------------------------------------ #
+        def parse_one(
+            path: str, name: str, mtime: float
+        ) -> Tuple[bool, str, str, float, str, str, str]:
+            """返回: (ok, name, path, mtime, err_msg, title, version)"""
             try:
                 data = load_json_from_file(path)
+
                 if not validate_json_structure(data):
-                    return False, name, path, mtime, "Invalid data structure", ""
-                title = extract_chat_title(data)
-                return True, name, path, mtime, "", title
+                    return False, name, path, mtime, "Invalid data structure", "", ""
+
+                version = self.patcher.detect_version(data)
+                title = extract_title(data, version)
+                return True, name, path, mtime, "", title, version
+
             except json.JSONDecodeError:
-                return False, name, path, mtime, "Invalid JSON format", ""
+                return False, name, path, mtime, "Invalid JSON format", "", ""
             except FileNotFoundError:
-                return False, name, path, mtime, "File not found", ""
+                return False, name, path, mtime, "File not found", "", ""
             except Exception as e:
-                return False, name, path, mtime, str(e), ""
+                return False, name, path, mtime, str(e), "", ""
 
-        # 1) 仅挑选最新 file_count 个
-        selected = select_latest_jsons(application_path, file_count)
+        # ================================================================== #
+        #  主流程
+        # ================================================================== #
 
-        # 2) 命中缓存的直接使用，未命中的再并发解析
+        # 1) 挑选最新的 file_count 个文件
+        selected = select_latest_jsons(history_path, file_count)
+
+        # 2) 缓存命中 → 直接使用；未命中 → 加入待解析列表
         past_chats: List[Dict[str, Any]] = []
         to_parse: List[Tuple[str, str, float]] = []
 
         def cache_valid(rec: Dict[str, Any], m: float) -> bool:
-            # mtime 精度可能不同，给一点容差
-            return isinstance(rec, dict) and abs(rec.get("mtime", -1) - m) < 1e-6 and "title" in rec
+            return (
+                isinstance(rec, dict)
+                and abs(rec.get("mtime", -1) - m) < 1e-6
+                and "title" in rec
+            )
 
         for path, name, mtime in selected:
             rec = meta_cache.get(name)
@@ -730,41 +848,41 @@ class ChathistoryFileManager(QObject):
             else:
                 to_parse.append((path, name, mtime))
 
-        # 3) 并发解析未命中的文件（IO 为主，线程池足够；数量小就不用开太多线程）
+        # 3) 并发解析未命中的文件
         if to_parse:
             max_workers = min(32, max(1, len(to_parse)))
             with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-                futures = [executor.submit(parse_one, p, n, m) for p, n, m in to_parse]
+                futures = [
+                    executor.submit(parse_one, p, n, m)
+                    for p, n, m in to_parse
+                ]
 
                 for future in concurrent.futures.as_completed(futures):
-                    ok, name, path, mtime, msg, title = future.result()
+                    ok, name, path, mtime, msg, title, version = future.result()
                     if ok:
                         past_chats.append({
                             "file_path": path,
                             "title": title,
                             "modification_time": mtime,
                         })
-                        # 更新缓存
-                        meta_cache[name] = {"mtime": mtime, "title": title}
+                        # 写入缓存（附带 version 字段）
+                        meta_cache[name] = {
+                            "mtime": mtime,
+                            "title": title,
+                            "version": version,
+                        }
                     else:
-                        self.warning_signal.emit(f"Skipped {name}: {msg}")
+                        print(f"Failed to parse {name}: {msg}")
 
         # 4) 写回缓存（失败不影响主流程）
         try:
             with open(cache_path, "w", encoding="utf-8") as cf:
                 json.dump(meta_cache, cf, ensure_ascii=False)
         except Exception as e:
-            self.warning_signal.emit(f"Failed to update cache: {e}")
+            print(f"Failed to update cache: {e}")
 
-        # 5) 最终按时间排序输出
+        # 5) 按修改时间降序输出
         past_chats.sort(key=lambda x: x["modification_time"], reverse=True)
         return past_chats
+    
 
-    def is_equal(self, hist1: List[Dict[str, Any]], hist2: List[Dict[str, Any]]) -> bool:
-        """比较两个聊天记录的内容是否是同一序列"""
-        if len(hist1) != len(hist2):
-            return False
-        if hist1[0]['info']['chat_id'] == hist2[0]['info']['chat_id']:
-            return True
-        else:
-            return False

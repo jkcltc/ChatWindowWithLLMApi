@@ -15,7 +15,7 @@ class StoryCreatorGlobalVar:
     def _read_api_config(self):
         """读取api_config.ini文件并返回配置字典"""
         from config import APP_SETTINGS
-        api_configs = APP_SETTINGS.api.endpoints
+        api_configs = APP_SETTINGS.api.providers
         return api_configs
     
     def _update_model_map(self):
@@ -783,8 +783,8 @@ class StoryManagerBackend(QWidget):
     def get_api_config(self, provider: str) -> Dict[str, str]:
         """获取指定提供商的API配置"""
         return {
-            "url": self.default_apis[provider]["url"],
-            "key": self.default_apis[provider]["key"]
+            "url": self.default_apis[provider].url,
+            "key": self.default_apis[provider].key
         }
 
     def set_analysis_length(self, length: int):

@@ -1,5 +1,6 @@
 from typing import List, Dict, Any ,Optional ,Callable,Union
 from dataclasses import dataclass ,field
+import uuid
 @dataclass
 class ChatCompletionPack:
     """
@@ -21,10 +22,3 @@ class ChatCompletionPack:
     })
 
     mod: Optional[List[Callable]] = field(default_factory=list) 
-
-    @property
-    def sysrule(self):
-        if self.chathistory[0]['role']=='system':
-            return self.chathistory[0]['content']
-        else:
-            return ''

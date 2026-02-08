@@ -1,3 +1,4 @@
+# common/info_module.py
 # Created by GPT-5 & Gemini 2.5 Pro, Doc by Kimi k2
 # Introduced in 0.25.3
 from __future__ import annotations

@@ -158,6 +158,9 @@ class LciSettings(BaseSettings):
     collect_system_prompt: bool = True
     """系统提示注入压缩上下文"""  # enable_lci_system_prompt
 
+    max_segment_rounds : int = 50
+    """触发压缩的最少对话轮数"""  # long_chat_improve_rounds
+
     max_total_length: int = 8000
     """触发压缩最少的完整对话长度"""  # max_total_length (unchanged)
 

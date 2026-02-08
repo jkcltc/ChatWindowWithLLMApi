@@ -1,22 +1,24 @@
 import time
 start_time_stamp=time.time()
-print(f'CWLA init timer start, time stamp:{time.time()-start_time_stamp:.2f}s')
+
+_ts_1=f'CWLA init timer start, time stamp:{time.time()-start_time_stamp:.2f}s'
+
 import configparser
 import json
 import os
 import re
 import sys
 import threading
-import difflib
+import traceback
 import warnings
-import uuid
+
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 warnings.filterwarnings("ignore", message="libpng warning: iCCP: known incorrect sRGB profile")
 
 #基础类初始化
 from common.init_functions import install_packages
 
-print(f'CWLA iner import finished, time stamp:{time.time()-start_time_stamp:.2f}s')
+_ts_2=f'CWLA iner import finished, time stamp:{time.time()-start_time_stamp:.2f}s'
 
 install_packages()
 
@@ -27,14 +29,22 @@ from PyQt6.QtGui import *
 from PyQt6.QtSvg import *
 import openai
 
-print(f'CWLA 3rd party lib import finished, time stamp:{time.time()-start_time_stamp:.2f}s')
+_ts_3=f'CWLA 3rd party lib import finished, time stamp:{time.time()-start_time_stamp:.2f}s'
 
 #自定义类初始化
 
 from common.info_module import InfoManager,LOGMANAGER
+
 LOGGER=LOGMANAGER
+LOGGER.log(_ts_1)
+LOGGER.log(_ts_2)
+LOGGER.log(_ts_3)
 LOGGER.log(f'CWLA Log init finished, time stamp:{time.time()-start_time_stamp:.2f}s')
+
 from config import APP_SETTINGS,APP_RUNTIME,ConfigManager
+
+# 就地初始化
+ConfigManager.load_settings(APP_SETTINGS)
 
 LOGGER.log(f'CWLA config recover finished, time stamp:{time.time()-start_time_stamp:.2f}s')
 
@@ -44,11 +54,12 @@ from service.tts.chatapi_tts import TTSAgent
 LOGGER.log(f'CWLA service import finished, time stamp:{time.time()-start_time_stamp:.2f}s')
 
 from core.session.chat_history_manager import ChathistoryFileManager,TitleGenerator,ChatHistoryTools
-from core.session.preprocessor import MessagePreprocessor,PreprocessorPatch
+from core.session.preprocessor import Preprocessor,PreprocessorPatch
 from core.tool_call.tool_core import get_functions_events
 from core.multimodal_coordination.background_generate import BackgroundAgent
 from core.story.mod_manager import ModConfiger
 from core.session.concurrentor import ConvergenceDialogueOptiProcessor
+from core.session.enforce_repeat import RepeatProcessor
 
 LOGGER.log(f'CWLA core import finished, time stamp:{time.time()-start_time_stamp:.2f}s')
 
@@ -75,131 +86,7 @@ LOGGER.log(f'CWLA utils import finished, time stamp:{time.time()-start_time_stam
 
 LOGGER.log(f'CWLA import finished, time stamp:{time.time()-start_time_stamp:.2f}s')
 
-#路径初始化
-if getattr(sys, 'frozen', False):
-    # 打包后的程序
-    application_path = os.path.dirname(sys.executable)
-    temp_path = sys._MEIPASS
-else:
-    # 普通 Python 脚本
-    application_path = os.path.dirname(os.path.abspath(__file__))
 
-#缩进图片
-if not os.path.exists('background.jpg'):
-    with open('background.jpg', 'wb') as f:
-        f.write(think_img)
-
-# 全局设置库初始化
-ConfigManager.load_settings(APP_SETTINGS)
-
-
-#强制降重
-class RepeatProcessor:
-    def __init__(self, main_class):
-        self.main = main_class  # 持有主类的引用
-
-    def find_last_repeats(self):
-        """处理重复内容的核心方法"""
-        # 还原之前的修改
-        if self.main.difflib_modified_flag:
-            self._restore_original_settings()
-            self.main.difflib_modified_flag = False
-
-        # 处理重复内容逻辑
-        assistants = self._get_assistant_messages()
-        clean_output = []
-        
-        if len(assistants) >= 4:
-            last_four = assistants[-4:]
-            has_high_similarity = self._check_similarity(last_four)
-            
-            if has_high_similarity:
-                self._apply_similarity_settings()
-
-            repeats = self._find_repeated_substrings(last_four)
-            clean_output = self._clean_repeats(repeats)
-
-        return clean_output
-
-    def _restore_original_settings(self):
-        """恢复原始配置"""
-        APP_SETTINGS.generation.max_message_rounds  = self.main.original_max_message_rounds
-        APP_SETTINGS.lci.placement                  = self.main.original_long_chat_placement
-        APP_SETTINGS.lci.enabled                    = self.main.original_long_chat_improve_var
-        self.main.original_max_message_rounds = None
-        self.main.original_long_chat_placement = None
-        self.main.original_long_chat_improve_var = None
-
-    def _get_assistant_messages(self):
-        """获取助手消息"""
-        return [msg['content'] for msg in self.main.chathistory if msg['role'] == 'assistant']
-
-    def _check_similarity(self, last_four):
-        """检查消息相似度"""
-        similarity_threshold = 0.4
-        has_high_similarity = False
-        
-        for i in range(len(last_four)):
-            for j in range(i+1, len(last_four)):
-                ratio = difflib.SequenceMatcher(None, last_four[i], last_four[j]).ratio()
-                LOGGER.info(f'当前相似度 {ratio}')
-                if ratio >= similarity_threshold:
-                    LOGGER.warning('过高相似度，激进降重触发')
-                    return True
-        return False
-
-    def _apply_similarity_settings(self):
-        """应用相似度过高时的配置"""
-        if not self.main.difflib_modified_flag:
-            self.main.original_max_message_rounds =     APP_SETTINGS.generation.max_message_rounds  
-            self.main.original_long_chat_placement =    APP_SETTINGS.lci.placement                  
-            self.main.original_long_chat_improve_var=   APP_SETTINGS.lci.enabled                    
-            APP_SETTINGS.generation.max_message_rounds = 3
-            APP_SETTINGS.lci.placement = "对话第一位"
-            self.main.difflib_modified_flag = True
-
-    def _find_repeated_substrings(self, last_four):
-        """查找重复子串"""
-        repeats = set()
-        for i in range(len(last_four)):
-            for j in range(i + 1, len(last_four)):
-                s_prev = last_four[i]
-                s_current = last_four[j]
-                self._add_repeats(s_prev, s_current, repeats)
-        return sorted(repeats, key=lambda x: (-len(x), x))
-
-    def _add_repeats(self, s1, s2, repeats):
-        """添加发现的重复项"""
-        len_s1 = len(s1)
-        for idx in range(len_s1):
-            max_len = len_s1 - idx
-            for l in range(max_len, 0, -1):
-                substr = s1[idx:idx+l]
-                if substr in s2:
-                    repeats.add(substr)
-                    break
-
-    def _clean_repeats(self, repeats):
-        """清洗重复项结果"""
-        symbol_to_remove = [',','.','"',"'",'，','。','！','？','...','——','：','~']
-        clean_output = []
-        repeats.reverse()
-        
-        for item1 in repeats:
-            if self._is_unique_substring(item1, repeats) and len(item1) > 3:
-                cleaned = self._remove_symbols(item1, symbol_to_remove)
-                clean_output.append(cleaned)
-        return clean_output
-
-    def _is_unique_substring(self, item, repeats):
-        """检查是否唯一子串"""
-        return not any(item in item2 and item != item2 for item2 in repeats)
-
-    def _remove_symbols(self, text, symbols):
-        """移除指定符号"""
-        for symbol in symbols:
-            text = text.replace(symbol, '')
-        return text
 
 #主类
 class MainWindow(QMainWindow):
@@ -1326,7 +1213,7 @@ class MainWindow(QMainWindow):
         self.tool_response=''
         def target():
             pack = PreprocessorPatch(self).prepare_patch()  # 创建预处理器实例
-            message, params = MessagePreprocessor().prepare_message(pack=pack)
+            message, params = Preprocessor().prepare_message(pack=pack)
             if APP_SETTINGS.concurrent.enabled:
                 self.concurrent_model.start_workflow(params)
                 return
@@ -1350,6 +1237,16 @@ class MainWindow(QMainWindow):
             )
         except Exception as e:
             self.info_manager.notify(f"Error in sending request: {e}",level='error')
+
+            # 1. 获取详细的堆栈信息（用于调试或记录）
+            stack_trace = traceback.format_exc()
+
+            # 2. 构造简短的错误消息（可能用于UI显示）
+            error_message = f'Error: {e}\nLocation: Line {e.__traceback__.tb_lineno}'
+
+            print(stack_trace,error_message)
+
+            return
         
 
     def control_frame_to_state(self,state:bool | str):

@@ -1,7 +1,7 @@
 __version__ = "0.26.1"
 __author__ = "jkcltc"
 
-from CWLA_main import start
+from ui.CWLA_main import start
 import sys
 import ctypes
 

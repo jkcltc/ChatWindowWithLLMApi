@@ -773,6 +773,11 @@ class SessionManager(QObject):
         """
         return self.current_chat.chat_rounds
 
+    @property
+    def chat_id(self) -> str:
+        """获取当前会话的唯一标识符"""
+        return self.current_chat.chat_id
+
     def get_system_message(self) -> Optional[Dict]:
         """
         获取系统消息（第一条role为system的消息）
@@ -1022,7 +1027,8 @@ class SessionManager(QObject):
             self.fallback_chat(msg_id)
         self.current_chat.truncate_to_user()
         if self.current_chat.chat_rounds <= 1:
-            self.error.emit("无法重发，当前会话仅剩一条用户消息")
+            self.error.emit("消息回退失败：消息数不足")
+            raise ValueError("消息回退失败：消息数不足")
         hist = self.current_chat.history
         self.request_autosave()
         return hist

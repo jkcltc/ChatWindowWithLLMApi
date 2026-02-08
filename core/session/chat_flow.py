@@ -100,11 +100,11 @@ class ChatFlowManager(QObject):
     def resend_message_last(self):
         self.resend_message()
     
-    def handel_call_back_to_lci_bgu(self,amount=-2):
+    def _rollback_lci_counters(self, amount=-2):
         """
-        handel_call_back_to_lci_bgu 是消息回退时对两个附属模块触发进度的回退
+        _rollback_lci_counters(self, amount=-2) 是消息回退时对两个附属模块触发进度的回退
         
-        :param amount: 在直接回退一条是-2，留接口给回退好几条的情况
+        :param amount: 直接回退一条是-2，留接口给回退好几条的情况
         """
         self.session_manager.apply_updates(
             amount = amount,
@@ -112,24 +112,32 @@ class ChatFlowManager(QObject):
             bgg=APP_SETTINGS.background.enabled
         )
     
-    def resend_message(self,msg_id=''):
-        self.main_message_process_timer_start=time.time()*1000
+    def resend_message(self,msg_id='')->bool:
+        """
+        resend_message : 重发消息，如果msg_id为空，则重发最后一条消息
 
-        self.handel_call_back_to_lci_bgu()
-        if msg_id:
-            result = self.session_manager.fallback_chat(msg_id=msg_id)
-        else:
-            result = self.session_manager.fallback_history_for_resend(msg_id=msg_id)
+        :param msg_id: 说明
+        :return: 成功则返回True，实际用于UI的setEnabled(not status)
+        :rtype: bool
+        """
+        chathistory=[]
+        start_chat_length=self.session_manager.chat_rounds
+        try:
+            chathistory = self.session_manager.fallback_history_for_resend(msg_id=msg_id)
+        except Exception as e:
+            self.error.emit("重发失败：消息回退失败"+str(e))
+            return False
 
-        if not result:
-            self.error.emit("无法重发，当前会话仅剩一条用户消息")
-            return
-        
-        self.current_chat.history=chathistory
-        self.control_frame_to_state('sending')
-        self.ai_response_text.setText("正在重传，等待回复...")
-        self.update_chat_history()
+        if not chathistory or len(chathistory) < 2:
+            self.error.emit("重发失败：消息数不足")
+            return False
+
+        end_chat_length=self.session_manager.chat_rounds
+        self._rollback_lci_counters(end_chat_length-start_chat_length)
+
         self.send_request(create_thread= not APP_SETTINGS.concurrent.enabled)
+
+        return True
 
     #0.25.3 info_manager + api request基础重构
     def resend_message_by_tool(self):

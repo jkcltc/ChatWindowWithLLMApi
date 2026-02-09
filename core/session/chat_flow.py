@@ -3,7 +3,7 @@ from service.chat_completion import FullFunctionRequestHandler,APIRequestHandler
 from core.session.preprocessor import PreprocessorPatch,Preprocessor,PostProcessor
 from core.tool_call.tool_core import get_functions_events,get_tool_registry,ToolRegistry
 from core.session.concurrentor import ConvergenceDialogueOptiProcessor
-from core.session.chat_history_manager import TitleGenerator
+from core.session.title_generate import TitleGenerator
 from core.session.session_manager import SessionManager
 from config import APP_SETTINGS
 import time
@@ -142,18 +142,17 @@ class ChatFlowManager(QObject):
     #0.25.3 info_manager + api request基础重构
     def resend_message_by_tool(self):
         self._receive_message([])
-        self.control_frame_to_state("sending")
         self.send_request()
 
     # 0.24.4 模型并发信号
     def concurrentor_content_receive(self,msg_id,content):
         self.full_response=content
-        self.update_ai_response_text(str(msg_id),content)
+        self.ai_response.emit(str(msg_id),content)
 
     def concurrentor_reasoning_receive(self,msg_id,content):
         self.think_response=content
         self.thinked=True
-        self.update_think_response_text(str(msg_id),content)
+        self.ai_reasoning.emit(str(msg_id),content)
 
     def concurrentor_finish_receive(self,msg_id,content):
         self.last_chat_info = self.concurrent_model.get_concurrentor_info()

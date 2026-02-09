@@ -49,7 +49,9 @@ class ModelListUpdater:
         """
         headers = {
             'Content-Type': 'application/json',
-            'Authorization': f'Bearer {platform_config["key"]}'
+            'Authorization': f'Bearer {platform_config["key"]}',
+            "HTTP-Referer": "https://github.com/jkcltc/ChatWindowWithLLMApi/",
+            "X-Title": "ChatWindowWithLLMApi-CWLA",
         }
 
         try:
@@ -153,4 +155,3 @@ class APIConfigDialogUpdateModelThread(QThread):
             self.finished_signal.emit(available_models)
         except Exception as e:
             self.error_signal.emit(str(e))
-

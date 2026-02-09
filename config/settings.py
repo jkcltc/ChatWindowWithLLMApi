@@ -37,7 +37,9 @@ class LLMDetail(BaseSettings):
     extra_headers : Dict = Field(default={})
 
 
-# ==================== 用户配置 ====================
+# ============== >>>   用户配置   <<< ==============
+
+# ==================== 伴随请求 ====================
 
 class BackgroundSettings(BaseSettings):
     """背景图自动生成设置"""
@@ -183,6 +185,31 @@ class LciSettings(BaseSettings):
 
     preset : LongChatImprovePersetVars = Field(default_factory=LongChatImprovePersetVars)
 
+class TTSSettings(BaseSettings): 
+    """语音合成配置"""
+    tts_enabled: bool = False
+    tts_provider: str = '不使用TTS'
+
+class TitleSettings(BaseSettings):
+    """自动标题配置"""
+
+    include_sys_pmt: bool = True
+    """包含系统提示词"""  # enable_title_creator_system_prompt
+
+    use_local: bool = True
+    """是否使用本地生成"""  # title_creator_use_local
+
+    max_length: int = 20
+    """生成的标题最大长度"""  # title_creator_max_length
+
+    provider: str = 'siliconflow'
+    """模型提供商"""  # title_creator_provider
+
+    model: str = 'Qwen/Qwen3-8B'
+    """模型名称"""  # title_creator_model
+
+# ==================== 请求前处理 ====================
+
 class WebSearchSettings(BaseSettings):
     """手动强制搜索"""
     web_search_enabled: bool = False
@@ -213,7 +240,6 @@ class GenerationSettings(BaseSettings):
 
     max_message_rounds: int = 50   
     """最大发送长度"""
-
 
 class InputLimitSettings(BaseSettings): 
     """长度限制与对话阈值"""
@@ -250,34 +276,15 @@ class NameSettings(BaseSettings):
     character_enforce: bool = False
     """是否在消息中注入name字段"""
 
-class TTSSettings(BaseSettings): 
-    """语音合成配置"""
-    tts_enabled: bool = False
-    tts_provider: str = '不使用TTS'
-
-class TitleSettings(BaseSettings):
-    """自动标题配置"""
-
-    include_sys_pmt: bool = True
-    """包含系统提示词"""  # enable_title_creator_system_prompt
-
-    use_local: bool = True
-    """是否使用本地生成"""  # title_creator_use_local
-
-    max_length: int = 20
-    """生成的标题最大长度"""  # title_creator_max_length
-
-    provider: str = 'siliconflow'
-    """模型提供商"""  # title_creator_provider
-
-    model: str = 'Qwen/Qwen3-8B'
-    """模型名称"""  # title_creator_model
+# ================== 请求后处理 =====================
 
 class AutoReplaceSettings(BaseSettings): 
     """文本自动替换配置"""
     autoreplace_var: bool = False
     autoreplace_from: str = ''
     autoreplace_to: str = ''
+
+# ==================== 快捷键 =====================
 
 class HotkeySingle(BaseSettings):
     """单个快捷键配置"""
@@ -329,6 +336,8 @@ class HotkeySettings(BaseSettings):
     system_prompt: HotkeySingle = Field(
         default_factory=lambda: HotkeySingle(key="Ctrl+E", enabled=True)
     )
+
+# ==================== API配置 ====================
 
 class ProviderConfig(BaseSettings):
     """单个供应商的配置结构"""
@@ -396,6 +405,9 @@ class ApiConfig(BaseSettings):
             for name, config in self.providers.items()
         }
 
+# ==================== 模型花活 ====================
+
+# 模型轮询
 class ModelPollSettings(BaseSettings):
     enabled : bool = False
     """启用模型轮询"""
@@ -405,6 +417,26 @@ class ModelPollSettings(BaseSettings):
     model_map : list[LLMUsagePack] = Field(default_factory=list)
     """模型轮询顺序"""
 
+# 模型聚合
+class ModelGroup(BaseSettings):
+    """模型聚合存单"""
+    strategy: Literal['random', 'order'] = 'order'
+
+    models: List[LLMUsagePack] = Field(default_factory=list)
+
+    description: Optional[str] = ""
+
+class ModelAggregationSettings(BaseSettings):
+    enabled: bool = False
+    """启用模型聚合"""
+
+    strategy: Literal['random', 'order'] = 'order'
+
+    groups: Dict[str, ModelGroup] = Field(default_factory=dict)
+
+    execution_list: List[str] = Field(default_factory=list)
+
+# 模型并发
 class ConcurrentLayerSettings(BaseSettings):
     name : str = ""
     """层名称"""
@@ -425,6 +457,8 @@ class ModelConcurrent(BaseSettings):
     layers : list[ConcurrentLayerSettings] = Field(default_factory=list)
     """汇流优化层配置"""
 
+# ==================== UI设置 ====================
+
 class UIStatus(BaseSettings):
     """UI设置"""
 
@@ -437,7 +471,7 @@ class UIStatus(BaseSettings):
     past_chat_load_count : int = 100
     """历史聊天加载数量"""
 
-# >>> 用户配置总入口 <<<
+# ==============>>> 用户配置总入口 <<<==============
 class AppSettings(BaseSettings):
     generation: GenerationSettings = Field(default_factory=GenerationSettings)
     """生成参数"""
@@ -471,6 +505,9 @@ class AppSettings(BaseSettings):
 
     model_poll: ModelPollSettings = Field(default_factory=ModelPollSettings)
     """模型轮询"""
+
+    model_aggregation: ModelAggregationSettings = Field(default_factory=ModelAggregationSettings)
+    """模型聚合"""
 
     api: ApiConfig = Field(default_factory=ApiConfig)
     """api: 供应商和key"""

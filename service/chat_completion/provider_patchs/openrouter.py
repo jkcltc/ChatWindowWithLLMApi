@@ -47,6 +47,7 @@ def patch_openrouter_logic(params, config):
     # -------- 4. Header 注入 --------
     extra_headers = params.get('extra_headers', {})
     extra_headers.update({
+        'User-Agent': "ChatWindowWithLLMApi-CWLA",
         "HTTP-Referer": "https://github.com/jkcltc/ChatWindowWithLLMApi/",
         "X-Title": "ChatWindowWithLLMApi-CWLA",
     })

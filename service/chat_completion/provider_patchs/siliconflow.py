@@ -18,6 +18,7 @@ def patch_openai_compatible_logic(params, config):
     # -------- 2. Header --------
     extra_headers = params.get('extra_headers', {})
     extra_headers.update({
+        'User-Agent': "ChatWindowWithLLMApi-CWLA",
         "HTTP-Referer": "https://github.com/jkcltc/ChatWindowWithLLMApi/",
         "X-Title": "ChatWindowWithLLMApi-CWLA",
     })

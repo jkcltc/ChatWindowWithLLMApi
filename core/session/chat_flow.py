@@ -1,3 +1,6 @@
+from typing import TYPE_CHECKING
+import time
+import uuid
 from PyQt6.QtCore import QObject,QTimer,pyqtSignal
 from service.chat_completion import FullFunctionRequestHandler,APIRequestHandler
 from core.session.preprocessor import PreprocessorPatch,Preprocessor,PostProcessor
@@ -6,8 +9,14 @@ from core.session.concurrentor import ConvergenceDialogueOptiProcessor
 from core.session.title_generate import TitleGenerator
 from core.session.session_manager import SessionManager
 from core.session.lci_helper import LciMetrics,LciEvaluation
+from core.multimodal_coordination.background_generater_helper import BggEvaluation,BggMetrics
+from core.multimodal_coordination.background_generate import BackgroundWorker
+from core.session.data import ChatCompletionPack
 from config import APP_SETTINGS
-import time
+
+if TYPE_CHECKING:
+    from config.settings import LLMUsagePack
+
 
 class ChatFlowManager(QObject):
     log = pyqtSignal(str)
@@ -28,11 +37,13 @@ class ChatFlowManager(QObject):
     'content':str
     """
 
+    status_changed=pyqtSignal(str)
+
     def __init__(self,session_manager:SessionManager):
         super().__init__()
         self.init_requester()
-        # 全局单例，逮着硬薅
-        self.function_manager:ToolRegistry = get_tool_registry()
+        # 全局单例，逮着硬薅，得，薅不到
+        # self.function_manager:ToolRegistry = get_tool_registry()
         get_functions_events().errorOccurred.connect(self.error.emit)
 
         # 标题生成器要发自己的api请求
@@ -41,6 +52,11 @@ class ChatFlowManager(QObject):
 
         # 持有会话管理器
         self.session_manager = session_manager
+
+        self.lci= None # LciManager()
+
+        self.bgg= BackgroundWorker()
+
 
     def init_requester(self):
         self.requester = FullFunctionRequestHandler()
@@ -78,9 +94,6 @@ class ChatFlowManager(QObject):
         self.concurrent_model.concurrentor_reasoning.connect(self.concurrentor_reasoning_receive)
         self.concurrent_model.concurrentor_finish.connect(self.concurrentor_finish_receive)
 
-    def create_chat_title_when_empty(self):
-        if self.session_manager.should_generate_title:
-            self.create_chat_title(self.session_manager.history)
 
     def create_chat_title(self,chathistory):
         include_sys_pmt =   APP_SETTINGS.title.include_sys_pmt
@@ -180,188 +193,107 @@ class ChatFlowManager(QObject):
 
         return result.triggered
 
-    #发送消息前的预处理，防止报错,触发长文本优化,触发联网搜索
-    def sending_rule(self):   
-        user_input = self.user_input_text.toPlainText()
-        if self.current_chat.history[-1]['role'] == "user":
-            # 创建一个自定义的 QMessageBox
-            msg_box = QMessageBox(self)
-            msg_box.setWindowTitle('确认操作')
-            msg_box.setText('确定连发两条吗？')
-            
-            # 添加自定义按钮
-            btn_yes = msg_box.addButton('确定', QMessageBox.ButtonRole.YesRole)
-            btn_no = msg_box.addButton('取消', QMessageBox.ButtonRole.NoRole)
-            btn_edit = msg_box.addButton('编辑聊天记录', QMessageBox.ButtonRole.ActionRole)
-            
-            # 显示消息框并获取用户的选择
-            msg_box.exec()
-            
-            # 根据用户点击的按钮执行操作
-            if msg_box.clickedButton() == btn_yes:
-                # 正常继续
-                pass
-            elif msg_box.clickedButton() == btn_no:
-                # 如果否定：return False
-                return False
-            elif msg_box.clickedButton() == btn_edit:
-                # 如果“编辑聊天记录”：跳转self.edit_chathistory()
-                self.edit_chathistory()
-                return False
-        elif user_input == '':
-            # 弹出窗口：确定发送空消息？
-            reply = QMessageBox.question(self, '确认操作', '确定发送空消息？',
-                                        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                                        QMessageBox.StandardButton.No)
-            if reply == QMessageBox.StandardButton.Yes:
-                self.user_input_text.setText('_')
-                # 正常继续
-            elif reply == QMessageBox.StandardButton.No:
-                # 如果否定：return False
-                return False
-        if APP_SETTINGS.lci.enabled:
-            try:
-                self.new_chat_rounds+=2
+    def _should_send_message(self):
+        # 先检查当前消息
+        pass
 
-                full_chat_lenth=StrTools.get_chat_content_length(self.current_chat.history)
+    
+    def _should_update_background(self):
+        if not APP_SETTINGS.background.enabled:
+            return
+        
+        metrics = BggMetrics.from_session(self.session_manager.current_chat)
+        result = BggEvaluation.evaluate(metrics, APP_SETTINGS.background)
 
-                message_lenth_bool=(len(self.current_chat.history)>APP_SETTINGS.generation.max_message_rounds \
-                                    or full_chat_lenth>APP_SETTINGS.lci.max_total_length)
-                
-                newchat_rounds_bool=self.new_chat_rounds>APP_SETTINGS.generation.max_message_rounds
+        self.log.emit(result.format_log(APP_SETTINGS.background))
 
-                newchat_lenth_bool=StrTools.get_chat_content_length(self.current_chat.history[-self.new_chat_rounds:])>APP_SETTINGS.lci.max_segment_length
+        return result.triggered
+    
+    def _trigger_accompanying_function(self):
+        # 三位启动自己的线程
+        if self._should_do_lci():
+            self.lci.start(
+                payload=self.session_manager.current_chat,
+                setting=APP_SETTINGS.lci
+            )
+        if self._should_update_background():
+            self.bgg.start(
+                self.session_manager.current_chat,
+                setting=APP_SETTINGS.background
+            )
+        if self.session_manager.should_generate_title:
+            self.create_chat_title(self.session_manager.history)
 
-                long_chat_improve_bool=message_lenth_bool and newchat_rounds_bool or newchat_lenth_bool
+    def send_new_message(
+            self,
+            prompt_pack:tuple[str,list],# user_prompt, multimodal_content->list[dict[str:literal[str,list]]
+            LLM_usage:"LLMUsagePack",
+            tool_list:list=None, # 这玩意怎么会是绑定在UI上的，我model呢！
+            temp_style:str='', # 临时风格，这个确实应该在UI上
+            ):
+        text,multimodal_content=prompt_pack
+        self.session_manager.add_message(
+            role='user',
+            content=text,
+            multimodal=multimodal_content
+        )
 
-                self.info_manager.log(
-                    ''.join(
-                        [
-                            '长对话优化日志：',
-                            '\n当前对话次数:', str(len(self.current_chat.history)-1),
-                            '\n当前对话长度（包含system prompt）:', str(full_chat_lenth),
-                            '\n当前新对话轮次:', str(self.new_chat_rounds), '/', str(APP_SETTINGS.generation.max_message_rounds),
-                            '\n新对话长度:', str(len(str(self.current_chat.history[-self.new_chat_rounds:]))),
-                            '\n触发条件:',
-                            '\n总对话轮数达标:'
-                            '\n对话长度达达到', str(APP_SETTINGS.generation.max_message_rounds), ":", str(message_lenth_bool),
-                            '\n新对话轮次超过限制:', str(newchat_rounds_bool),
-                            '\n新对话长度超过限制:', str(newchat_lenth_bool),
-                            '\n触发长对话优化:', str(long_chat_improve_bool)
-                        ]
-                    ),
-                    level='info'
-                )
-                if long_chat_improve_bool:
-                    self.new_chat_rounds=0
-                    self.info_manager.notify('条件达到,长文本优化已触发','info')
-                    self.long_chat_improve()
-            except Exception as e:
-                self.info_manager.notify(f"long chat improvement failed, Error code:{e}",'error')
-        if APP_SETTINGS.background.enabled:
-            try:
-                self.new_background_rounds+=2
-                full_chat_lenth=StrTools.get_chat_content_length(self.current_chat.history)
-                message_lenth_bool=(len(self.current_chat.history)>APP_SETTINGS.background.max_rounds \
-                                    or full_chat_lenth>APP_SETTINGS.background.max_length)
-                newchat_rounds_bool=self.new_background_rounds>APP_SETTINGS.background.max_rounds
+        #大胶水启动！
+        self.send_request(
+            LLM_usage=LLM_usage,
+            tool_list=tool_list,
+            temp_style=temp_style
+        )
 
-                long_chat_improve_bool=message_lenth_bool and newchat_rounds_bool
 
-                self.info_manager.log(f"""背景更新日志：
-当前对话次数: {len(self.current_chat.history)-1}
-当前对话长度（包含system prompt）: {full_chat_lenth}
-当前新对话轮次: {self.new_background_rounds}/{APP_SETTINGS.background.max_rounds}
-新对话长度: {StrTools.get_chat_content_length(self.current_chat.history[-self.new_background_rounds:])-StrTools.get_chat_content_length([self.current_chat.history[0]])}
-触发条件:
-总对话轮数达标:
-对话长度达到 {APP_SETTINGS.background.max_length}: {message_lenth_bool}
-新对话轮次超过限制{APP_SETTINGS.background.max_rounds}: {newchat_rounds_bool}
-触发背景更新: {long_chat_improve_bool}""",
-                    level='info')
-                if long_chat_improve_bool:
-                    self.new_background_rounds=0
-                    
-                    self.info_manager.notify('条件达到,背景更新已触发')
-                    self.call_background_update()
-                
-            except Exception as e:
-                LOGGER.error(f"Background update failed, Error code:{e}")
-        if APP_SETTINGS.force_repeat.enabled:
+    # >>> 发送请求主函数 <<<
+    def send_request(
+            self,
+            LLM_usage:"LLMUsagePack",
+            tool_list:list=None,
+            temp_style:str='',
+        ):
+        start_time=time.time()*1000
 
-            APP_RUNTIME.force_repeat.text=''
-            repeat_list=self.repeat_processor.find_last_repeats()
-            if len(repeat_list)>0:
-                for i in repeat_list:
-                    APP_RUNTIME.force_repeat.text+=i+'"或"'
-                APP_RUNTIME.force_repeat.text='避免回复词汇"'+APP_RUNTIME.force_repeat.text[:-2]
-        else:
-            APP_RUNTIME.force_repeat.text=''
+        # 送走request_workflow_manager的所有请求器，请求器和管理器的连接
+        self.request_workflow_manager.abandon_all_requester()
+
+        pack = ChatCompletionPack(
+            chathistory=self.session_manager.history,
+            model=LLM_usage.model,
+            provider=APP_SETTINGS.api.providers[LLM_usage.provider],
+            tool_list=tool_list, # 工具列表
+            optional={
+                "temp_style": temp_style,
+            #    "enforce_lower_repeat_text": APP_RUNTIME.force_repeat.text 让patch处理器现场算
+            }
+        )
+
+        # 让request_workflow_manager自己管理各个请求器的信号
+        requset_flow=self.request_workflow_manager.create_requester(id=self.session_manager.chat_id)
+
+        try:
+            requset_flow.start(pack)
+        except Exception as e:
+            self.error.emit('main completion request fail '+str(e))
+
+        # 启动伴生功能，只有LCI会重插记忆消息
+        # 主对话对伴生功能提供的新消息的时机和内容不敏感
+        # 最多AI失忆截断后的最早一到二轮
+        self._trigger_accompanying_function()
+
+        self.status_changed.emit('sending')
+
+        end_time=time.time()*1000
+        self.log.emit(f'消息送至打包流程:{(end_time-start_time):.2f}ms')
+
+        self.message_status.start_record(
+            model=LLM_usage.model,
+            provider=LLM_usage.provider,
+            request_send_time=start_time
+        )
         return True
 
-        #预处理用户输入，并创建发送信息的线程
-    def send_message_toapi(self):
-        '''
-        提取用户输入，
-        创建用户消息，
-        更新聊天记录，
-        发送请求，
-        清空输入框，
-        '''
-        self.control_frame_to_state('sending')
-        self.ai_response_text.setText("已发送，等待回复...")
-        user_input = self.user_input_text.toPlainText()
-        multimodal_input=self.user_input_text.get_multimodal_content()
-
-        new_message={
-                'role': 'user', 
-                'content': user_input,
-                'info':{
-                    "id":str(int(time.time())),
-                    'time':time.strftime("%Y-%m-%d %H:%M:%S")
-                    }
-            }
-        
-        if multimodal_input:
-            new_message['info']['multimodal']=multimodal_input
-        self.current_chat.history.append(new_message)
-        self.user_input_text.clear()
-        self.create_chat_title_when_empty(self.current_chat.history)
-        self.update_chat_history()
-        self.send_request(create_thread= not APP_SETTINGS.concurrent.enabled)
-    
-    
-    ###发送请求主函数 0.25.3 api基础重构
-    def send_request(self,create_thread=True):
-        self.full_response=''
-        self.think_response=''
-        self.tool_response=''
-        def target():
-            pack = PreprocessorPatch(self).prepare_patch()  # 创建预处理器实例
-            message, params = MessagePreprocessor().prepare_message(pack=pack)
-            if APP_SETTINGS.concurrent.enabled:
-                self.concurrent_model.start_workflow(params)
-                return
-            self.requester.set_provider(
-            provider=self.api_var.currentText(),
-            api_config=APP_SETTINGS.api.providers
-            )
-            self.requester.send_request(params)
-        try:
-            if create_thread:
-                thread1 = threading.Thread(target=target)
-                thread1.start()
-            else:
-                target()
-            self.main_message_process_timer_end=time.time()*1000
-            LOGGER.info(f'消息前处理耗时:{(self.main_message_process_timer_end-self.main_message_process_timer_start):.2f}ms')
-            self.message_status.start_record(
-                model=self.model_combobox.currentText(),
-                provider=self.api_var.currentText(),
-                request_send_time=self.main_message_process_timer_end/1000
-            )
-        except Exception as e:
-            self.info_manager.notify(f"Error in sending request: {e}",level='error')
         
     #接受信息，信息后处理
     def _receive_message(self,message):

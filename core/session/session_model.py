@@ -186,6 +186,10 @@ class ChatSession:
         return self.get_last_n_length(self.new_chat_rounds)
     
     @property
+    def new_background_length(self):
+        return self.get_last_n_length(self.new_background_rounds)
+
+    @property
     def chat_rounds(self) -> int:
         return len(self.history)
 

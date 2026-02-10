@@ -13,7 +13,6 @@ if TYPE_CHECKING:
     from .system_prompt_manager import SystemPromptPreset
     
 _NOTHING = object()
-_NOTHING = object()
 
 class AutosaveWorker:
     def __init__(
@@ -440,6 +439,22 @@ class SessionManager:
         if tools:
             self.current_chat.tools = tools
         self.request_autosave()
+
+    def add_message(self,role:str,content: str, multimodal=None):
+        new_msg = {
+            'role': role,
+            'content': content,
+            'info': {
+                "id": str(int(time.time())),
+                "time": time.strftime("%Y-%m-%d %H:%M:%S")
+            }
+        }
+        if multimodal:
+            new_msg['info']['multimodal'] = multimodal
+
+        self.current_chat.history.append(new_msg)
+        self.request_autosave()
+
 
     @property
     def should_generate_title(self) -> bool:

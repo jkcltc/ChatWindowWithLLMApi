@@ -142,19 +142,19 @@ class ChatSession:
         self.name = preset.name
         self.tools = preset.tools
 
-    @property
-    def chat_rounds(self) -> int:
-        return len(self.history)
-
-    @property
-    def chat_length(self):
+    def get_last_n_length(self,n:int=1):
         target_types_set = MEDIA_TYPES
         _len = len
         _str = str
 
         total = 0
 
-        for message in self.history:
+        if n:
+            his=self.history[-n:]
+        else:
+            his=self.history
+
+        for message in his:
 
             content = message.get('content')
             if not content:
@@ -180,7 +180,19 @@ class ChatSession:
                     total += _len(_str(item))
 
         return total
+
+    @property
+    def new_chat_length(self):
+        return self.get_last_n_length(self.new_chat_rounds)
     
+    @property
+    def chat_rounds(self) -> int:
+        return len(self.history)
+
+    @property
+    def chat_length(self):
+        return self.get_last_n_length()
+        
     
     @classmethod
     def from_json(cls, json_str):

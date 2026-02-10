@@ -271,6 +271,15 @@ class SessionManager:
             if msg.get("role") == role:
                 return msg
         return None
+    
+    def get_recent_messages(self, n: int = 10) -> List[Dict]:
+        """获取最近的n条消息"""
+        return self.current_chat.history[-n:]
+    
+    def get_last_n_message_length(self, n: int = 10) -> int:
+        """获取最近的n条消息的长度"""
+        return self.current_chat.get_last_n_length(n)
+    
 
     # ==================== 文件操作 ====================
 

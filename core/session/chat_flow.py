@@ -5,6 +5,7 @@ from core.tool_call.tool_core import get_functions_events,get_tool_registry,Tool
 from core.session.concurrentor import ConvergenceDialogueOptiProcessor
 from core.session.title_generate import TitleGenerator
 from core.session.session_manager import SessionManager
+from core.session.lci_helper import LciMetrics,LciEvaluation
 from config import APP_SETTINGS
 import time
 
@@ -168,44 +169,16 @@ class ChatFlowManager(QObject):
             }
         )
     
-    def _do_lci(self):
-        if APP_SETTINGS.lci.enabled:
-            try:
-                self.new_chat_rounds+=2
+    def _should_do_lci(self):
+        if not APP_SETTINGS.lci.enabled:
+            return False
 
-                full_chat_lenth=StrTools.get_chat_content_length(self.current_chat.history)
+        metrics = LciMetrics.from_session(self.session_manager.current_chat)
+        result = LciEvaluation.evaluate(metrics, APP_SETTINGS.lci)
 
-                message_lenth_bool=(len(self.current_chat.history)>APP_SETTINGS.generation.max_message_rounds \
-                                    or full_chat_lenth>APP_SETTINGS.lci.max_total_length)
-                
-                newchat_rounds_bool=self.new_chat_rounds>APP_SETTINGS.generation.max_message_rounds
+        self.log.emit(result.format_log(APP_SETTINGS.lci))
 
-                newchat_lenth_bool=StrTools.get_chat_content_length(self.current_chat.history[-self.new_chat_rounds:])>APP_SETTINGS.lci.max_segment_length
-
-                long_chat_improve_bool=message_lenth_bool and newchat_rounds_bool or newchat_lenth_bool
-
-                self.info_manager.log(
-                    ''.join(
-                        [
-                            '长对话优化日志：',
-                            '\n当前对话次数:', str(len(self.current_chat.history)-1),
-                            '\n当前对话长度（包含system prompt）:', str(full_chat_lenth),
-                            '\n当前新对话轮次:', str(self.new_chat_rounds), '/', str(APP_SETTINGS.generation.max_message_rounds),
-                            '\n新对话长度:', str(len(str(self.current_chat.history[-self.new_chat_rounds:]))),
-                            '\n触发条件:',
-                            '\n总对话轮数达标:'
-                            '\n对话长度达达到', str(APP_SETTINGS.generation.max_message_rounds), ":", str(message_lenth_bool),
-                            '\n新对话轮次超过限制:', str(newchat_rounds_bool),
-                            '\n新对话长度超过限制:', str(newchat_lenth_bool),
-                            '\n触发长对话优化:', str(long_chat_improve_bool)
-                        ]
-                    ),
-                    level='info'
-                )
-            except Exception as e:
-                self.info_manager.notify(level='error',text='长对话优化失败'+str(e))
-                print("LCI还能失败？")
-            return long_chat_improve_bool
+        return result.triggered
 
     #发送消息前的预处理，防止报错,触发长文本优化,触发联网搜索
     def sending_rule(self):   

@@ -10,12 +10,17 @@ LOGGER = LOGMANAGER
 
 from utils.str_tools import StrTools 
 
-from utils.preset_data import LongChatImprovePersetVars
+# No Qt!
+from psygnal import Signal
 
-#发送消息前处理器的patch
-class PreprocessorPatch:
-    def __init__(self, god_class):
-        self.god = god_class
+class RequestWorkflowManager:
+    log=Signal(str)
+    error=Signal(str)
+    warning=Signal(str)
+
+    def __init__(self,search_facade):
+        self.search_facade=search_facade
+
 
     def prepare_patch(self):
         """预处理消息并构建API参数"""
@@ -43,21 +48,33 @@ class PreprocessorPatch:
         return pack
 
 
-    def _handle_web_search_results(self):
-        user_input=self.god.chathistory[-1]['content']
-        if isinstance(user_input,list):
-            for item in user_input:
-                if item['type']=='text':
-                    user_input=item['text']
-                    break
-        if APP_SETTINGS.web_search.web_search_enabled:
-            self.god.web_searcher.perform_search(user_input)
-            self.god.web_searcher.wait_for_search_completion()
-            if APP_SETTINGS.web_search.use_llm_reformat:
-                results = self.god.web_searcher.rag_result
-            else:
-                results = self.god.web_searcher.tool.format_results()
-            return results
+
+    def do_web_search(self, query: str, *, force_rag: bool | None = None) -> dict:
+        web_cfg = APP_SETTINGS.web_search
+        api_cfg = APP_SETTINGS.api
+
+        # 如果 force_rag 传了就覆盖配置，否则用配置
+        use_rag = web_cfg.use_llm_reformat if force_rag is None else force_rag
+
+        rag_url = rag_key = rag_model = ""
+        if use_rag:
+            pack = web_cfg.reformat_config  # LLMUsagePack(provider/model)
+            provider = api_cfg.providers.get(pack.provider)
+            if not provider:
+                raise ValueError(f"未找到 provider: {pack.provider}")
+
+            rag_url = provider.url
+            rag_key = provider.key
+            rag_model = pack.model
+
+        return self.search_facade.run(
+            query=query,
+            limit=web_cfg.search_results_num,
+            use_rag=use_rag,
+            rag_provider_url=rag_url,
+            rag_provider_key=rag_key,
+            rag_model=rag_model,
+        )
 
     def _handle_mod_functions(self, messages):
         """处理模块功能"""

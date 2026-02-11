@@ -3,7 +3,6 @@ import time
 import uuid
 from PyQt6.QtCore import QObject,QTimer,pyqtSignal
 from service.chat_completion import FullFunctionRequestHandler,APIRequestHandler
-from core.session.preprocessor import PreprocessorPatch,Preprocessor,PostProcessor
 from core.tool_call.tool_core import get_functions_events,get_tool_registry,ToolRegistry
 from core.session.concurrentor import ConvergenceDialogueOptiProcessor
 from core.session.title_generate import TitleGenerator
@@ -12,6 +11,8 @@ from core.session.lci_helper import LciMetrics,LciEvaluation
 from core.multimodal_coordination.background_generater_helper import BggEvaluation,BggMetrics
 from core.multimodal_coordination.background_generate import BackgroundWorker
 from core.session.data import ChatCompletionPack
+from core.session.preprocessor import RequestWorkflowManager
+from service.web_search import WebSearchFacade,RagFilter,WebRagPresetVars
 from config import APP_SETTINGS
 
 if TYPE_CHECKING:
@@ -50,12 +51,26 @@ class ChatFlowManager(QObject):
         api_requester=APIRequestHandler(api_config=APP_SETTINGS.api.providers)
         self.title_generator=TitleGenerator(api_handler=api_requester)
 
+        self.search_facade = WebSearchFacade(
+            engine_name=APP_SETTINGS.web_search.search_engine,
+            max_workers=min(6, APP_SETTINGS.web_search.search_results_num),
+            timeout=12,
+            rag_filter=RagFilter(
+                prefix=WebRagPresetVars.prefix,
+                suffix=WebRagPresetVars.subfix,
+            )
+        )
         # 持有会话管理器
         self.session_manager = session_manager
 
         self.lci= None # LciManager()
 
         self.bgg= BackgroundWorker()
+
+        self.request_workflow_manager=RequestWorkflowManager()
+        self.request_workflow_manager.log.connect(self.log.emit)
+        self.request_workflow_manager.warning.connect(self.warning.emit)
+        self.request_workflow_manager.error.connect(self.error.emit)
 
 
     def init_requester(self):
@@ -266,7 +281,8 @@ class ChatFlowManager(QObject):
             optional={
                 "temp_style": temp_style,
             #    "enforce_lower_repeat_text": APP_RUNTIME.force_repeat.text 让patch处理器现场算
-            }
+            },
+            mod=[]#self._handle_mod_functions],
         )
 
         # 让request_workflow_manager自己管理各个请求器的信号

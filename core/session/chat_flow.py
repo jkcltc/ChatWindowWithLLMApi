@@ -67,7 +67,9 @@ class ChatFlowManager(QObject):
 
         self.bgg= BackgroundWorker()
 
-        self.request_workflow_manager=RequestWorkflowManager()
+        self.request_workflow_manager = RequestWorkflowManager(
+            search_facade=self.search_facade
+        ) 
         self.request_workflow_manager.log.connect(self.log.emit)
         self.request_workflow_manager.warning.connect(self.warning.emit)
         self.request_workflow_manager.error.connect(self.error.emit)

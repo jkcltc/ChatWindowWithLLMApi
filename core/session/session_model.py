@@ -181,6 +181,28 @@ class ChatSession:
 
         return total
 
+    def get_last_message(self, role: str = "") -> Optional[Dict]:
+        """获取最后一条消息（可按role过滤）"""
+        if not self.current_chat.history:
+            return []
+        if not role:
+            return self.current_chat.history[-1]
+        for msg in reversed(self.current_chat.history):
+            if msg.get("role") == role:
+                return msg
+        return []
+    
+    def get_last_index(self, role: str = "") -> int:
+        """获取最后一条消息的索引（可按role过滤），找不到返回 -1"""
+        if not self.history:
+            return -1
+        if not role:
+            return len(self.history) - 1
+        for i in range(len(self.history) - 1, -1, -1):
+            if self.history[i].get("role") == role:
+                return i
+        return -1
+    
     @property
     def new_chat_length(self):
         return self.get_last_n_length(self.new_chat_rounds)

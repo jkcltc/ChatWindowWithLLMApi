@@ -247,6 +247,10 @@ class SessionManager:
     def chat_id(self) -> str:
         """获取当前会话的唯一标识符"""
         return self.current_chat.chat_id
+    
+    @property
+    def name(self)->dict:
+        return self.current_chat.name
 
     def get_system_message(self) -> Optional[Dict]:
         """获取系统消息（第一条role为system的消息）"""
@@ -262,14 +266,7 @@ class SessionManager:
 
     def get_last_message(self, role: str = "") -> Optional[Dict]:
         """获取最后一条消息（可按role过滤）"""
-        if not self.current_chat.history:
-            return None
-        if not role:
-            return self.current_chat.history[-1]
-        for msg in reversed(self.current_chat.history):
-            if msg.get("role") == role:
-                return msg
-        return None
+        return self.current_chat.get_last_message(role=role)
     
     def get_recent_messages(self, n: int = 10) -> List[Dict]:
         """获取最近的n条消息"""
@@ -440,7 +437,7 @@ class SessionManager:
             self.current_chat.tools = tools
         self.request_autosave()
 
-    def add_message(self,role:str,content: str, multimodal=None):
+    def add_message(self,role:str,content: str, multimodal=None,info:dict=None):
         new_msg = {
             'role': role,
             'content': content,
@@ -451,6 +448,9 @@ class SessionManager:
         }
         if multimodal:
             new_msg['info']['multimodal'] = multimodal
+        if info:
+            for key, value in info.items():
+                new_msg['info'][key] = value
 
         self.current_chat.history.append(new_msg)
         self.request_autosave()

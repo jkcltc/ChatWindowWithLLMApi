@@ -284,6 +284,13 @@ class AutoReplaceSettings(BaseSettings):
     autoreplace_from: str = ''
     autoreplace_to: str = ''
 
+# ================== 工具隔离 =====================
+
+class UserToolPermission(BaseSettings):
+    """用户工具权限"""
+    enabled = True
+    names = []
+
 # ==================== 快捷键 =====================
 
 class HotkeySingle(BaseSettings):
@@ -518,6 +525,8 @@ class AppSettings(BaseSettings):
     ui: UIStatus = Field(default_factory=UIStatus)
     """UI和UI恢复设置"""
 
+    tool_permission: UserToolPermission = Field(default_factory=UserToolPermission)
+
 # 初始化单例
 APP_SETTINGS = AppSettings()
 
@@ -559,9 +568,15 @@ class ForceRepeatSettings(BaseSettings):
     """强制降重"""
     text: str = ''
 
+
+class DangerousTools(BaseSettings):
+    """危险工具"""
+    names = []
+
 # >>> 全局运行时单例 <<<
 class AppRuntime(BaseSettings):
     paths: AppPaths = Field(default_factory=AppPaths)
     force_repeat: ForceRepeatSettings = Field(default_factory=ForceRepeatSettings)
+    dangerous_tools: DangerousTools = Field(default_factory=DangerousTools)
 
 APP_RUNTIME=AppRuntime()

@@ -99,7 +99,7 @@ class ToolRegistry:
     def get(self, name: str) -> Optional[Tool]:
         return self._tools.get(name)
 
-    def list(self, *,  tags: Optional[List[str]]=None):
+    def list(self, *,  tags: Optional[List[str]]=None) ->list:
         tools = list(self._tools.values())
         if tags:
             tools = [t for t in tools if set(tags) & set(t.tags)]

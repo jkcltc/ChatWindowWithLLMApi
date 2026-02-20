@@ -45,6 +45,7 @@ class DeltaType(Enum):
     TOOL_CALL = "tool_call"
     DONE = "done"
     ERROR = "error"
+    USAGE = "usage"
 
 
 @dataclass
@@ -58,6 +59,7 @@ class DeltaObject:
     finish_reason: Optional[str] = None
     delta_type: DeltaType = DeltaType.CONTENT
     raw_data: Optional[Dict] = None
+    usage: Optional[Dict] = None 
     
     @classmethod
     def from_openai_delta(cls, delta_data: Dict[str, Any]) -> "DeltaObject":
@@ -111,6 +113,11 @@ class DeltaObject:
     
     def is_empty(self) -> bool:
         """检查此 delta 是否为空（无有效内容）"""
+        if self.delta_type == DeltaType.USAGE and self.usage:
+            return False
+        if self.delta_type == DeltaType.DONE:
+            return False
+
         return not (self.content or self.reasoning_content or self.tool_calls)
 
 
@@ -142,16 +149,24 @@ class SSEEvent:
     
     def get_first_delta(self) -> Optional[DeltaObject]:
         """获取第一个 choice 的 delta"""
+        # 1. 优先处理 Usage (通常在最后，没有 choices)
+        if self.usage:
+            return DeltaObject(
+                delta_type=DeltaType.USAGE,
+                usage=self.usage,
+                raw_data=self.data # 依然保留 raw_data 用于调试，但不再依赖它
+            )
         if not self.choices:
             return None
         
         choice = self.choices[0]
         delta_data = choice.get('delta', {})
-        
+
         delta = DeltaObject.from_openai_delta(delta_data)
         delta.finish_reason = choice.get('finish_reason')
-        
+
         return delta
+
     
     def get_finish_reason(self) -> Optional[str]:
         """获取完成原因"""
@@ -273,34 +288,37 @@ class SimpleSSEParser:
         Yields:
             DeltaObject: 增量内容
         """
-        parser = SSEParser(logger=logger)
         
-        # 使用 decode_unicode=True 让 requests 自动处理编码
         try:
-            for line in response.iter_lines(decode_unicode=True):
-                if not line:
+            for line_bytes in response.iter_lines(decode_unicode=False):
+                if not line_bytes:
                     continue
-                    
+                line = decode_content(line_bytes)
+
                 if line.startswith('data:'):
                     data_str = line[5:].lstrip()
-                    
+
                     if data_str == '[DONE]':
                         yield DeltaObject(delta_type=DeltaType.DONE)
                         break
-                    
+
                     try:
                         event_data = json.loads(data_str)
                         event = SSEEvent.from_json(event_data)
                         delta = event.get_first_delta()
-                        
-                        if delta and not delta.is_empty():
-                            yield delta
-                            
+
+                        if delta:
+                            delta.raw_data = event_data
+                            if not delta.is_empty():
+                                yield delta
+
                     except json.JSONDecodeError:
                         if logger:
                             logger(f"JSON parse error: {data_str[:50]}...")
                         continue
-                        
+        except (AttributeError, ValueError) as e:
+            return
+        
         except Exception as e:
             if logger:
                 logger(f"Stream parse error: {e}")

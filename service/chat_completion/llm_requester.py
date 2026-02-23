@@ -39,11 +39,12 @@ from typing import Dict, Any, List, Optional, Callable, Union,TYPE_CHECKING,Iter
 from dataclasses import dataclass, field
 import traceback
 import requests
-from psygnal import Signal,SignalInstance
+
 import uuid
 
 from .stream_parser import DeltaObject, DeltaType, SimpleSSEParser,decode_content
 from .reasoning_parser import StreamingReasoningParser,SimpleReasoningParser
+from .signals import RequesterSignals
 
 
 # 结束原因映射
@@ -89,7 +90,7 @@ class RequestResult:
     finish_reason: Optional[str] = None
     model: Optional[str] = None
     usage: Optional[Dict] = None
-    server_id : list = field(default_factory=list)
+    server_id : set = field(default_factory=set)
 
     # type hint only
     info: Dict[str, Any] = field(default_factory=dict)
@@ -109,7 +110,7 @@ class RequestResult:
                 'id': self.request_id,
                 'model': self.model,
                 'time': time.strftime("%Y-%m-%d %H:%M:%S"),
-                'server_id':self.server_id,
+                'server_id':list(self.server_id),
                 'finish_reason': self.finish_reason,
                 **(self.usage or {})
             }
@@ -121,110 +122,10 @@ class RequestResult:
         return [message]
 
 
-class RequesterSignals:
-    """
-    LLM响应信号总线（使用 psygnal）
-    
-    content/reasoning 携带 request_id 作为第一个参数
-
-    tool call 携带 toolcall id 作为第一个参数
-
-    """
-    # 基础流式输出
-    stream_content = Signal(str, str)       # (request_id, content_delta)
-    stream_reasoning = Signal(str, str)     # (request_id, reasoning_delta)
-    stream_tool_delta = Signal(str, dict)   # (toolcall_id, tool_call_delta)
-
-    # 拼接结果输出
-    full_content = Signal(str, str)         # (request_id, full_content)
-    full_reasoning = Signal(str, str)      # (request_id, full_reasoning)
-    full_tool_call = Signal(str, str)     # (toolcall_id, full_tool_call_argument_content)
-    
-    # 状态通知
-    started = Signal(str)                   # (request_id)
-    finished = Signal(str, list)            # (request_id, result_list)
-    failed = Signal(str, str)               # (request_id, error_message)
-    """api error"""
-    paused = Signal(str)                    # (request_id)
-    
-    # 特殊事件
-    tool_calls_detected = Signal(str, list) # (request_id, list_of_tool_calls)
-    finish_reason_received = Signal(str, str, str)  # (request_id, raw_reason, readable_reason)
-    
-    # 日志和调试
-    log = Signal(str)                       # (log_message)
-    warning = Signal(str)                   # (warning_message)
-    error=Signal(str)                       # (error_message)
-    """internal error"""
-
-    def disconnect_all(self):
-        """
-        断开当前实例上所有信号的所有槽连接。
-        """
-        # 里头只剩信号了
-        # 我就不信还能取到什么别的怪东西
-        for name, attr in vars(self).items():
-            if isinstance(attr, SignalInstance):
-                attr.disconnect()
-
-    
-    def bus_connect(self, 
-                    other, 
-                    exclude: Optional[Union[str, Iterable[str]]] = None, 
-                    include: Optional[Union[str, Iterable[str]]] = None):
-        """
-        将当前总线的信号连接到另一个总线实例。支持黑名单和白名单过滤。
-
-        Args:
-            other: 目标对象（RequesterSignals 或 Qt 镜像对象）。
-            exclude: 不需要连接的信号名称列表（黑名单）。优先级高于 include。
-            include: 仅需要连接的信号名称列表（白名单）。如果不传则默认连接所有（除非在 exclude 中）。
-        """
-        # 1. 标准化参数为集合 set
-        def to_set(val):
-            if val is None: return set()
-            if isinstance(val, str): return {val}
-            return set(val)
-
-        exclude_set = to_set(exclude)
-        include_set = to_set(include)
-
-        # 2. 遍历自身所有属性
-        for name in dir(self):
-            # 跳过私有属性
-            if name.startswith("_"):
-                continue
-
-            # 3. 过滤逻辑
-            # 如果在黑名单中，跳过
-            if name in exclude_set:
-                continue
-
-            # 如果指定了白名单，且当前名字不在白名单中，跳过
-            if include_set and name not in include_set:
-                continue
-
-            # 4. 获取属性并检查类型
-            attr_self = getattr(self, name)
-
-            # 必须是 psygnal 的信号实例
-            if isinstance(attr_self, SignalInstance):
-                if hasattr(other, name):
-                    attr_other = getattr(other, name)
-                    if hasattr(attr_other, 'emit') and callable(attr_other.emit):
-                        attr_self.connect(attr_other.emit)
-
-
 class OneTimeLLMRequester:
     """
-    LLM 单次请求执行器
-    
-    设计原则：
-    1. 无状态：每次请求独立，不维护对话历史
-    2. 去 Qt 化：使用 psygnal，可在任何 Python 环境运行S
-    3. 职责单一：只负责"发请求-收响应"，不处理工具调用循环
-    4. 流式优先：原生支持流式输出
-    
+    openai chat completion单次请求
+
     使用示例：
         requester = LLMRequester()
         requester.signals.stream_content.connect(lambda rid, text: print(text, end=''))
@@ -236,9 +137,7 @@ class OneTimeLLMRequester:
             'stream': True
         })
     """
-    
 
-    
     def __init__(self, config:"RequestConfig", session:requests.Session=None):
         """
         初始化请求处理器
@@ -287,6 +186,10 @@ class OneTimeLLMRequester:
         """是否正在运行"""
         return self._state == RequestState.RUNNING
     
+    @property
+    def paused(self):
+        return self._pause_flag.is_set()
+    
     def set_provider(self, provider: "RequestConfig"):
         """
         设置 API 提供商
@@ -307,13 +210,13 @@ class OneTimeLLMRequester:
             self.signals.paused.emit(self._current_request_id)
         
         self.close()
-       
+
 
     def send_request(
         self,
         params: Dict[str, Any],
-        extra_headers: Optional[Dict[str, str]] = None,
-        create_thread:bool=True
+        create_thread:bool=True,
+        id:str=''
     ):
         """
         发送请求（主要）
@@ -322,7 +225,6 @@ class OneTimeLLMRequester:
         
         Args:
             params: OpenAI 格式的请求参数
-            extra_headers: 额外的请求头
             create_thread: 是否需要创建独立线程
 
         """
@@ -334,15 +236,17 @@ class OneTimeLLMRequester:
             raise RuntimeError("Requester already executed")
         
         self._already_executed = True
+
+        self._current_request_id = id if id else f"CWLA_req_{uuid.uuid4()}"
+        
         if create_thread:
-            self._send_request_multithreading(params, extra_headers)
+            self._send_request_multithreading(params)
         else:
-            self._send_request_sync(params, extra_headers)
+            self._send_request_sync(params)
 
     def _send_request_multithreading(
         self,
         params: Dict[str, Any],
-        extra_headers: Optional[Dict[str, str]] = None
     ):  
         """
         发送请求（创建线程）
@@ -350,12 +254,10 @@ class OneTimeLLMRequester:
 
         :param params: 数据包
         :type params: Dict[str, Any]
-        :param extra_headers: 额外头，用户可以自定义
-        :type extra_headers: Optional[Dict[str, str]]
         """
         thread = threading.Thread(
             target=self._execute_request_sync,
-            args=(params, extra_headers),
+            args=(params,),
             daemon=True,
             name=f"LLM-Worker-{str(uuid.uuid4())[-4:]}"
         )
@@ -364,7 +266,6 @@ class OneTimeLLMRequester:
     def _send_request_sync(
         self,
         params: Dict[str, Any],
-        extra_headers: Optional[Dict[str, str]] = None
     ) :
         """
         发送请求（阻塞）
@@ -372,27 +273,32 @@ class OneTimeLLMRequester:
         
         Args:
             params: OpenAI 格式的请求参数
-            extra_headers: 额外的请求头
             
         Returns:
             请求结果，失败时返回 None
         """
         # 同步执行请求，不使用额外线程
-        self._execute_request_sync(params, extra_headers)
+        self._execute_request_sync(params)
     
     def _execute_request_sync(
         self,
         params: Dict[str, Any],
-        extra_headers: Optional[Dict[str, str]] = None
     ):
         """同步发送请求的内部实现"""
+        
+        if self._pause_flag.is_set():
+
+            # 我们遇到了一个手速超人，在线程创建途中点了取消
+            # 直接raise进final
+
+            raise RuntimeError("Super Fast Cancel")
+        
         # 重置状态
         self._state = RequestState.RUNNING
         self._pause_flag.clear()
-        self._current_request_id = f"CWLA_req_{uuid.uuid4()}"
         self._current_response = None
         self._tool_calls_buffer.clear()
-        result = None
+        self.result = None
         
         
         # 初始化思维链解析器（本地模型需要）
@@ -406,9 +312,16 @@ class OneTimeLLMRequester:
         
         try:
             # 构建请求
-            url = f"{self.config.url.rstrip('/')}/chat/completions"
-            headers = self._build_headers(extra_headers)
-            
+            url = f"{self.config.url.rstrip('/')}"
+            if not "/chat/completions" in url:
+                url += f"/chat/completions"
+
+            headers = self._build_headers(params.get('extra_headers',{}))
+            # openai 默认构建的payload允许有extra_headers，但请求里是不需要的
+            if 'extra_headers' in params:
+                params.pop('extra_headers')
+            print('otlr',params,headers)
+
             is_stream = params.get('stream', False)
             
             if is_stream:
@@ -418,7 +331,7 @@ class OneTimeLLMRequester:
             
             self._state = RequestState.COMPLETED
 
-            if self.result:
+            if self.result != RequestResult(request_id=self._current_request_id):
                 self.signals.finished.emit(self._current_request_id, self.result.to_chat_history())
                 return self.result
             else:
@@ -439,8 +352,9 @@ class OneTimeLLMRequester:
                 self._state = RequestState.COMPLETED
 
                 # 检查之前是否已经有部分结果
-                if not result:
-                    result = RequestResult(request_id=self._current_request_id)
+                if not self.result:
+                    # 给个空结果，上层报空回警告
+                    self.result = RequestResult(request_id=self._current_request_id)
 
                 self.signals.finished.emit(self._current_request_id, self.result.to_chat_history())
 
@@ -507,7 +421,6 @@ class OneTimeLLMRequester:
                     f"HTTP {response.status_code}: {error_text}",
                     response=response
                 )
-            
             # 解析 SSE 流
             for delta in SimpleSSEParser.parse_stream(response, logger=self._log):
                 # 检查暂停
@@ -520,7 +433,7 @@ class OneTimeLLMRequester:
                 # 处理 delta
                 if delta.delta_type == DeltaType.DONE:
                     break
-
+                
                 self._process_delta(delta, self.result)
 
             # 完成思维链解析
@@ -545,12 +458,6 @@ class OneTimeLLMRequester:
             
             return self.result
             
-        except requests.exceptions.ConnectionError as e:
-            self.signals.error.emit(f"无法连接到服务器: {e}")
-        except requests.exceptions.Timeout as e:
-            self.signals.error.emit(f"请求超时: {e}")
-        except requests.exceptions.RequestException as e:
-            self.signals.error.emit(f"网络请求错误: {e}")
         finally:
             self.close()
     
@@ -582,10 +489,16 @@ class OneTimeLLMRequester:
                 choice = data['choices'][0]
                 message = choice.get('message', {})
                 
-                self.result.content = message.get('content', '')
-                self.result.reasoning_content = message.get('reasoning_content', '') or message.get('reasoning', '')
-                self.result.finish_reason = choice.get('finish_reason')
+                ct=message.get('content', '')
+                self.result.content = ct if ct else ''
+
+                rc= message.get('reasoning_content', '') or message.get('reasoning', '')
+                self.result.reasoning_content = rc if rc else ''
+
+                self.result.finish_reason = choice.get('finish_reason') or None # supported by upper layer
+
                 self.result.tool_calls = message.get('tool_calls')
+
                 self.result.usage = data.get('usage')
                 
                 # 处理本地模型的思维链
@@ -598,7 +511,7 @@ class OneTimeLLMRequester:
                     # 32k*1.6 = 51,200字符
                     # 好像也不多，ms级在后台或者线程里的任务不太影响
                     if parse_result.reasoning_content in parse_result.content:
-                        parse_result.reasoning_content = parse_result.content.replace(parse_result.reasoning_content, '')
+                        parse_result.content = parse_result.content.replace(parse_result.reasoning_content, '')
 
                     self.result.content = parse_result.content
                     self.result.reasoning_content = parse_result.reasoning_content or self.result.reasoning_content
@@ -626,15 +539,14 @@ class OneTimeLLMRequester:
         # 大概是没有吧
         if delta.raw_data and 'id' in delta.raw_data:
             _sv_id=delta.raw_data['id']
-            if not _sv_id in result.server_id:
-                result.server_id.append(_sv_id)
+            result.server_id.add(_sv_id)
         
         # 更新模型信息
         if delta.raw_data and 'model' in delta.raw_data:
             result.model = delta.raw_data['model']
 
         # 更新用量
-        if delta.delta_type == DeltaType.USAGE:
+        if delta.usage:
             result.usage = delta.usage
 
         # 但话又说回来了，
@@ -737,6 +649,7 @@ class OneTimeLLMRequester:
                         'arguments_full': self._tool_calls_buffer[idx]['function']['arguments']
                     }
                 )
+                # UI刷新：tool call content
                 self.signals.full_tool_call.emit(
                     self._tool_calls_buffer[idx]['id'],
                     self._tool_calls_buffer[idx]['function']['arguments']
@@ -744,7 +657,7 @@ class OneTimeLLMRequester:
     
     def _emit_finish_reason(self, finish_reason: Optional[str]):
         """发送结束原因信号"""
-        readable = self.FINISH_REASON_MAP.get(finish_reason, f"未知结束类型: {finish_reason}")
+        readable = FINISH_REASON_MAP.get(finish_reason, f"未知结束类型: {finish_reason}")
         self.signals.finish_reason_received.emit(
             self._current_request_id,
             str(finish_reason),
@@ -763,7 +676,8 @@ class OneTimeLLMRequester:
                 if 'error' in error_data:
                     error_msg = f"{error_msg} - {error_data['error']}"
             except:
-                pass
+                error_data = error.response.text
+                error_msg = f"{error_msg} - {error_data}"
         
         return f"[{error_type}] {error_msg}"
     

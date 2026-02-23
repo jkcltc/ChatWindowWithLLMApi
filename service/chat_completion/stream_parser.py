@@ -65,10 +65,10 @@ class DeltaObject:
     def from_openai_delta(cls, delta_data: Dict[str, Any]) -> "DeltaObject":
         """从 OpenAI 格式的 delta 数据创建 DeltaObject"""
         # 提取内容
-        content = delta_data.get('content')
+        content = delta_data.get('content') or ""
         
         # 提取思维链（支持多种字段名）
-        reasoning = delta_data.get('reasoning_content') or delta_data.get('reasoning')
+        reasoning = delta_data.get('reasoning_content') or delta_data.get('reasoning') or ""
         
         # 提取工具调用
         tool_calls = None
@@ -149,21 +149,27 @@ class SSEEvent:
     
     def get_first_delta(self) -> Optional[DeltaObject]:
         """获取第一个 choice 的 delta"""
-        # 1. 优先处理 Usage (通常在最后，没有 choices)
-        if self.usage:
-            return DeltaObject(
-                delta_type=DeltaType.USAGE,
-                usage=self.usage,
-                raw_data=self.data # 依然保留 raw_data 用于调试，但不再依赖它
-            )
-        if not self.choices:
-            return None
         
+        # 1. 如果根本没有 choices（传统的最后一条带 usage 的 chunk）
+        if not self.choices:
+            if self.usage:
+                return DeltaObject(
+                    delta_type=DeltaType.USAGE,
+                    usage=self.usage,
+                    raw_data=self.data
+                )
+            return None
+
+        # 2. 正常解析 choice 的内容
         choice = self.choices[0]
         delta_data = choice.get('delta', {})
 
         delta = DeltaObject.from_openai_delta(delta_data)
         delta.finish_reason = choice.get('finish_reason')
+        
+        # 3. chunk 附带了 usage,挂载到 delta 上
+        if self.usage:
+            delta.usage = self.usage
 
         return delta
 

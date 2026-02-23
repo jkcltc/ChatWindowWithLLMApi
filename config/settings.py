@@ -229,11 +229,11 @@ class ForceRepeatSettings(BaseSettings):
 class GenerationSettings(BaseSettings): 
     """生成参数设置"""
     stream_receive: bool = True
-    top_p_enable: bool = True
+    top_p_enable: bool = False
     top_p: float = 0.8
-    temperature_enable: bool = True
+    temperature_enable: bool = False
     temperature: float = 0.7
-    presence_penalty_enable: bool = True
+    presence_penalty_enable: bool = False
     presence_penalty: float = 1.0
     thinking_enabled: bool = False
     reasoning_effort: int = 0
@@ -288,8 +288,8 @@ class AutoReplaceSettings(BaseSettings):
 
 class UserToolPermission(BaseSettings):
     """用户工具权限"""
-    enabled = True
-    names = []
+    enabled:bool = True
+    names:list = []
 
 # ==================== 快捷键 =====================
 
@@ -571,7 +571,7 @@ class ForceRepeatSettings(BaseSettings):
 
 class DangerousTools(BaseSettings):
     """危险工具"""
-    names = []
+    names:list = []
 
 # >>> 全局运行时单例 <<<
 class AppRuntime(BaseSettings):

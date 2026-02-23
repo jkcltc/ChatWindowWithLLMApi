@@ -3,7 +3,7 @@ from ..patch_manager import register_provider
 from .commons import filter_and_transform_content
 
 @register_provider("siliconflow")
-def patch_openai_compatible_logic(params, config):
+def patch_openai_compatible_logic(params, config:dict):
     """
     siliconflow
     """
@@ -11,9 +11,13 @@ def patch_openai_compatible_logic(params, config):
 
     ability = config.get('input_ability', ['text', 'image', 'audio']) 
 
+    reasoning= config.get('reasoning_effort',0)
+
     # -------- 1. 多模态标准化 --------
     if 'messages' in params and isinstance(params['messages'], list):
         filter_and_transform_content(params['messages'], ability, "OpenAI_Compat", im)
+    
+    params['enable_thinking'] = reasoning>0
 
     # -------- 2. Header --------
     extra_headers = params.get('extra_headers', {})

@@ -1,44 +1,30 @@
-from PyQt6.QtCore import QObject, pyqtSignal
-from psygnal import Signal
-
-import requests
 import threading
 import traceback
 import uuid
+import time
+from typing import TYPE_CHECKING,Literal
 
-from typing import TYPE_CHECKING
+from psygnal import Signal
+import requests
+
+from config import APP_SETTINGS,APP_RUNTIME
 
 from core.tool_call.tool_core import get_tool_registry
 from core.session.preprocessor import Preprocessor
-from service.web_search import WebSearchFacade,RagFilter,WebRagPresetVars
-from service.chat_completion.llm_requester import RequesterSignals,OneTimeLLMRequester,RequestConfig
-from config import APP_SETTINGS,APP_RUNTIME
+from core.session.signals import RequestFlowManagerSignalBus
 
 from utils.str_tools import StrTools
 from utils.status_analysis import StatusAnalyzer
 
+from service.chat_completion.signals import RequesterSignals
+from service.web_search import WebSearchFacade,RagFilter,WebRagPresetVars
+from service.chat_completion.llm_requester import OneTimeLLMRequester,RequestConfig
+
 if TYPE_CHECKING:
-    from config.settings import AutoReplaceSettings
+    from config.settings import AutoReplaceSettings,UserToolPermission,DangerousTools
     from requests import Session as requests_session
     from .data import ChatCompletionPack
     from .session_model import ChatMessage,ChatSession
-
-
-def _create_qt_bus_class(psygnal_cls, class_name="QtSignalBus"):
-    """
-    根据 Psygnal 信号类定义，动态生成一个镜像的 QObject 信号总线类。
-    """
-
-    qt_signals = {}
-
-    for name, attr in psygnal_cls.__dict__.items():
-        if isinstance(attr, Signal):
-            qt_signals[name] = pyqtSignal(*getattr(attr, '_types', ()))
-
-    return type(class_name, (QObject,), qt_signals)
-
-# 用类型提示骗代码补全
-QRequesterSignals:RequesterSignals = _create_qt_bus_class(RequesterSignals, "QRequesterSignals")
 
 class MidProcessor:
     """
@@ -67,7 +53,7 @@ class MidProcessor:
         
         request_signals.bus_connect(
             other= self.output_signals,
-            exclude=['stream_content','full_content']
+            exclude=['stream_content','full_content','finished']
         )
 
         # full_content全部拦截，stream内容重写
@@ -97,9 +83,6 @@ class MidProcessor:
         # 5. 全量信号同步更新
         self.signals.full_content.emit(req_id, current_processed)
 
-if TYPE_CHECKING:
-    from config.settings import UserToolPermission,DangerousTools
-
 class PostProcessor:
     warning = Signal(str)
 
@@ -120,7 +103,7 @@ class PostProcessor:
 
         # 真的有服务器不返finish_reason = tool_call的
         # 所以不检查结束原因直接过tool filter，
-        tc_list= self._handle_tool_filter(chat_message)
+        tc_list= self.handle_tool_filter(chat_message)
 
         chat_message=self._content_replace(chat_message)
 
@@ -142,7 +125,7 @@ class PostProcessor:
         
         return chat_message
 
-    def _handle_tool_filter(self, chat_message)->list:
+    def handle_tool_filter(self, chat_message)->list:
         if "tool_calls" not in chat_message[0]:
             return []
         
@@ -177,7 +160,7 @@ class PostProcessor:
         if not finish_reason in [
             'tool_calls','stop',"None","Null","length","tool_call","paused","function_call"
             ]:
-            self.abnormal_finish.emit(chat_message[0]['info']['finish_reason'])
+            self.warning.emit(f"非正常结束： {chat_message[0]['info']['finish_reason']}")
 
         if not finish_reason == 'content_filter':
             has_content = (
@@ -187,7 +170,7 @@ class PostProcessor:
             )
 
             if not has_content:
-                self.warning.emit("empty message received, finish_reason: "+finish_reason)
+                self.warning.emit("空回复: "+finish_reason)
 
 class RequesterPool:
     log=Signal(str)
@@ -234,25 +217,8 @@ class RequestFlowManager:
         CFM下发对话包 -> 创建新线程 -> 进pre(预处理) -> 创建请求器
         -> 发送请求 -> mid(中间处理)接管流式转发 -> 进post(后处理)
         -> 离开线程 -> post做工具调用拦截处理 -> 结束/工具回调循环
-    
-    Signals:
-        status (dict): 状态更新信号，包含当前流式解析状态
-        ask_for_tool_permission (str, list, list): 请求工具权限信号，参数为(请求ID, 允许工具列表, 危险工具列表)
-        request_tool_call_assembly (str, list): 请求组装工具回调信号，参数为(请求ID, 工具消息列表)
-        update_message (str, list): 更新消息信号，用于工具调用时临时上传AI消息，参数为(请求ID, 消息列表)
+
     """
-    status = Signal(dict)
-    """状态更新信号，发射当前流式解析的状态信息"""
-
-    ask_for_tool_permission = Signal(str, list, list)
-    """工具权限请求信号，参数: (request_id, allowed_tools, dangerous_tools)"""
-
-    request_tool_call_assembly = Signal(str, list)
-    """工具调用组装请求信号，参数: (request_id, tool_messages)"""
-
-    update_message = Signal(str, list)
-    """消息更新信号，用于工具调用时临时上传AI message，参数: (request_id, messages)"""
-
     def __init__(self):
         """
         初始化 RequestFlowManager。
@@ -260,6 +226,9 @@ class RequestFlowManager:
         初始化各处理器(pre/mid/post)、请求池、搜索组件和信号连接。
         """
         super().__init__()
+
+        # 信号总线
+        self.signals = RequestFlowManagerSignalBus()
 
         # 状态管理
         self.status_analyzer = StatusAnalyzer()
@@ -286,6 +255,7 @@ class RequestFlowManager:
         self.mid_processor = MidProcessor(
             ARS_config=APP_SETTINGS.replace,
         )
+        self._connect_mid_signals()
 
         self.post_processor = PostProcessor(
             ARS_config=APP_SETTINGS.replace,
@@ -300,11 +270,6 @@ class RequestFlowManager:
         self.request_session : "requests_session" = requests.session()
 
         self.current_requester : OneTimeLLMRequester = None
-
-        # 信号总线
-        self.signals = RequesterSignals()
-        self._connect_mid_signals()
-
 
         # cache
         self._request_id_for_tool=''
@@ -335,7 +300,7 @@ class RequestFlowManager:
             content: 当前流式内容片段
         """
         result = self.status_analyzer.process_stream(request_id, content)
-        self.status.emit(result)
+        self.signals.request_status.emit(result)
 
     def reset(self):
         """
@@ -344,13 +309,25 @@ class RequestFlowManager:
         清空工具请求ID缓存、放弃所有进行中的请求、重置状态分析器和中间处理器。
         通常在开始新请求前调用。
         """
-        self._request_id_for_tool = ''
+        
         self.requester_pool.abandon_all()
         self.status_analyzer.reset()
         self.mid_processor.reset()
         self.current_requester=None
-        # self.post_processor.reset() # 无状态
 
+        self._current_request_id = None
+
+        # 发送请求时生成
+        self._have_tool_at_sending:set[list:bool] = (None,'')
+
+        # 发生工具调用后生成
+        self._request_id_for_tool = ''
+        # self.post_processor.reset() # 无状态
+    
+    def pause(self):
+        if self.current_requester:
+            self.current_requester.pause()
+            self.reset()
 
     def _should_send_message(self, chat_session: "ChatSession", request_type="user_message"):
         """
@@ -405,7 +382,15 @@ class RequestFlowManager:
                     f"消息乱序: 续写模式要求最后一条消息来自 assistant，当前为 {history[-1].get('role')}"
                 )
 
-    def send_request(self, pack: "ChatCompletionPack", request_type="user_message"):
+    def send_request(
+            self, 
+            pack: "ChatCompletionPack", 
+            request_type:Literal[
+                "user_message",
+                "tool_message",
+                "assistant_continue"
+            ]="user_message"
+        ):
         """
         发送主对话请求。
         
@@ -423,15 +408,28 @@ class RequestFlowManager:
         """
         # 重置状态
         self.reset()
-
-        self._should_send_message(pack.chat_session,request_type)
+        try:
+            self._should_send_message(pack.chat_session,request_type)
+        except ToolNotExecutedError:
+            self.continue_tool_exec(pack=pack)
+        
+        # 申请ID
+        self._current_request_id = f"CWLA_req_{uuid.uuid4()}"
 
         self.status_analyzer.start_record(model=pack.model, provider=pack.provider_name)
 
-        # 打包工具详情
-        pack.tool_list=self.function_manager.openai_tools(
-            pack.chat_session.tools
+        # 检查发送时是否有工具
+        # 进引用，UI随时撤回工具授权
+        self._have_tool_at_sending:set[list:bool] = (
+            pack.chat_session.tools+pack.tool_list,
+            self._current_request_id
         )
+
+        tl =  []
+        tl.extend(pack.chat_session.tools)
+        tl.extend(pack.tool_list)
+
+        pack.tool_list=self.function_manager.openai_tools(tl)
 
         # 预先创建请求器以复用requester_pool
         req_config = RequestConfig(
@@ -439,7 +437,7 @@ class RequestFlowManager:
             url=pack.provider.url,
             provider_type=pack.provider.provider_type,
         )
-        
+
         self.current_requester=OneTimeLLMRequester(
             config = req_config,
             session=self.request_session
@@ -455,6 +453,7 @@ class RequestFlowManager:
               args=(pack,self.current_requester), 
               daemon=True
             ).start()
+        return True
 
     def _RWM_main_request_thread(self, pack: "ChatCompletionPack", requester: OneTimeLLMRequester):
         """
@@ -472,6 +471,7 @@ class RequestFlowManager:
         Note:
             网络错误由 requester 自身处理，此处只捕获处理内部错误。
         """
+        start_time=time.time()*1000
         try:
             # 1. 前处理
             __messages_unused, payload = self.pre_processor.prepare_message(pack)
@@ -481,23 +481,34 @@ class RequestFlowManager:
                 return
 
             # 3. 发送请求
-            requester.send_request(payload,create_thread=False)
+            self.signals.log.emit(f"[RWM M_R] msg prepare completed in {time.time()*1000-start_time:.2f}ms")
+            requester.send_request(payload,create_thread=False,id=self._current_request_id)
 
-        except:
+        except Exception as e:
             # 网络错误已经由requester处理
             # 主动的raise只有OTLR复用
             # 这里只处理内部错误
             error_message=traceback.format_exc()
             self.signals.error.emit(error_message)
-            self.signals.failed.emit(f"[RWM M_R] failed {uuid.uuid4()}",str(error_message))
-
-
+            self.signals.failed.emit(f"[RWM M_R] failed {uuid.uuid4()}",str(error_message)+str(e))
+        
+    def continue_tool_exec(self,pack:"ChatCompletionPack"):
+        self.reset()
+        message=[pack.chat_session.get_last_message('assistant')]
+        tc_list=self.post_processor.handle_tool_filter(chat_message=message)
+        self._current_request_id = td =  f"resume_{uuid.uuid4()}"
+        self._have_tool_at_sending = (tc_list, td)
+        self.handle_tool_permission(
+            request_id=self._current_request_id,
+            tc_list=tc_list,
+            create_thread = True
+        )
 
     def _on_requester_finished(self, request_id: str, result: list[dict]):
         """
         请求完成回调，处理响应结果和工具调用。
         
-        此方法在主线程执行，负责：
+        此方法负责：
         1. 后处理响应内容
         2. 如果没有工具调用，发射 finished 信号结束流程
         3. 如果有工具调用，分类处理(允许/拒绝)并进入工具回调流程
@@ -513,9 +524,14 @@ class RequestFlowManager:
             self.signals.finished.emit(request_id,chat_message)
             return
         else:
-            self.update_message.emit(request_id,chat_message)
+            self.signals.update_message.emit(request_id,chat_message)
+            self.handle_tool_permission(
+                request_id=request_id,
+                tc_list=tc_list,
+                create_thread=False
+            )
 
-        self._request_id_for_tool=request_id
+    def handle_tool_permission(self,request_id,tc_list,create_thread=True):
         _dn_tools=[]
         _ap_tools=[]
         for toolcall in tc_list:
@@ -526,16 +542,22 @@ class RequestFlowManager:
 
         # 一起发方便回传
         if _dn_tools:
-            self.ask_for_tool_permission.emit(request_id,_ap_tools,_dn_tools)
+            self.signals.ask_for_tool_permission.emit(request_id,_ap_tools,_dn_tools)
             return
-        self.exec_tool_calls(request_id=self._request_id_for_tool,allowed_tool_call=_ap_tools)
-
+        
+        # 自动审批情况下应该只有allowed
+        self.exec_tool_calls(
+            request_id=request_id,
+            allowed_tool_call=_ap_tools,
+            create_thread= create_thread
+        )
 
     def exec_tool_calls(
             self,
             request_id: str,
             allowed_tool_call: list,
             denied_tool_call: list = None,
+            create_thread:bool=True
         ):
         """
         执行工具调用。
@@ -550,16 +572,33 @@ class RequestFlowManager:
         Note:
             如果 request_id 不匹配当前缓存的ID，将放弃执行并发射警告信号。
         """
-        if request_id != self._request_id_for_tool:
+
+        if request_id != self._current_request_id:
             self.signals.warning.emit("请求ID不匹配，工具回调弃用")
             return
-        threading.Thread(
-            target=self._tool_call_thread,
-              args=(request_id,allowed_tool_call,denied_tool_call), 
-              daemon=True
-            ).start()
+        
+        current_tools, recorded_id = self._have_tool_at_sending
 
-    def _tool_call_thread(self, request_id, allowed_tool_call, denied_tool_call):
+        if recorded_id != request_id:
+            self.signals.warning.emit("工具快照版本不匹配")
+            return
+        
+        if create_thread:
+            threading.Thread(
+                target=self._tool_call_thread,
+                  args=(request_id, allowed_tool_call, denied_tool_call, current_tools), 
+                  daemon=True
+                ).start()
+        else:
+            self._tool_call_thread(request_id,allowed_tool_call,denied_tool_call,current_tools)
+
+    def _tool_call_thread(
+            self, 
+            request_id, 
+            allowed_tool_call, 
+            denied_tool_call:list=None,
+            valid_tool_names_snapshot: list[str] = None
+        ):
         """
         工具调用执行线程。
         
@@ -572,11 +611,40 @@ class RequestFlowManager:
             request_id: 请求唯一标识
             allowed_tool_call: 允许执行的工具调用列表
             denied_tool_call: 被拒绝的工具调用列表
-        
-        Emits:
-            request_tool_call_assembly: 组装完成的工具消息列表
+
         """
         message_to_be_returned={}
+        quick_deny=False
+        # 用户替换了新对话
+        if request_id != self._current_request_id:
+            # 静默返回
+            pass
+
+            return
+
+        # 针对暂停
+        if self.current_requester and self.current_requester.paused:
+            quick_deny="工具调用已取消。原因：用户暂停了当前对话。"
+
+        # 请求时没有带工具，但收到了工具请求
+        # 模型幻觉被服务器后端解析了，常见于Deepseek，但也可能是https被劫持了'
+        elif not valid_tool_names_snapshot:
+            warning_message=" **!!!警告：非预期的工具调用!!!**  \n请求未搭载工具，但收到工具调用响应。 \n立即检查服务是否被劫持！ \n> 可能的其他原因：工具调用来自模型幻觉。"
+            quick_deny="工具调用已取消。原因：工具未挂载。"
+            self.signals.warning.emit(warning_message)
+
+        for tool in allowed_tool_call:
+            if not tool['tool_call']['function']['name'] in valid_tool_names_snapshot:
+                quick_deny="工具调用已取消。原因：工具未注册。"
+                break
+
+        # 有全拒绝标志，全部给否定
+        if quick_deny:
+            if not denied_tool_call:
+                denied_tool_call = []
+            denied_tool_call+=allowed_tool_call
+            allowed_tool_call=[]
+
         for call in allowed_tool_call:
             tool_to_exec=call['tool_call']
             call_index=call["index"]
@@ -589,7 +657,7 @@ class RequestFlowManager:
                     tool_result = f"工具执行出错: {exec_result['message']}"
                     self.signals.warning.emit(tool_result)
             except Exception as e:
-                # AI用错误的参数调用了工具或者执行内容把工具干碎了
+                # AI用错误的参数调用了工具或者执行内容把工具核心干碎了
                 tool_result= f"工具解析出错: {e}"
 
             message_to_be_returned[call_index]={
@@ -606,18 +674,22 @@ class RequestFlowManager:
             message_to_be_returned[call_index]={
                     "role": "tool",
                     "tool_call_id": tool_to_exec.get("id"),
-                    "content": "工具调用被拒绝。原因：用户拦截。",
+                    "content": quick_deny if quick_deny else "工具调用被拒绝。原因：用户拦截。",
                     'info': tool_to_exec
                 }
-        
+          
         # 按 call_index 排序，生成有序列表
         sorted_indices = sorted(message_to_be_returned.keys())
         tool_call_result_list = [message_to_be_returned[i] for i in sorted_indices]
 
         # 检查用户有没有refresh Request
-        if request_id == self._request_id_for_tool:
-            # 叫上层更新chatsession，更新UI，然后重新下发请求
-            self.request_tool_call_assembly.emit(self._request_id_for_tool,tool_call_result_list)
+        if request_id != self._current_request_id:
+            return
+        # 叫上层更新chatsession，更新UI，然后重新下发请求
+        self.signals.update_message.emit(self._current_request_id,tool_call_result_list)
+
+        if not quick_deny:
+            self.signals.request_toolcall_resend.emit(request_id)
 
     def send_tool_callback_request(self, pack):
         """

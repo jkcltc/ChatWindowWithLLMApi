@@ -47,7 +47,7 @@ class StrTools:
 
 
     @staticmethod
-    def vast_replace(text, replace_from, replace_to):
+    def vast_replace(text, replace_from, replace_to) -> str:
         """
         批量替换字符串，支持正则表达式和普通字符串替换。
         - text: 原始字符串,如果以 're:' 开头，则使用正则表达式替换

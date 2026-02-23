@@ -183,14 +183,14 @@ class ChatSession:
 
     def get_last_message(self, role: str = "") -> Optional[Dict]:
         """获取最后一条消息（可按role过滤）"""
-        if not self.current_chat.history:
-            return []
+        if not self.history:
+            return {}
         if not role:
-            return self.current_chat.history[-1]
-        for msg in reversed(self.current_chat.history):
+            return self.history[-1]
+        for msg in reversed(self.history):
             if msg.get("role") == role:
                 return msg
-        return []
+        return {}
     
     def get_last_index(self, role: str = "") -> int:
         """获取最后一条消息的索引（可按role过滤），找不到返回 -1"""

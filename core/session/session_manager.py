@@ -437,7 +437,7 @@ class SessionManager:
             self.current_chat.tools = tools
         self.request_autosave()
 
-    def add_message(self,role:str,content: str, multimodal=None,info:dict=None):
+    def add_new_message(self,role:str,content: str, multimodal=None,info:dict=None):
         new_msg = {
             'role': role,
             'content': content,
@@ -454,7 +454,14 @@ class SessionManager:
 
         self.current_chat.history.append(new_msg)
         self.request_autosave()
-
+    
+    def add_message(self,message:dict):
+        self.current_chat.history.append(message)
+        self.request_autosave()
+    
+    def add_messages(self,messages:list[dict]):
+        self.current_chat.history.extend(messages)
+        self.request_autosave()
 
     @property
     def should_generate_title(self) -> bool:

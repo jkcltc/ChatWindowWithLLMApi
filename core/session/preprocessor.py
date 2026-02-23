@@ -14,6 +14,7 @@ import time
 from common import LOGMANAGER
 from utils.str_tools import StrTools  
 from service.chat_completion import GlobalPatcher
+from core.session.enforce_repeat import RepeatProcessor
 
 LOGGER = LOGMANAGER
 
@@ -31,6 +32,8 @@ class Preprocessor:
     def prepare_message(self, pack: ChatCompletionPack):
         """
         预处理消息并构建API参数。
+        - 子线程
+        - 重任务集成
         
         Args:
             pack: 包含对话历史、模型信息、API供应商及运行时选项的数据包
@@ -38,7 +41,6 @@ class Preprocessor:
         Returns:
             (messages, params) 元组
         """
-
 
         start = time.perf_counter()
         
@@ -49,13 +51,33 @@ class Preprocessor:
         messages = copy.deepcopy(raw_messages)
         
         # 3. 按顺序应用所有处理
+        
+        # 危险|携带消息长度裁切和字符串变更
         messages = self._handle_mod_functions(messages, pack)
+
+        #   - 直接裁切
         messages = self._fix_chat_history(messages, pack.chat_session.history)
+
+        #   - 修改字符串，可能的激进裁切
         messages = self._process_special_styles(messages, pack)
-        messages = self._handle_long_chat_placement(messages)
-        messages = self._handle_user_and_char(messages, pack)
-        messages = self._handle_multimodal_format(messages)
+
+        #   - 加一个系统消息
         messages = self._handle_web_search_results(messages, pack)
+
+        # 一般|携带字符串变更
+
+        #   - 修改字符串，把系统消息塞进user
+        messages = self._handle_long_chat_placement(messages)
+
+        #   - 给message加name字段，替换system message的预设字段
+        messages = self._handle_user_and_char(messages, pack)
+
+        # 安全|无修改，仅增加字段
+
+        #   - 无
+
+        # 安全|兼容性patch
+        messages = self._handle_multimodal_format(messages)
         messages = self._purge_message(messages)
         
         # 4. 构建请求参数
@@ -70,19 +92,55 @@ class Preprocessor:
 
         LOGGER.info(f'发送长度: {StrTools.get_chat_content_length(messages)}，消息数: {len(messages)}')
         LOGGER.info(f'消息打包耗时:{(time.perf_counter()-start)*1000:.2f}ms')
-        
+        import json
+        print('payload:',json.dumps(params,indent=2,ensure_ascii=False))
         return messages, params
     
     def _get_raw_messages(self, pack: ChatCompletionPack, max_rounds: int):
-        """获取原始消息（不进行深复制）"""
+        """
+        获取原始消息
+        逻辑修改：
+        1. 始终保留第0条（Global System）。
+        2. Tool 类型的消息不计入 max_rounds 消耗。
+        """
         history = pack.chat_session.history
         if not history:
             return []
-        if len(history) >= max_rounds and history[-(max_rounds-1):][0]["role"] == "system":
-            max_rounds += 1
-        
-        start_index = max(1, len(history) - (max_rounds - 1))
-        return [history[0]] + history[start_index:]
+
+        # 1. 基础检查：如果历史记录很短，直接返回
+        if len(history) <= 1:
+            return history
+
+        # 2. 准备容器
+        # 始终保留第 0 条
+        first_msg = history[0]
+        recent_messages = []
+
+        # 计算剩余需要填冲的额度 (扣除掉第0条占用的1个名额)
+        quota = max_rounds - 1
+        current_valid_count = 0
+
+        # 3. 倒序遍历 (从最后一条往前走，直到索引 1)
+        for i in range(len(history) - 1, 0, -1):
+            msg = history[i]
+            role = msg.get("role")
+
+            # 先加入当前消息
+            recent_messages.append(msg)
+
+            # 如果是 tool 消息，不消耗额度；其他消息消耗额度
+            if role != "tool":
+                current_valid_count += 1
+
+            # 检查额度是否已满
+            if current_valid_count >= quota:
+                break
+
+        # 4. 因为是倒序添加的，需要反转回来使其按时间正序排列
+        recent_messages.reverse()
+
+        # 5. 拼接首条 + 最近的消息
+        return [first_msg] + recent_messages
     
     def _handle_mod_functions(self, messages, pack: ChatCompletionPack):
         """处理mod函数"""
@@ -110,17 +168,25 @@ class Preprocessor:
         
         temp_style = pack.optional.get('temp_style', '')
         force_text = pack.optional.get('enforce_lower_repeat_text', '') if APP_SETTINGS.force_repeat.enabled else ''
-        
+        if not force_text and APP_SETTINGS.force_repeat.enabled:
+            should_cut,force_text = RepeatProcessor.analyze_repeats(messages)
+            if should_cut:
+                cut_length=min(len(messages),4)
+                if len(messages)>4:
+                    messages=messages[0]+messages[cut_length:]
+                else:
+                    messages=messages[cut_length:]
+
         if not temp_style and not force_text:
             return messages
-        
+
         if messages[-1]["role"] == "user":
             append_text = f'【{temp_style}|{force_text}】'
             new_system_msg = {"role": "system", "content": append_text}
             messages.insert(-1, new_system_msg)
         
         return messages
-    
+
     def _handle_web_search_results(self, messages:list, pack: ChatCompletionPack):
         """处理网络搜索结果 - 改为User前插入System"""
         search_result = pack.optional.get('web_search_result', '')
@@ -240,10 +306,29 @@ class Preprocessor:
                 if '{{model}}' in content:
                     content = content.replace('{{model}}', pack.model)
                 if '{{time}}' in content:
-                    import time
                     content = content.replace('{{time}}', time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()))
+                if '{{date}}' in content:
+                    content = content.replace('{{date}}', time.strftime("%Y-%m-%d", time.localtime()))
+                if '{{platform}}' in content:
+                    import platform
+                    sys_platform = platform.platform()
+                    content = content.replace('{{platform}}', sys_platform)
+                if '{{user_profile}}' in content:
+                    import getpass
+                    current_user = getpass.getuser()
+                    content = content.replace('{{user_profile}}', current_user)
+                if '{{pip_env}}' in content:
+                    import importlib.metadata
+                    dists = importlib.metadata.distributions()
+                    pip_list = "\n".join([f"{dist.metadata['Name']}=={dist.version}" for dist in dists])
+                    content = content.replace('{{pip_env}}', pip_list)
+                if '{{abandon_kvcache}}' in content:
+                    # 不是哥们你要这个干嘛
+                    import uuid
+                    random_cache_breaker = str(uuid.uuid4())
+                    content = content.replace('{{abandon_kvcache}}', random_cache_breaker)
+
                 item['content'] = content
-        
         return messages
     
     def _handle_multimodal_format(self, messages):

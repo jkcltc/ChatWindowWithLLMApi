@@ -19,6 +19,7 @@ from utils.status_analysis import StatusAnalyzer
 from service.chat_completion.signals import RequesterSignals
 from service.web_search import WebSearchFacade,RagFilter,WebRagPresetVars
 from service.chat_completion.llm_requester import OneTimeLLMRequester,RequestConfig
+from .data import RequestType
 
 if TYPE_CHECKING:
     from config.settings import AutoReplaceSettings,UserToolPermission,DangerousTools
@@ -328,17 +329,21 @@ class RequestFlowManager:
         if self.current_requester:
             self.current_requester.pause()
             self.reset()
-
-    def _should_send_message(self, chat_session: "ChatSession", request_type="user_message"):
+    def _should_send_message(
+        self,
+        chat_session: "ChatSession",
+        request_type: RequestType = RequestType.USER_MESSAGE,
+    ) -> None:
         """
         检查是否应该发送消息，验证消息顺序和工具调用状态。
         
         Args:
             chat_session: 当前聊天会话对象
-            request_type: 请求类型，可选值:
-                - "user_message": 用户新消息
-                - "tool_message": 工具回调消息
-                - "assistant_continue": AI续写模式
+            request_type: 请求类型，必须是 RequestType 枚举成员：
+                - RequestType.USER_MESSAGE: 用户新消息
+                - RequestType.TOOL_MESSAGE: 工具回调消息
+                - RequestType.ASSISTANT_CONTINUE: AI续写模式
+                - RequestType.TOOL_DIRECT_TO_USER: 用户拦截AI对工具的回复
         
         Raises:
             ToolNotExecutedError: 当AI发起了工具调用但历史记录中缺少对应的工具执行结果时
@@ -353,29 +358,38 @@ class RequestFlowManager:
         assistant_last_index = chat_session.get_last_index("assistant")
         tool_last_index = chat_session.get_last_index("tool")
 
-
         last_ai_message = chat_session.get_last_message("assistant")
-        if last_ai_message: # 确保 AI 说过话
+        if last_ai_message:  # 确保 AI 说过话
             message_tool_call = last_ai_message.get('tool_calls', [])
             if message_tool_call and (tool_last_index < assistant_last_index):
                 raise ToolNotExecutedError(
                     "拦截: AI 发起了工具调用，但历史记录中缺少对应的工具执行结果。"
                 )
 
-        if request_type == "user_message":
+        if  request_type == RequestType.USER_MESSAGE:
             if user_last_index < assistant_last_index:
                 raise MessageOrderError(
                     f"用户消息乱序，History: {history[assistant_last_index:]}"
                 )
-        
-        elif request_type == "tool_message":
+            
+        elif request_type == RequestType.TOOL_DIRECT_TO_USER:
+            if user_last_index < tool_last_index :
+                raise MessageOrderError(
+                    f"消息乱序，History: {history[tool_last_index:]}"
+                )
+
+            if tool_last_index < assistant_last_index:
+                raise MessageOrderError(
+                    f"消息乱序，History: {history[assistant_last_index:]}"
+                )
+            
+        elif request_type == RequestType.TOOL_MESSAGE:
             # 确保最后一次操作是工具回传
             if tool_last_index < assistant_last_index:
                 raise MessageOrderError(
-                    f"消息乱序: 试图发送工具回调，但最后一条消息不是工具结果。"
+                    "消息乱序: 试图发送工具回调，但最后一条消息不是工具结果。"
                 )
-        
-        elif request_type == "assistant_continue":
+        elif request_type == RequestType.ASSISTANT_CONTINUE:
             # 续写模式下，最后一条必须是 AI 的半截话
             if history[-1].get("role") != "assistant":
                 raise MessageOrderError(
@@ -383,14 +397,10 @@ class RequestFlowManager:
                 )
 
     def send_request(
-            self, 
-            pack: "ChatCompletionPack", 
-            request_type:Literal[
-                "user_message",
-                "tool_message",
-                "assistant_continue"
-            ]="user_message"
-        ):
+        self,
+        pack: "ChatCompletionPack",
+        request_type: RequestType = RequestType.USER_MESSAGE,
+    ) -> bool:
         """
         发送主对话请求。
         
@@ -404,15 +414,23 @@ class RequestFlowManager:
         
         Args:
             pack: 包含对话所需所有数据的 ChatCompletionPack
-            request_type: 请求类型，参见 _should_send_message()
+            request_type: 请求类型，必须是 RequestType 枚举成员：
+                - RequestType.USER_MESSAGE: 用户新消息
+                - RequestType.TOOL_MESSAGE: 工具回调消息
+                - RequestType.ASSISTANT_CONTINUE: AI续写模式
+                - RequestType.TOOL_DIRECT_TO_USER: 用户拦截AI对工具的回复
+        
+        Returns:
+            bool: 是否成功启动请求流程。如果因工具未执行而触发继续执行工具流程，则返回 False。
         """
         # 重置状态
         self.reset()
         try:
-            self._should_send_message(pack.chat_session,request_type)
+            self._should_send_message(pack.chat_session, request_type)
         except ToolNotExecutedError:
             self.continue_tool_exec(pack=pack)
-        
+            return True
+
         # 申请ID
         self._current_request_id = f"CWLA_req_{uuid.uuid4()}"
 
@@ -420,26 +438,26 @@ class RequestFlowManager:
 
         # 检查发送时是否有工具
         # 进引用，UI随时撤回工具授权
-        self._have_tool_at_sending:set[list:bool] = (
-            pack.chat_session.tools+pack.tool_list,
+        self._have_tool_at_sending: tuple = (
+            pack.chat_session.tools + (pack.tool_list or []),
             self._current_request_id
         )
 
-        tl =  []
+        tl = []
         tl.extend(pack.chat_session.tools)
         tl.extend(pack.tool_list)
 
-        pack.tool_list=self.function_manager.openai_tools(tl)
+        pack.tool_list = self.function_manager.openai_tools(tl)
 
-        # 预先创建请求器以复用requester_pool
+        # 预先创建请求器以复用 requester_pool
         req_config = RequestConfig(
             key=pack.provider.key,
             url=pack.provider.url,
             provider_type=pack.provider.provider_type,
         )
 
-        self.current_requester=OneTimeLLMRequester(
-            config = req_config,
+        self.current_requester = OneTimeLLMRequester(
+            config=req_config,
             session=self.request_session
         )
         self.mid_processor.bridge_signals(self.current_requester.signals)
@@ -450,9 +468,9 @@ class RequestFlowManager:
         # 启动请求线程
         threading.Thread(
             target=self._RWM_main_request_thread,
-              args=(pack,self.current_requester), 
-              daemon=True
-            ).start()
+            args=(pack, self.current_requester),
+            daemon=True
+        ).start()
         return True
 
     def _RWM_main_request_thread(self, pack: "ChatCompletionPack", requester: OneTimeLLMRequester):

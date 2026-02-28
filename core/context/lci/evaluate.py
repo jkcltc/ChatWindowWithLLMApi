@@ -1,8 +1,9 @@
 from dataclasses import dataclass
-from .session_model import ChatSession
+
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from config.settings import LciSettings
+    from core.session.session_model import ChatSession
 
 
 @dataclass(frozen=True)
@@ -24,7 +25,7 @@ class LciMetrics:
     new_chat_length: int
 
     @classmethod
-    def from_session(cls, session: ChatSession) -> "LciMetrics":
+    def from_session(cls, session: "ChatSession") -> "LciMetrics":
         """从 ChatSession 采集当前对话的度量数据
 
         Args:

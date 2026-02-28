@@ -8,6 +8,8 @@ import time
 from .chat_history_manager import ChathistoryFileManager
 from .session_model import ChatSession,ChatMessage
 from psygnal import Signal
+import uuid
+from core.utils import MainThreadDispatcher as MTD
 
 if TYPE_CHECKING:
     from .system_prompt_manager import SystemPromptPreset
@@ -198,8 +200,16 @@ class SessionManager:
     # ==================== autosave ====================
 
     def _snapshot_session(self) -> "ChatSession":
-        """创建当前会话的快照（深拷贝）"""
-        return copy.deepcopy(self.current_chat)
+        """创建当前会话的快照"""
+        # 10ms @ 500 msg, 9800X3D
+        # return copy.deepcopy(self.current_chat)
+        
+        # 允许迭代时内容变更以换取性能
+        # 6 us @ 5000 msg, 9800X3D
+        snap = copy.copy(self.current_chat)
+        snap.history = list(self.current_chat.history)
+        
+        return snap
 
     def request_autosave(self):
         """
@@ -221,8 +231,22 @@ class SessionManager:
                 folder_path=self.history_path,
             )
             return True
+        except RuntimeError as e:
+            import traceback
+            if "changed size" in str(e):
+                self.log.emit(
+                    f'保存聊天时发生竞态错误:{e}。\n{traceback.format_exc()}'
+                )
+            else:
+                self.error.emit(
+                    f"保存聊天发生未知运行时错误: {e}\n{traceback.format_exc()}"
+                )
+            return False
         except Exception as e:
-            self.error.emit(f"保存聊天记录失败: {e}")
+            import traceback
+            self.error.emit(
+                f"保存聊天记录失败: {e}。\n{traceback.format_exc()}"
+            )
             return False
 
     # ==================== 基本访问 ====================
@@ -463,12 +487,125 @@ class SessionManager:
         self.current_chat.history.extend(messages)
         self.request_autosave()
 
+   # ==================== 业务支持 ====================
     @property
     def should_generate_title(self) -> bool:
         """判断是否需要生成标题"""
         session = self.current_chat
         return (session.chat_rounds >= 2) and session.is_title_default
     
+    def get_filtered_context_data(
+            self, 
+            generated_items: List[Dict], 
+            anchor_id: str,business_tag='lci'
+        ) -> Optional[Dict]:
+
+        related_ids = []
+        seen = set()
+        
+        for item in generated_items:
+            business_meta = item.get('info', {}).get(business_tag, {})
+            related = business_meta.get('related', [])
+            
+            if isinstance(related, str):
+                related = [related]
+            elif not isinstance(related, list):
+                continue
+            
+            for rid in related:
+                if rid and ('CWLA_req' in rid or 'CWLA_user' in rid):
+                    if rid not in seen:
+                        seen.add(rid)
+                        related_ids.append(rid)
+        
+        try:
+            anchor_idx = self.current_chat.get_msg_index(anchor_id)
+        except ValueError:
+            self.error.emit('Anchor ID not found in chat history')
+            return None
+        
+        id_index_pairs = []
+        missing_id = None
+        
+        for rid in related_ids:
+            try:
+                idx = self.current_chat.get_msg_index(rid)
+                id_index_pairs.append((rid, idx))
+            except ValueError:
+                missing_id = rid
+                break
+        
+        if missing_id:
+            return {
+                'related_ids': related_ids,
+                'anchor_id': anchor_id,
+                'missing_id': missing_id,
+                'is_continuous': False,
+                'sorted_pairs': [],
+                'original_text': ''
+            }
+        
+        # 存在且升序，允许间歇插入消息，如system/tool
+        indices = [idx for _, idx in id_index_pairs]
+        is_continuous = all(indices[i] < indices[i+1] for i in range(len(indices)-1))
+        sorted_pairs = sorted(id_index_pairs, key=lambda x: x[1])
+        
+        
+        texts = []
+        for rid, idx in sorted_pairs:
+            msg = self.current_chat.history[idx]
+            role = msg.get('role', '')
+            if role not in ('user', 'assistant'):
+                continue
+                
+            content = msg.get('content', '')
+            if isinstance(content, list):
+                text_parts = [
+                    str(part.get('text', ''))
+                    for part in content
+                    if isinstance(part, dict) and part.get('type') == 'text'
+                ]
+                texts.append(' '.join(filter(None, text_parts)))
+            else:
+                texts.append(str(content))
+        
+        return {
+            'related_ids': related_ids,
+            'anchor_id': anchor_id,
+            'missing_id': None,
+            'is_continuous': is_continuous,
+            'sorted_pairs': sorted_pairs,
+            'original_text': '\n'.join(texts)
+        }
+    
+    def insert_items_by_anchor(
+            self, 
+            items: List[Dict], 
+            anchor_id: str,
+            business_tag:str="lci"
+        ) -> bool:
+
+        try:
+            anchor_idx = self.current_chat.get_msg_index(anchor_id)
+            insert_pos = anchor_idx + 1
+            current_time = time.strftime("%Y-%m-%d %H:%M:%S")
+            
+            for i, item in enumerate(items):
+                item.setdefault('info', {})
+                item['info'].setdefault('id', f"{business_tag}_{uuid.uuid4().hex[:8]}")
+                item['info'].setdefault('time', current_time)
+                item['info'][business_tag] = item.get('info', {}).get(business_tag, {})
+                item['role'] = 'system'
+                
+                self.current_chat.history.insert(insert_pos + i, item)
+            
+            return True
+            
+        except Exception as e:
+            if hasattr(self, 'error'):
+                self.error.emit(f"插入{business_tag}消息失败: {e}")
+            return False
+
 @dataclass
 class ChatSessionMap:
     """多会话映射管理"""

@@ -2,6 +2,8 @@ from dataclasses import dataclass, field, asdict, fields
 import uuid
 import json
 from typing import List, Dict, Union, Optional, TypedDict, Literal,TYPE_CHECKING
+import copy
+
 if TYPE_CHECKING:
     from .system_prompt_manager import SystemPromptPreset
 
@@ -266,3 +268,7 @@ class ChatSession:
     def reset_background_rounds(self) -> None:
         """重置背景更新轮次计数"""
         self.new_background_rounds = 0
+
+    @ property
+    def shallow_history(self):
+        return list(self.history)

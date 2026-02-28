@@ -185,6 +185,9 @@ class LciSettings(BaseSettings):
 
     preset : LongChatImprovePersetVars = Field(default_factory=LongChatImprovePersetVars)
 
+    include: list = Field(default_factory=lambda: ['system','user','assistant','tool'])
+
+
 class TTSSettings(BaseSettings): 
     """语音合成配置"""
     tts_enabled: bool = False

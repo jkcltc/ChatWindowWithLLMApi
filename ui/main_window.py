@@ -11,6 +11,7 @@ import sys
 import threading
 import traceback
 import warnings
+from typing import TYPE_CHECKING
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 warnings.filterwarnings("ignore", message="libpng warning: iCCP: known incorrect sRGB profile")
@@ -53,13 +54,17 @@ from service.tts.chatapi_tts import TTSAgent
 
 LOGGER.log(f'CWLA service import finished, time stamp:{time.time()-start_time_stamp:.2f}s')
 
-from core.session.chat_history_manager import ChathistoryFileManager,TitleGenerator,ChatHistoryTools
-from core.session.preprocessor import Preprocessor,PreprocessorPatch
+from core.session.chat_history_manager import ChathistoryFileManager,ChatHistoryTools
+from core.session.title_generate import TitleGenerator
+from core.session.preprocessor import Preprocessor
 from core.tool_call.tool_core import get_functions_events
 from core.multimodal_coordination.background_generate import BackgroundAgent
 from core.story.mod_manager import ModConfiger
 from core.session.concurrentor import ConvergenceDialogueOptiProcessor
 from core.session.enforce_repeat import RepeatProcessor
+
+from core.session.chat_flow import ChatFlowManager
+from core.session.session_manager import SessionManager
 
 LOGGER.log(f'CWLA core import finished, time stamp:{time.time()-start_time_stamp:.2f}s')
 
@@ -75,6 +80,8 @@ from ui.chat.user_input import MultiModalTextEdit
 from ui.chat.chathistory_view_widget import ChatapiTextBrowser,ChatHistoryWidget,ChatHistoryTextView,HistoryListWidget
 from ui.chat.chathistory_manage_widget import ChatHistoryEditor
 
+from ui.bridge import UiSignalBridge
+
 LOGGER.log(f'CWLA UI import finished, time stamp:{time.time()-start_time_stamp:.2f}s')
 
 from utils.preset_data import *
@@ -85,7 +92,6 @@ from utils.str_tools import StrTools
 LOGGER.log(f'CWLA utils import finished, time stamp:{time.time()-start_time_stamp:.2f}s')
 
 LOGGER.log(f'CWLA import finished, time stamp:{time.time()-start_time_stamp:.2f}s')
-
 
 
 #主类
@@ -139,6 +145,10 @@ class MainWindow(QMainWindow):
 
         self.init_title_creator()
         self.init_system_prompt_window()
+
+        self.init_signal_bus()
+
+        self.init_chat_service()
         
         # 模型轮询器
         self.ordered_model=RandomModelSelecter(
@@ -548,6 +558,26 @@ class MainWindow(QMainWindow):
         #UI创建后
         self.init_post_ui_creation()
         self.info_manager.log(f'CWLA init finished, time stamp:{time.time()-start_time_stamp:.2f}s',level='debug')
+
+    def init_signal_bus(self):
+        self.back_end_signal_bridge=UiSignalBridge()
+
+    if TYPE_CHECKING:
+        from core.session.signals import ChatFlowManagerSignalBus
+    @ property
+    def BESB(self)->"ChatFlowManagerSignalBus":
+        """MainWindow.back_end_signal_bridge"""
+        return self.back_end_signal_bridge
+
+    def init_chat_service(self):
+        self.session_manager = SessionManager()
+
+        self.session_manager.log    .connect(self.BESB.log.emit)
+        self.session_manager.warning.connect(self.BESB.warning.emit)
+        self.session_manager.error  .connect(self.BESB.error.emit)
+
+        self.cfm = ChatFlowManager(session_manager=self.session_manager)
+        self.BESB.bus_connect(self.cfm.signals)
 
     def init_self_params(self):
         self.chathistory=[]

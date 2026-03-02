@@ -1004,7 +1004,20 @@ class ChatHistoryWidget(QFrame):
         if bubble:
             bubble.message_data['info'] = info_data
     
-    def update_bubble(self,message='',msg_id=0, content='', reasoning_content='',info='',streaming='streaming',model='',role='assistant'):
+    def update_bubble(
+            self,message='',
+            msg_id='', 
+            content='', 
+            reasoning_content='',
+            tool_content='',
+            info='',
+            streaming='streaming',
+            model='',
+            role='assistant'
+        ):
+        if tool_content:
+            reasoning_content = tool_content
+
         #处理输入方式为message
         #输入方式为message，未初始化
 

@@ -10,17 +10,20 @@ class StatusAnalyzer:
     def reset(self):
         self.request_send_time = 0.0
         self.first_token_time = 0.0
-        
-        self.total_chars = 0
+        self.end_time = 0.0
+
+        self.content_chars = 0
+        self.reasoning_chars = 0
+        self.tool_chars = 0
+        self.total_chars =0
         self.last_chars = 0
         self.last_update_time = 0.0
-        
+
         self.current_rate = 0.0
         self.peak_rate = 0.0
-        
+
         self.model = ''
         self.provider = ''
-        self.req_id=''
 
     def start_record(self, model='', provider='', send_time=0):
         self.reset()
@@ -28,13 +31,18 @@ class StatusAnalyzer:
         self.provider = provider
         self.request_send_time = send_time if send_time else time.time()
 
-    def process_stream(self, req_id:str , delta: str):
+    def process_stream(self, req_id:str , delta: str, content_type:str):
 
         if not delta:
             return
         
         curr_time = time.time()
         self.total_chars += len(delta)
+
+        if content_type == 'reasoning': self.reasoning_chars += len(delta)
+        elif content_type == 'tool':    self.tool_chars += len(delta)
+        else:                          self.content_chars += len(delta)
+
 
         # 1. 记录首字时间 (TTFT)
         if self.first_token_time == 0.0:
@@ -58,25 +66,27 @@ class StatusAnalyzer:
 
         return self._status_pack()
     
-    def process_full(self,cr,cl):
-        return self._status_pack(cr,cl)
+    def process_full(self):
+        if self.end_time == 0.0: self.end_time = time.time()
+        return self._status_pack()
 
-    def _status_pack(self,cr=None,cl=None):
+    def _status_pack(self):
         ttft = (self.first_token_time - self.request_send_time) if self.first_token_time > 0 else 0.0
+        calc_end = self.end_time if self.end_time > 0 else time.time()
+        duration = (calc_end - self.request_send_time) if self.request_send_time > 0 else 0.0
 
         
         stats = {
             "model": self.model,
             "provider": self.provider,
-            "ttft": max(ttft, 0.0),
-            "tps": self.current_rate,
-            "peak_tps": self.peak_rate,
-            "total_chars": self.total_chars
+            "ttft_ms": int(max(ttft, 0.0) * 1000),
+            "tps": round(self.current_rate, 2),
+            "peak_tps": round(self.peak_rate, 2),
+            "duration_s": round(max(duration, 0.0), 2),
+
+            "content_chars": self.content_chars,
+            "reasoning_chars": self.reasoning_chars,
+            "tool_chars": self.tool_chars,
         }
-
-        if cr and cl:
-            stats['total_rounds']=cr
-
-            stats['total_length']=cl
 
         return stats

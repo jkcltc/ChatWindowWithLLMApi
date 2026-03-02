@@ -140,8 +140,25 @@ class ChatSession:
 
     def apply_preset(self, preset: 'SystemPromptPreset'):
         self.history[0]["content"] = preset.content
-        self.avatars = preset.avatars
-        self.name = preset.name
+
+        # 非空时覆盖，否则用默认
+        perset_avaters = preset.avatars
+        user_avatar = perset_avaters.get("user", "")
+        if user_avatar:
+            self.avatars['user'] = user_avatar
+        assistant_avatar = perset_avaters.get("assistant", "")
+        if assistant_avatar:
+            self.avatars['assistant'] = assistant_avatar
+
+        preset_names = preset.info.get("name", {})
+        if preset_names:
+            user_name = preset_names.get("user", "")
+            if user_name:
+                self.name['user'] = user_name
+            assistant_name = preset_names.get("assistant", "")
+            if assistant_name:
+                self.name['assistant'] = assistant_name
+
         self.tools = preset.tools
 
     def get_last_n_length(self,n:int=1):
@@ -183,7 +200,7 @@ class ChatSession:
 
         return total
 
-    def get_last_message(self, role: str = "") -> Optional[Dict]:
+    def get_last_message(self, role: str = "") -> ChatMessage:
         """获取最后一条消息（可按role过滤）"""
         if not self.history:
             return {}

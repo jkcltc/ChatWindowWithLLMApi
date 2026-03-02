@@ -1,20 +1,20 @@
 from __future__ import annotations
+import time
 import copy
+
 from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from service.web_search import WebSearchFacade
 
 from core.session.data import ChatCompletionPack
 from core.session.session_model import ChatMessage
 from config import APP_SETTINGS
 
-if TYPE_CHECKING:
-    from service.web_search import WebSearchFacade
-
-
-import time
 from common import LOGMANAGER
 from utils.str_tools import StrTools  
 from service.chat_completion import GlobalPatcher
 from core.session.enforce_repeat import RepeatProcessor
+
 
 LOGGER = LOGMANAGER
 
@@ -25,9 +25,10 @@ class Preprocessor:
     负责将 ChatCompletionPack 转换为 API 请求参数。
     与 RequestWorkflowManager 分离，专注于数据转换逻辑。
     """
-    
-    def __init__(self,search_facade:"WebSearchFacade"):
+
+    def __init__(self,search_facade:"WebSearchFacade",return_search_result:callable=None):
         self.search_facade = search_facade
+        self.return_search_result = return_search_result
     
     def prepare_message(self, pack: ChatCompletionPack):
         """
@@ -173,17 +174,23 @@ class Preprocessor:
             if should_cut:
                 cut_length=min(len(messages),4)
                 if len(messages)>4:
-                    messages=messages[0]+messages[cut_length:]
+                    messages=[messages[0]]+messages[cut_length:]
                 else:
                     messages=messages[cut_length:]
 
         if not temp_style and not force_text:
             return messages
 
-        if messages[-1]["role"] == "user":
+        user_index = None
+        for i in range(len(messages) - 1, -1, -1):
+            if messages[i]["role"] == "user":
+                user_index = i
+                break
+
+        if user_index is not None:
             append_text = f'【{temp_style}|{force_text}】'
             new_system_msg = {"role": "system", "content": append_text}
-            messages.insert(-1, new_system_msg)
+            messages.insert(user_index, new_system_msg)
         
         return messages
 
@@ -200,12 +207,12 @@ class Preprocessor:
         
         if not search_result and APP_SETTINGS.web_search.web_search_enabled:
             ct=pack.chat_session.history[-1]['content']
-            if type(ct) == list:
+            if isinstance(ct, list):
                 for item in ct:
                     if item['type'] == 'text':
                         query=item['text']
                         break
-            elif type(ct) == str:
+            elif isinstance(ct, str):
                 query=ct
 
             web_cfg = APP_SETTINGS.web_search
@@ -235,12 +242,13 @@ class Preprocessor:
                 rag_provider_key=rag_key,
                 rag_model=rag_model,
             )
-            if result:
-                prompt_text = f"搜索引擎提供的结果:\n{search_result}\n请根据以上搜索结果回答用户的提问。"
+            if result['reference']:
+                prompt_text = f"搜索引擎提供的结果:\n{result['reference']}\n请根据以上搜索结果回答用户的提问。"
                 new_msg = {"role": "system", "content": prompt_text}
                 messages.insert(-1, new_msg)
-        else:
-            return messages
+                self.return_search_result(result)
+
+        return messages
 
     def _fix_chat_history(self, messages: list, full_history: list):
         """修复被截断的聊天记录，保证工具调用的完整性"""

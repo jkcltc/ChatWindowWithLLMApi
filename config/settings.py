@@ -541,6 +541,9 @@ class AppPaths(BaseSettings):
     theme_path: str = ""
     system_prompt_preset_path: str = ""
     config_path:str = ""
+    log_path:str = ""
+    avatar_path:dict = Field(default_factory={})
+
 
     @model_validator(mode='after')
     def calculate_paths(self):
@@ -564,6 +567,17 @@ class AppPaths(BaseSettings):
 
         if not self.config_path:
             self.config_path = os.path.join(self.application_path, "data","config")
+
+        if not self.log_path:
+            self.log_path=os.path.join(self.application_path, 'cwla_run_time.log')
+
+        if not self.avatar_path:
+            default_ai = os.path.join(self.application_path, 'data','pics','avatar','AI_avatar.png')
+            default_user = os.path.join(self.application_path, 'data','pics','avatar','USER_avatar.png')
+            self.avatar_path={
+                'user': default_user if os.path.exists(default_user) else '',
+                'assistant': default_ai if os.path.exists(default_ai) else ''
+            }
 
         return self
 

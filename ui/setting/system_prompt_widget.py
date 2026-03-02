@@ -222,6 +222,7 @@ class SystemPromptManager(QtWidgets.QWidget):
         self._reload_list()
 
     # ---------- 外部接口 ----------
+    # todo 兼容chatsession
     def load_income_prompt(self, system_message: dict):
         """兼容老接口：加载传入的系统消息"""
         # 提取系统提示内容
@@ -303,13 +304,13 @@ class SystemPromptManager(QtWidgets.QWidget):
         finally:
             self.ignore_changes = False
     
-    def get_init_system_message(self):
+    def get_init_preset(self):
         """
         更新本地存储的当前对话，然后返回一个尽可能保留原参数的系统提示
         """
         current_path = self.store.current_dialog_path(self.default_current_filename)
         preset=self.store.read(current_path)
-        return self._build_system_message(preset)
+        return preset
 
     # ---------- 内部工具 ----------
     def _reload_list(self, select_path: Optional[str] = None):

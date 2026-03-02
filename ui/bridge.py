@@ -1,9 +1,8 @@
 from PyQt6.QtCore import QObject, pyqtSignal
 from psygnal import Signal, SignalInstance
 from typing import Optional, Union, Iterable
-from functools import partial
 import inspect
-from core.session.signals import ChatFlowManagerSignalBus
+from core.signals import MainBus
 
 def _create_qt_bus_class(psygnal_cls, class_name="QtSignalBus"):
     qt_signals = {}
@@ -60,4 +59,4 @@ def _create_qt_bus_class(psygnal_cls, class_name="QtSignalBus"):
     return new_class
 
 # 实例化使用
-UiSignalBridge = _create_qt_bus_class(ChatFlowManagerSignalBus, "UiSignalBridge")
+UiSignalBridge = _create_qt_bus_class(MainBus, "UiSignalBridge")

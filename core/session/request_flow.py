@@ -14,7 +14,7 @@ from core.session.preprocessor import Preprocessor
 from core.session.signals import RequestFlowManagerSignalBus
 
 from utils.str_tools import StrTools
-from utils.status_analysis import StatusAnalyzer
+
 
 from service.chat_completion.signals import RequesterSignals
 from service.web_search import WebSearchFacade,RagFilter,WebRagPresetVars
@@ -26,6 +26,7 @@ if TYPE_CHECKING:
     from requests import Session as requests_session
     from .data import ChatCompletionPack
     from .session_model import ChatMessage,ChatSession
+    from utils.status_analysis import StatusAnalyzer
 
 class MidProcessor:
     """
@@ -220,7 +221,7 @@ class RequestFlowManager:
         -> 离开线程 -> post做工具调用拦截处理 -> 结束/工具回调循环
 
     """
-    def __init__(self):
+    def __init__(self,status_analyzer):
         """
         初始化 RequestFlowManager。
         
@@ -234,7 +235,7 @@ class RequestFlowManager:
         # 状态管理
         self.status_analyzer = StatusAnalyzer()
 
-        # tool loop
+        # tool loop，单例，硬薅
         self.function_manager = get_tool_registry()
 
         # 搜索组件
@@ -250,8 +251,10 @@ class RequestFlowManager:
 
         # Request 三阶段
         self.pre_processor:Preprocessor = Preprocessor(
-            search_facade=self.search_facade
+            search_facade=self.search_facade,
+            return_search_result = self.signals.web_search_result.emit
         )
+        
 
         self.mid_processor = MidProcessor(
             ARS_config=APP_SETTINGS.replace,
@@ -284,13 +287,26 @@ class RequestFlowManager:
         """
         self.mid_processor.signals.bus_connect(self.signals)
         self.mid_processor.signals.stream_reasoning.connect(
-            self._update_status
+            self._update_status_reasoning
         )
         self.mid_processor.signals.stream_content.connect(
-            self._update_status
+            self._update_status_content
+        )
+        self.mid_processor.signals.stream_tool_delta.connect(
+            self._update_status_tool
         )
     
-    def _update_status(self, request_id: str, content: str):
+    def _update_status_reasoning(self, request_id: str, content: str):
+        self._update_status(request_id, content, 'reasoning')
+    
+    def _update_status_content(self, request_id: str, content: str):
+        self._update_status(request_id, content, 'content')
+    
+    def _update_status_tool(self, request_id: str, content: dict):
+        content = content['function']['arguments']
+        self._update_status(request_id, content, 'tool')
+
+    def _update_status(self, request_id: str, content: str, content_type:str):
         """
         更新并发射流式解析状态。
         
@@ -300,7 +316,7 @@ class RequestFlowManager:
             request_id: 请求唯一标识
             content: 当前流式内容片段
         """
-        result = self.status_analyzer.process_stream(request_id, content)
+        result = self.status_analyzer.process_stream(request_id, content,content_type)
         self.signals.request_status.emit(result)
 
     def reset(self):

@@ -1,6 +1,5 @@
 import hashlib
-import uuid
-from typing import  Optional
+from typing import Optional,TYPE_CHECKING
 import os,json
 from PyQt6 import QtCore, QtWidgets,QtGui
 from core.session.system_prompt_manager import SystemPromptPreset,SystemPromptStore
@@ -222,38 +221,40 @@ class SystemPromptManager(QtWidgets.QWidget):
         self._reload_list()
 
     # ---------- 外部接口 ----------
-    # todo 兼容chatsession
-    def load_income_prompt(self, system_message: dict):
-        """兼容老接口：加载传入的系统消息"""
-        # 提取系统提示内容
-        system_prompt = system_message.get('content', '')
-        
-        # 提取info字段
-        info = system_message.get('info', {})
-        
+    if TYPE_CHECKING:
+        from core.session.session_model import ChatSession
+
+    def load_income_prompt(self, chat_session: 'ChatSession'):
         # 检查是否有未保存的更改
         if self.is_modified and system_prompt != self.content_edit.toPlainText():
             self._save_current_config()
+        """从 ChatSession 加载系统提示和配置（兼容新接口）"""
+        if chat_session.history and len(chat_session.history) > 0:
+            first_msg = chat_session.history[0]
+            if first_msg.get('role') == 'system':
+                system_prompt = first_msg.get('content', '')
+            else:
+                system_prompt = ''
+        else:
+            system_prompt = ''
 
-        #更新标题
+        # 更新标题
         self.name_edit.setText('当前对话')
 
         # 更新代称
-        name_info = info.get('name', {})
-        self.name_user = name_info.get('user', "")
-        self.name_ai = name_info.get('assistant', "")
+        self.name_user = chat_session.name.get('user', '')
+        self.name_ai = chat_session.name.get('assistant', '')
         self.name_user_edit.setText(self.name_user)
         self.name_ai_edit.setText(self.name_ai)
         
-        # 更新头像路径
-        avatar_info = info.get('avatar', {})
-        self.avatar_user_path = avatar_info.get('user', self.avatar_user_path)
-        self.avatar_ai_path = avatar_info.get('assistant', self.avatar_ai_path)
+        # 从 ChatSession 更新头像路径
+        self.avatar_user_path = chat_session.avatars.get('user', '')
+        self.avatar_ai_path = chat_session.avatars.get('assistant', '')
         self._update_avatar_preview("user")
         self._update_avatar_preview("assistant")
         
-        # 更新工具选择
-        tools = info.get('tools', [])
+        # 从 ChatSession 更新工具选择
+        tools = chat_session.tools or []
         self.tools_widget.set_initial_selection(tools)
         
         # 查找或创建"当前对话"配置
@@ -288,12 +289,12 @@ class SystemPromptManager(QtWidgets.QWidget):
             return
         
         # 刷新列表并选中当前对话
-        self._ignore_selection=True
+        self._ignore_selection = True
         self._reload_list()
         items = self.list_widget.findItems(filename, QtCore.Qt.MatchFlag.MatchExactly)
         if items:
             self.list_widget.setCurrentItem(items[0])
-        self._ignore_selection=False
+        self._ignore_selection = False
         
         # 直接更新UI显示（不触发修改标志）
         self.ignore_changes = True
@@ -303,7 +304,6 @@ class SystemPromptManager(QtWidgets.QWidget):
             self.btn_save.setEnabled(False)
         finally:
             self.ignore_changes = False
-    
     def get_init_preset(self):
         """
         更新本地存储的当前对话，然后返回一个尽可能保留原参数的系统提示
@@ -401,24 +401,6 @@ class SystemPromptManager(QtWidgets.QWidget):
         finally:
             self.ignore_changes = False
 
-    def _build_system_message(self,preset : SystemPromptPreset):
-        """构造一个系统提示消息"""
-        system_message=(
-            {
-            'role': 'system', 
-            'content': preset.content,
-            'info':{
-                'id':'system_prompt',
-                'name':preset.info.get('name',{'user':'','assistant':''}),
-                'avatar':preset.info.get('avatar',{'user':'','assistant':''}),
-                'chat_id':str(uuid.uuid4()),
-                'title':'New Chat',
-                'tools':preset.info.get("tools", [])
-                }
-            }
-        )
-        return system_message
-    
     # ---------- 列表交互 ----------
     def _on_file_selected(self):
         if getattr(self, "_ignore_selection", False):
@@ -517,12 +499,7 @@ class SystemPromptManager(QtWidgets.QWidget):
         if not self.store.save(target_path, preset):
             QtWidgets.QMessageBox.critical(self, "保存失败", "无法保存配置文件")
             return False
-
-        ## 如发生重命名，删除旧文件
-        #if self.current_file and os.path.abspath(self.current_file) != os.path.abspath(target_path):
-        #    if os.path.exists(self.current_file):
-        #        self.store.delete(self.current_file)
-
+        
         self.current_file = target_path
         self.is_modified = False
         self.btn_save.setEnabled(False)

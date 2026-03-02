@@ -542,7 +542,7 @@ class AppPaths(BaseSettings):
     system_prompt_preset_path: str = ""
     config_path:str = ""
     log_path:str = ""
-    avatar_path:dict = Field(default_factory={})
+    avatar_path:dict = Field(default_factory=dict)
 
 
     @model_validator(mode='after')

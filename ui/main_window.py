@@ -65,7 +65,7 @@ from core.story.mod_manager import ModConfiger
 from core.session.concurrentor import ConvergenceDialogueOptiProcessor
 from core.session.enforce_repeat import RepeatProcessor
 
-from core.core import CWLACore
+from core.app_core import CWLACore
 
 LOGGER.log(f'CWLA core import finished, time stamp:{time.time()-start_time_stamp:.2f}s')
 
@@ -820,23 +820,10 @@ class MainWindow(QMainWindow):
         return self.sysrule
 
     def init_chathistory_components(self):
-        self.chathistory_file_manager=ChathistoryFileManager(APP_RUNTIME.paths.history_path)
-        self.chathistory_file_manager.log_signal.connect(self.info_manager.log)
-        self.chathistory_file_manager.warning_signal.connect(self.info_manager.warning)
-        self.chathistory_file_manager.error_signal.connect(self.info_manager.error)
-    
+        raise
+
     def init_title_creator(self):
-        api_requester=APIRequestHandler(api_config=APP_SETTINGS.api.providers)
-        self.title_generator=TitleGenerator(api_handler=api_requester)
-        self.title_generator.set_provider(
-            provider=APP_SETTINGS.title.provider,
-            model=APP_SETTINGS.title.model,
-            api_config=APP_SETTINGS.api.providers
-        )
-        self.title_generator.log_signal.connect(self.info_manager.log)
-        self.title_generator.error_signal.connect(self.info_manager.error)
-        self.title_generator.warning_signal.connect(self.info_manager.warning)
-        self.title_generator.title_generated.connect(self.update_chat_title)
+        raise
 
     def init_web_searcher(self):
         """懒导入，不常用模块，加速启动"""
@@ -845,17 +832,7 @@ class MainWindow(QMainWindow):
             self.web_searcher = WebSearchSettingWindows()
     
     def create_one_time_use_title_creator(self):
-        api_requester=APIRequestHandler(api_config=APP_SETTINGS.api.providers)
-        title_generator=TitleGenerator(api_handler=api_requester)
-        title_generator.set_provider(
-            provider=APP_SETTINGS.title.provider,
-            model=APP_SETTINGS.title.model,
-            api_config=APP_SETTINGS.api.providers
-        )
-        title_generator.log_signal.connect(self.info_manager.log)
-        title_generator.error_signal.connect(self.info_manager.error)
-        title_generator.warning_signal.connect(self.info_manager.warning)
-        return title_generator
+        raise
         
     def add_tts_page(self):
         self.tts_handler=TTSAgent(setting=APP_SETTINGS.tts,application_path=APP_RUNTIME.paths.application_path)
@@ -949,7 +926,7 @@ class MainWindow(QMainWindow):
             {"上级名称": "背景", "提示语": "背景设置", "执行函数": "self.background_settings_window"},
             {"上级名称": "背景", "提示语": "触发背景更新（跟随聊天）", "执行函数": "self.call_background_update"},
             {"上级名称": "背景", "提示语": "生成自定义背景（正在重构）", "执行函数": "self.show_pic_creater"},
-            {"上级名称": "设置", "提示语": "对话设置", "执行函数": "self.open_max_send_lenth_window"},
+            {"上级名称": "设置", "提示语": "对话设置", "执行函数": "self.open_main_setting_window"},
             {"上级名称": "设置", "提示语": "主题", "执行函数": "self.show_theme_settings"},
             {"上级名称": "设置", "提示语": "快捷键", "执行函数": "self.open_settings_window"},
             {"上级名称": "设置", "提示语": "联网搜索", "执行函数": "self.open_web_search_setting_window"},
@@ -1078,7 +1055,9 @@ class MainWindow(QMainWindow):
 
     #超长文本显示优化
     def display_full_chat_history_window(self):
-        self.history_text_view = ChatHistoryTextView(self.chathistory)
+        self.history_text_view = ChatHistoryTextView(
+            self.session_manager.history
+        )
         
         self.history_text_view.show()
         self.history_text_view.raise_()
@@ -1279,7 +1258,6 @@ class MainWindow(QMainWindow):
             self.system_prompt_override_window.activateWindow()
         self.system_prompt_override_window.load_income_prompt(self.chathistory[0])
 
-
     #打开设置，快捷键
     def open_settings_window(self):
         self.settings_window = QDialog(self)
@@ -1357,10 +1335,10 @@ class MainWindow(QMainWindow):
 
         QShortcut(QKeySequence("Ctrl+N"), self).activated.connect(self.clear_history)
         QShortcut(QKeySequence("Ctrl+O"), self).activated.connect(self.load_chathistory)
-        QShortcut(QKeySequence("Ctrl+S"), self).activated.connect(lambda: self.chathistory_file_manager.save_chathistory(self.chathistory))
+        QShortcut(QKeySequence("Ctrl+S"), self).activated.connect(lambda: self.session_manager.save_chathistory(self.chathistory))
         QShortcut(QKeySequence("Ctrl+M"), self).activated.connect(self.show_mod_configer)
         QShortcut(QKeySequence("Ctrl+T"), self).activated.connect(self.show_theme_settings)
-        QShortcut(QKeySequence("Ctrl+D"), self).activated.connect(self.open_max_send_lenth_window)
+        QShortcut(QKeySequence("Ctrl+D"), self).activated.connect(self.open_main_setting_window)
         QShortcut(QKeySequence("Ctrl+B"), self).activated.connect(self.background_settings_window)
         QShortcut(QKeySequence("Ctrl+F"), self).activated.connect(self.show_function_call_window)
 
@@ -1392,22 +1370,9 @@ class MainWindow(QMainWindow):
         elif self.hotkey_sysrule:
             self.hotkey_sysrule.setKey(QKeySequence())
 
-    #Enter发送信息
-    def autosend_message(self, event):
-        """自定义按键事件处理"""
-        if event.key() == Qt.Key_Return or event.key() == Qt.Key_Enter:
-            self.send_message()
-        else:
-            # 调用原始的 keyPressEvent 处理其他按键
-            QTextEdit.keyPressEvent(self.user_input_text, event)
-
-    #打开模式设置
-    def open_module_window(self):
-        pass
-
     #载入记录
     def load_chathistory(self,file_path=None):
-        self.chathistory_file_manager.load_chathistory(file_path)
+        self.session_manager.load_chathistory(file_path)
         self.info_manager.notify(
 f'''聊天记录已导入，当前聊天：{self.session_manager.title}
 对话轮数 {self.session_manager.chat_rounds},
@@ -1415,7 +1380,6 @@ f'''聊天记录已导入，当前聊天：{self.session_manager.title}
 )
 
     #编辑记录
-    # todo: 重写历史编辑器
     def edit_chathistory(self, file_path=''):
 
         # 确定要使用的聊天记录和标题生成器
@@ -1438,6 +1402,7 @@ f'''聊天记录已导入，当前聊天：{self.session_manager.title}
             connect_current = True
         
         # 创建编辑器实例
+        # 低频使用，直接新创
         self.history_editor = ChatHistoryEditor(
             title_generator=title_generator, 
             chathistory=target_history
@@ -1560,32 +1525,21 @@ f'''聊天记录已导入，当前聊天：{self.session_manager.title}
 
     #获取历史记录
     def grab_past_chats(self):
-        # 获取当前文件夹下所有.json文件
-        past_chats = self.chathistory_file_manager.load_past_chats(APP_RUNTIME.paths.history_path)
-
-        # 将文件名添加到QComboBox中
-        self.past_chat_list.populate_history(past_chats)
+        self.past_chat_list.populate_history(
+            self.session_manager.past_session_list
+        )
 
     #从历史记录载入聊天
     def load_from_past(self, index):
-        self.session_manager.autosave()
-        
-        # 基础安全校验
         if not self.past_chat_list.currentItem():
             self.info_manager.warning("No item selected")
             return
-
-        # 获取当前选中的列表项
-        selected_item_path = self.past_chat_list.get_selected_file_path()
-        
-        # 直接读取存储的完整路径
-        if os.path.exists(selected_item_path):
-            self.load_chathistory(file_path=selected_item_path)
-        else:
-            self.info_manager.error(f"数据读取失败: {str(selected_item_path)}")
+        self.load_chathistory(
+            file_path=self.past_chat_list.get_selected_file_path()
+        )
 
     # === 对话设置，主设置，全局设置 ===
-    def open_max_send_lenth_window(self):
+    def open_main_setting_window(self):
         if not hasattr(self, "main_setting_window"):
             self.main_setting_window = MainSettingWindow(settings=APP_SETTINGS)
             self._connect_setting_signals()

@@ -318,14 +318,18 @@ class SessionManager:
     # ==================== 文件操作 ====================
 
     def load_chathistory(self, file_path: str = None) -> "ChatSession":
-        """从文件加载聊天记录"""
-        loaded_chat_session = self.chathistory_file_manager.load_chathistory(file_path)
+        """从文件加载聊天记录并覆盖"""
+        self.autosave()
+        try:
+            loaded_chat_session = self.chathistory_file_manager.load_chathistory(file_path)
+        except Exception as e:
+            self.error.emit(f"载入旧历史失败。错误原因： {e}")
         if loaded_chat_session == ChatSession():
             self.error.emit("failed loading session : empty load result")
             return loaded_chat_session
 
         self.current_chat = loaded_chat_session
-        self.history_loaded.emit(self.current_chat)
+        self.signals.history_changed.emit(self.current_chat)
         return self.current_chat
 
     def save_chathistory(self, file_path: str = None, chat_session: "ChatSession" = None) -> bool:
@@ -365,7 +369,7 @@ class SessionManager:
             self.error.emit(f"聊天记录删除失败: {e}")
             return False
 
-    def is_saved_current_history(self, file_path: str) -> bool:
+    def is_saved_current_history(self, file_path: str) -> bool|"ChatSession":
         """
         检查当前历史是否已保存（与文件内容比较）
         """
@@ -376,7 +380,8 @@ class SessionManager:
             return False
         if loaded is None:
             return False
-        return self._is_equal(self.current_chat, loaded)
+        if self._is_equal(self.current_chat, loaded):
+            return loaded
 
     def _is_equal(self, cs1: "ChatSession", cs2: "ChatSession") -> bool:
         """比较两个聊天记录的内容是否在同一 id 树下"""

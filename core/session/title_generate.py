@@ -1,9 +1,12 @@
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional,TYPE_CHECKING
 from PyQt6.QtCore import QObject, pyqtSignal
 from service.chat_completion import APIRequestHandler
 import time
 import re
 import uuid
+if TYPE_CHECKING:
+    from config.settings import TitleSettings
+
 class TitleGenerator(QObject):
     """标题生成器：支持本地/调用API生成标题，并与编辑器联动"""
 
@@ -12,12 +15,17 @@ class TitleGenerator(QObject):
     error_signal = pyqtSignal(str)
     title_generated = pyqtSignal(str, str)
 
-    def __init__(self, api_handler: Optional['APIRequestHandler'] = None):
+    def __init__(self, api_handler: Optional['APIRequestHandler'] = None,settings:"TitleSettings" = None):
         super().__init__()
         self.api_handler = None
         self.provider: Optional[str] = None
         self.model: Optional[str] = None
         self.api_config: Optional[Dict[str, Any]] = None
+
+        if settings:
+            self.provider = settings.provider
+            self.model = settings.model
+            
 
         self.task_id: Optional[str] = None
         self.add_date_prefix: bool = True

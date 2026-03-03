@@ -52,5 +52,5 @@ if sys.platform == 'win32':
 else:
     # 孩子们 鼠鼠不想跑linux和mac测试
     sys.exit(1)
-from ui.CWLA_main import start
+from ui.main_window import start
 start()

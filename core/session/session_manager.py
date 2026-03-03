@@ -10,9 +10,11 @@ from .session_model import ChatSession,ChatMessage
 from psygnal import Signal
 import uuid
 from core.utils import MainThreadDispatcher as MTD
+from .signals import SessionManagerSignalBus
 
 if TYPE_CHECKING:
     from .system_prompt_manager import SystemPromptPreset
+from config.settings import AppPaths,NameSettings,APP_SETTINGS,APP_RUNTIME
     
 _NOTHING = object()
 
@@ -154,27 +156,22 @@ class AutosaveWorker:
 class SessionManager:
     """会话管理器，负责管理当前会话和历史记录"""
 
-    log = Signal(str)
-    warning = Signal(str)
-    error = Signal(str)
-    notify = Signal(str)
-
-    history_loaded = Signal(ChatSession)
-
-    def __init__(self, history_path: str = ""):
+    def __init__(self):
         """
         初始化会话管理器（无锁版本）
 
         Args:
             history_path: 历史记录存储路径，默认为应用配置中的 history_path
         """
-        if not history_path:
-            from config import APP_RUNTIME
-            history_path = APP_RUNTIME.paths.history_path
 
-        self.history_path = history_path
+        self.history_path = APP_RUNTIME.paths.history_path
+        self.default_avatar_path = APP_RUNTIME.paths.avatar_path
+        self.default_names =APP_SETTINGS.names
+
         self.current_chat = ChatSession()
         self.chathistory_file_manager = ChathistoryFileManager(self.history_path)
+
+        self.signals = SessionManagerSignalBus()
 
         # autosave：让 worker 保存"快照"，不要在后台线程读 current_chat
         self._autosave_worker = AutosaveWorker(
@@ -182,12 +179,24 @@ class SessionManager:
             cooldown_s=0.150,
         )
 
+    @property
+    def log(self):
+        return self.signals.log
+
+    @property
+    def warning(self):
+        return self.signals.warning
+    
+    @property
+    def error(self):
+        return self.signals.error
+
+
     def shutdown(self):
         """应用退出时调用，干净停止后台线程"""
         try:
             self._autosave_worker.shutdown(timeout=1.0)
         except Exception:
-            # shutdown 不应影响进程退出；按需你也可以 error.emit
             pass
 
     def __del__(self):
@@ -268,6 +277,11 @@ class SessionManager:
         return self.current_chat.chat_rounds
 
     @property
+    def title(self) -> str:
+        """获取当前会话的标题"""
+        return self.current_chat.title
+    
+    @property
     def chat_id(self) -> str:
         """获取当前会话的唯一标识符"""
         return self.current_chat.chat_id
@@ -288,7 +302,7 @@ class SessionManager:
             return [msg for msg in self.current_chat.history if msg.get("role") == role]
         return []
 
-    def get_last_message(self, role: str = "") -> Optional[Dict]:
+    def get_last_message(self, role: str = "") -> "ChatMessage":
         """获取最后一条消息（可按role过滤）"""
         return self.current_chat.get_last_message(role=role)
     
@@ -383,6 +397,10 @@ class SessionManager:
         else:
             self.error.emit("didn't get any valid input to load sys pmt")
             return ""
+    
+    def replace_system_prompt_by_past_record(self,file_path = None):
+        content = self.load_sys_pmt_from_past_record(file_path)
+        self.set_system_content(content=content)
 
     # ==================== 会话数据操作 ====================
 
@@ -393,11 +411,20 @@ class SessionManager:
         self._autosave_worker.reset()
         self.current_chat = ChatSession()
 
+    def update_system_preset(self, preset: "SystemPromptPreset") -> "ChatSession":
+        self.current_chat.apply_preset(preset)
+        self.request_autosave()
+        return self.current_chat
+
     def create_new_session(self, preset: "SystemPromptPreset") -> "ChatSession":
         """创建新会话"""
         self.clear_history()
-        self.current_chat.apply_preset(preset)
-        self.request_autosave()
+
+        # 设置默认的有效头像和名字
+        self.set_avatar(self.default_avatar_path)
+        self.set_name(self.default_names)
+
+        self.update_system_preset(preset)
         return self.current_chat
 
     def update_message_by_id(self, msg_id: str, new_content: str) -> bool:
@@ -435,8 +462,21 @@ class SessionManager:
 
     def set_avatar(self, avatar: Dict[str, str]) -> None:
         """设置会话头像"""
+
         self.current_chat.avatars = avatar
+        self.signals.avatar_changed.emit()
         self.request_autosave()
+    
+    def set_role_avatar(self,role:str,avatar:str) -> None:
+        self.current_chat.avatars[role]=avatar
+        self.signals.avatar_changed.emit()
+        self.request_autosave()
+
+    def set_name(self, name: Dict[str, str]) -> None:
+        """设置会话名称"""
+        self.current_chat.name = name
+        self.request_autosave()
+        self.signals.name_changed.emit()
 
     def set_tools(self, tool: List[str]) -> None:
         """设置会话工具列表"""

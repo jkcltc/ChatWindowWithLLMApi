@@ -1,109 +1,72 @@
 from typing import TYPE_CHECKING
 import time
-import uuid
-from PyQt6.QtCore import QObject,QTimer,pyqtSignal
-from service.chat_completion import FullFunctionRequestHandler,APIRequestHandler
-from core.tool_call.tool_core import get_functions_events,get_tool_registry,ToolRegistry
+
+from config import APP_SETTINGS,APP_RUNTIME
+
+from service.chat_completion import APIRequestHandler
+
 from core.session.concurrentor import ConvergenceDialogueOptiProcessor
 from core.session.title_generate import TitleGenerator
 from core.session.session_manager import SessionManager
-from core.session.lci_helper import LciMetrics,LciEvaluation
+from core.context.lci.evaluate import LciMetrics,LciEvaluation
 from core.multimodal_coordination.background_generater_helper import BggEvaluation,BggMetrics
 from core.multimodal_coordination.background_generate import BackgroundWorker
-from core.session.data import ChatCompletionPack
-from core.session.preprocessor import RequestWorkflowManager
-from service.web_search import WebSearchFacade,RagFilter,WebRagPresetVars
-from config import APP_SETTINGS
+from core.session.data import ChatCompletionPack,RequestType
+from core.session.request_flow import RequestFlowManager
+from core.session.signals import ChatFlowManagerSignalBus
+from core.context.lci import LciEngine,LCIValidator
+from core.utils.dispatcher import MainThreadDispatcher as MTD
+
+from utils.status_analysis import StatusAnalyzer
 
 if TYPE_CHECKING:
     from config.settings import LLMUsagePack
 
-
-class ChatFlowManager(QObject):
-    log = pyqtSignal(str)
-    warning = pyqtSignal(str)
-    error = pyqtSignal(str)
-    notify = pyqtSignal(str)
-
-    # ui 通知信号
-    ai_response =pyqtSignal(str,str)
-    """ 'content':str """
-    ai_reasoning=pyqtSignal(str,str)
-    """ 'reasoning_content':str """
-    ai_tool_call=pyqtSignal(str,str)
-    """ 
-    > LLM tool call
-    ['role' : 'assistant']  
-    
-    'content':str
+class ChatFlowManager:
     """
+    聊天流程管理器，负责处理聊天流程中的各种信号和逻辑
+    - 和对话会话管理器交互
+    - 请求分流到并发器和RFM
+    - 上下文工程
+    - 分发标题生成
+    - 分发背景生成
 
-    status_changed=pyqtSignal(str)
-
+    """
     def __init__(self,session_manager:SessionManager):
-        super().__init__()
-        self.init_requester()
-        # 全局单例，逮着硬薅，得，薅不到
-        # self.function_manager:ToolRegistry = get_tool_registry()
-        get_functions_events().errorOccurred.connect(self.error.emit)
+        self.signals=ChatFlowManagerSignalBus()
+
+        # 状态管理
+        self.status_analyzer = StatusAnalyzer()
 
         # 标题生成器要发自己的api请求
         api_requester=APIRequestHandler(api_config=APP_SETTINGS.api.providers)
         self.title_generator=TitleGenerator(api_handler=api_requester)
 
-        self.search_facade = WebSearchFacade(
-            engine_name=APP_SETTINGS.web_search.search_engine,
-            max_workers=min(6, APP_SETTINGS.web_search.search_results_num),
-            timeout=12,
-            rag_filter=RagFilter(
-                prefix=WebRagPresetVars.prefix,
-                suffix=WebRagPresetVars.subfix,
-            )
-        )
+        self.rfm=RequestFlowManager(status_analyzer=self.status_analyzer)
+        self._connect_rfm_signals()
+
         # 持有会话管理器
         self.session_manager = session_manager
 
-        self.lci= None # LciManager()
+        self.lci= LciEngine()#LongChatImprove as LciEngine
+        self.lci_validator = LCIValidator()
+        self.lci.on_save_history = self._on_lci_complete
 
         self.bgg= BackgroundWorker()
 
-        self.request_workflow_manager = RequestWorkflowManager(
-            search_facade=self.search_facade
-        ) 
-        self.request_workflow_manager.log.connect(self.log.emit)
-        self.request_workflow_manager.warning.connect(self.warning.emit)
-        self.request_workflow_manager.error.connect(self.error.emit)
+        self.init_signal_action()
+    
+    def init_signal_action(self):
+        self.signals.finish_reason_received.connect(self.emit_finished_status)
+        
+    def emit_finished_status(self,a,b,readable_reason):
+        stats_dict=self.status_analyzer.process_full(
+        )
+        stats_dict['total_rounds'] = self.session_manager.current_chat.chat_rounds
+        stats_dict['total_length'] = self.session_manager.current_chat.chat_length
+        stats_dict['finish_reason'] = readable_reason
 
-
-    def init_requester(self):
-        self.requester = FullFunctionRequestHandler()
-
-        # 连接信号到具体的方法
-        self.requester.ai_response_signal.connect(self._on_ai_response)
-        self.requester.think_response_signal.connect(self._on_think_response)
-        self.requester.tool_response_signal.connect(self._on_tool_response)
-
-        self.requester.log_signal.connect(self.log.emit)
-        self.requester.warning_signal.connect(self.warning.emit)
-        self.requester.completion_failed.connect(self.error.emit)
-
-    # 专门处理 AI 响应
-    def _on_ai_response(self, request_id, content):
-        self.request_id = request_id
-        self.full_response = content
-        self.ai_response.emit(request_id,content)
-
-    # 专门处理思维链
-    def _on_think_response(self, request_id, content):
-        self.request_id = request_id
-        self.think_response = content
-        self.ai_reasoning.emit(request_id,content)
-
-    # 专门处理工具调用
-    def _on_tool_response(self, request_id, content):
-        self.request_id = request_id
-        self.tool_response = content
-        self.ai_tool_call.emit(request_id,content)
+        self.signals.request_status.emit(stats_dict)
 
     def init_concurrenter(self):
         self.concurrent_model=ConvergenceDialogueOptiProcessor()
@@ -111,15 +74,33 @@ class ChatFlowManager(QObject):
         self.concurrent_model.concurrentor_reasoning.connect(self.concurrentor_reasoning_receive)
         self.concurrent_model.concurrentor_finish.connect(self.concurrentor_finish_receive)
 
+    def _connect_rfm_signals(self):
+        self.rfm.signals.bus_connect(self.signals)
+        self.rfm.signals.request_toolcall_resend.connect(self._request_toolcall_resend)
+        self.rfm.signals.update_message.connect(self._handle_message_update)
+        self.rfm.signals.finished.connect(self._handle_message_update)
+        # todo: tts现在接了完整的内容，O(n^2)，要换成接流式
+        self.rfm.signals.full_content.connect(self._dist_tts)
 
-    def create_chat_title(self,chathistory):
+    def _handle_message_update(self,request_id,messages):
+        self.session_manager.add_messages(messages)
+        
+    def _request_toolcall_resend(self,request_id):
+        self.send_request(
+            request_type=RequestType.TOOL_MESSAGE,
+            LLM_usage=APP_SETTINGS.ui.LLM,# 跟随UI自动更新
+            temp_style='' # todo: temp style 绑定到app runtime
+        )
+
+    def create_chat_title(self):
         include_sys_pmt =   APP_SETTINGS.title.include_sys_pmt
         use_local       =   APP_SETTINGS.title.use_local
         max_length      =   APP_SETTINGS.title.max_length
         task_id         =   self.session_manager.chat_id
+        his             =   self.session_manager.history
 
         self.title_generator.create_chat_title(
-            chathistory=chathistory,
+            chathistory=his,
             include_system_prompt=include_sys_pmt,
             use_local=use_local,
             max_length=max_length,
@@ -130,6 +111,10 @@ class ChatFlowManager(QObject):
     #重生成消息，直接创建最后一条
     def resend_message_last(self):
         self.resend_message()
+    
+    def _dist_tts(self,id,text):
+        if APP_SETTINGS.tts.tts_enabled:
+            self.signals.tts.emit(id,text)
     
     def _rollback_lci_counters(self, amount=-2):
         """
@@ -156,48 +141,50 @@ class ChatFlowManager(QObject):
         try:
             chathistory = self.session_manager.fallback_history_for_resend(msg_id=msg_id)
         except Exception as e:
-            self.error.emit("重发失败：消息回退失败"+str(e))
+            self.signals.error.emit("重发失败：消息回退失败"+str(e))
             return False
 
         if not chathistory or len(chathistory) < 2:
-            self.error.emit("重发失败：消息数不足")
+            self.signals.error.emit("重发失败：消息数不足")
             return False
 
         end_chat_length=self.session_manager.chat_rounds
         self._rollback_lci_counters(end_chat_length-start_chat_length)
 
-        self.send_request(create_thread= not APP_SETTINGS.concurrent.enabled)
+        self.send_request(
+            request_type=RequestType.USER_MESSAGE,
+            LLM_usage=APP_SETTINGS.ui.LLM,
+            create_thread= not APP_SETTINGS.concurrent.enabled
+        )
 
         return True
+    
 
-    #0.25.3 info_manager + api request基础重构
-    def resend_message_by_tool(self):
-        self._receive_message([])
-        self.send_request()
 
+    # 抛弃功能
     # 0.24.4 模型并发信号
-    def concurrentor_content_receive(self,msg_id,content):
-        self.full_response=content
-        self.ai_response.emit(str(msg_id),content)
+    #def concurrentor_content_receive(self,msg_id,content):
+    #    self.full_response=content
+    #    self.ai_response.emit(str(msg_id),content)
 
-    def concurrentor_reasoning_receive(self,msg_id,content):
-        self.think_response=content
-        self.thinked=True
-        self.ai_reasoning.emit(str(msg_id),content)
+    #def concurrentor_reasoning_receive(self,msg_id,content):
+    #    self.think_response=content
+    #    self.thinked=True
+    #    self.ai_reasoning.emit(str(msg_id),content)
 
-    def concurrentor_finish_receive(self,msg_id,content):
-        self.last_chat_info = self.concurrent_model.get_concurrentor_info()
-        self.full_response=content
-        self._receive_message(
-            {
-                "role": "assistant",
-                "content": content,
-                "info": {
-                    "id": msg_id,
-                    "time":time.strftime("%Y-%m-%d %H:%M:%S")
-                }
-            }
-        )
+    #def concurrentor_finish_receive(self,msg_id,content):
+    #    self.last_chat_info = self.concurrent_model.get_concurrentor_info()
+    #    self.full_response=content
+    #    self._receive_message(
+    #        {
+    #            "role": "assistant",
+    #            "content": content,
+    #            "info": {
+    #                "id": msg_id,
+    #                "time":time.strftime("%Y-%m-%d %H:%M:%S")
+    #            }
+    #        }
+    #    )
     
     def _should_do_lci(self):
         if not APP_SETTINGS.lci.enabled:
@@ -206,15 +193,10 @@ class ChatFlowManager(QObject):
         metrics = LciMetrics.from_session(self.session_manager.current_chat)
         result = LciEvaluation.evaluate(metrics, APP_SETTINGS.lci)
 
-        self.log.emit(result.format_log(APP_SETTINGS.lci))
+        self.signals.log.emit(result.format_log(APP_SETTINGS.lci))
 
         return result.triggered
 
-    def _should_send_message(self):
-        # 先检查当前消息
-        pass
-
-    
     def _should_update_background(self):
         if not APP_SETTINGS.background.enabled:
             return
@@ -222,10 +204,10 @@ class ChatFlowManager(QObject):
         metrics = BggMetrics.from_session(self.session_manager.current_chat)
         result = BggEvaluation.evaluate(metrics, APP_SETTINGS.background)
 
-        self.log.emit(result.format_log(APP_SETTINGS.background))
+        self.signals.log.emit(result.format_log(APP_SETTINGS.background))
 
         return result.triggered
-    
+
     def _trigger_accompanying_function(self):
         # 三位启动自己的线程
         if self._should_do_lci():
@@ -233,98 +215,144 @@ class ChatFlowManager(QObject):
                 payload=self.session_manager.current_chat,
                 setting=APP_SETTINGS.lci
             )
-        if self._should_update_background():
-            self.bgg.start(
-                self.session_manager.current_chat,
-                setting=APP_SETTINGS.background
-            )
+        # 还没写完
+        #if self._should_update_background():
+        #    self.bgg.start(
+        #        self.session_manager.current_chat,
+        #        setting=APP_SETTINGS.background
+        #    )
         if self.session_manager.should_generate_title:
-            self.create_chat_title(self.session_manager.history)
+            self.create_chat_title()
+
+    def set_activated_tools(self,tool_list):
+        self.session_manager.set_tools(tool_list)
+    
+    @MTD.run_in_main
+    def _on_lci_complete(self, generated_items: list[dict], anchor_id: str):
+        
+        # 135μs  @ scan 5000 items, 10 generated_items, 9800X3D
+        context_data = self.session_manager.get_filtered_context_data(generated_items, anchor_id)
+        
+        if context_data is None:
+            self.session_manager.error.emit(f"LCI校验失败: 锚点 {anchor_id} 不存在")
+            return
+        
+        # 1.5μs @ 100 ~ 100k (O(1)?)
+        report = self.lci_validator.validate(generated_items, anchor_id, context_data) 
+        
+        if not report.is_valid:
+            self.session_manager.error.emit(f"LCI校验失败: {report.error_msg} ")
+            return
+        
+        # 157μs  @ 3 inserts into 5000 items
+        self.session_manager.insert_items_by_anchor(generated_items, report.anchor_id)
+
+        # 排队到下一个节点做deepcopy
+        # 6μs  @ 500 items
+        @MTD.run_in_main
+        def save():
+            self.session_manager.request_autosave()
+        save()
+
 
     def send_new_message(
             self,
             prompt_pack:tuple[str,list],# user_prompt, multimodal_content->list[dict[str:literal[str,list]]
             LLM_usage:"LLMUsagePack",
-            tool_list:list=None, # 这玩意怎么会是绑定在UI上的，我model呢！
             temp_style:str='', # 临时风格，这个确实应该在UI上
             ):
         text,multimodal_content=prompt_pack
-        self.session_manager.add_message(
+        self.session_manager.add_new_message(
             role='user',
             content=text,
             multimodal=multimodal_content
         )
 
         #大胶水启动！
-        self.send_request(
+        successful=self.send_request(
+            RequestType.USER_MESSAGE,
             LLM_usage=LLM_usage,
-            tool_list=tool_list,
-            temp_style=temp_style
+            temp_style=temp_style,
+            
         )
+        return successful
 
 
     # >>> 发送请求主函数 <<<
     def send_request(
             self,
+            request_type:RequestType,
             LLM_usage:"LLMUsagePack",
-            tool_list:list=None,
             temp_style:str='',
         ):
         start_time=time.time()*1000
 
-        # 送走request_workflow_manager的所有请求器，请求器和管理器的连接
-        self.request_workflow_manager.abandon_all_requester()
-
         pack = ChatCompletionPack(
-            chathistory=self.session_manager.history,
+            chat_session=self.session_manager.current_chat,
             model=LLM_usage.model,
             provider=APP_SETTINGS.api.providers[LLM_usage.provider],
-            tool_list=tool_list, # 工具列表
+            provider_name=LLM_usage.provider,
             optional={
                 "temp_style": temp_style,
-            #    "enforce_lower_repeat_text": APP_RUNTIME.force_repeat.text 让patch处理器现场算
             },
-            mod=[]#self._handle_mod_functions],
+            mod=[]## todo: 把mod功能加进来 self._handle_mod_functions,
         )
 
-        # 让request_workflow_manager自己管理各个请求器的信号
-        requset_flow=self.request_workflow_manager.create_requester(id=self.session_manager.chat_id)
-
+        # 启动主循环
         try:
-            requset_flow.start(pack)
+            start_successful = self.rfm.send_request(
+                pack=pack,
+                request_type=request_type
+            )
         except Exception as e:
-            self.error.emit('main completion request fail '+str(e))
+            start_successful = False
+            error_msg = str(e)
+            self.signals.error.emit(f'main completion request fail {error_msg}')
 
         # 启动伴生功能，只有LCI会重插记忆消息
         # 主对话对伴生功能提供的新消息的时机和内容不敏感
         # 最多AI失忆截断后的最早一到二轮
-        self._trigger_accompanying_function()
+        if start_successful:
+            self._trigger_accompanying_function()
 
-        self.status_changed.emit('sending')
+            end_time=time.time()*1000
+            self.signals.log.emit(
+                f'消息送至打包流程:{(end_time-start_time):.2f}ms'
+            )
 
-        end_time=time.time()*1000
-        self.log.emit(f'消息送至打包流程:{(end_time-start_time):.2f}ms')
+        return start_successful
+ 
 
-        self.message_status.start_record(
-            model=LLM_usage.model,
-            provider=LLM_usage.provider,
-            request_send_time=start_time
-        )
-        return True
+    ##接受信息，信息后处理
+    #def _receive_message(self,message):
+    #    try:
+    #        message=self._replace_for_receive_message(message)
+    #        self.current_chat.history.extend(message)
+    #        # AI响应状态栏更新
+    #        self.ai_response_text.setMarkdown(self.get_status_str(message_finished=True))
+#
+    #        # mod后处理
+    #        self.mod_configer.handle_new_message(self.full_response,self.current_chat.history)
+    #    except Exception as e:
+    #        self.info_manager.notify(level='error',text='receive fail '+str(e))
+    #    finally:
+    #        self.control_frame_to_state('finished')
+    #        self.update_chat_history()
 
-        
-    #接受信息，信息后处理
-    def _receive_message(self,message):
-        try:
-            message=self._replace_for_receive_message(message)
-            self.current_chat.history.extend(message)
-            # AI响应状态栏更新
-            self.ai_response_text.setMarkdown(self.get_status_str(message_finished=True))
 
-            # mod后处理
-            self.mod_configer.handle_new_message(self.full_response,self.current_chat.history)
-        except Exception as e:
-            self.info_manager.notify(level='error',text='receive fail '+str(e))
-        finally:
-            self.control_frame_to_state('finished')
-            self.update_chat_history()
+if __name__ == "__main__":
+    from core.utils import MainThreadDispatcher
+    from PyQt6.QtCore import QMetaObject, Qt
+    from PyQt6.QtWidgets import QApplication
+    import sys
+    import time
+    from typing import Callable
+
+    app = QApplication(sys.argv)
+
+    def qt_runner(task: Callable[[], None]):
+        QMetaObject.invokeMethod(app, task, Qt.ConnectionType.QueuedConnection)
+
+    MainThreadDispatcher.register_runner(qt_runner)
+
+    sys.exit(app.exec())

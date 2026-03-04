@@ -346,6 +346,7 @@ class SessionManager:
             loaded_chat_session = self.chathistory_file_manager.load_chathistory(file_path)
         except Exception as e:
             self.error.emit(f"载入旧历史失败。错误原因： {e}")
+            return
         if loaded_chat_session == ChatSession():
             self.error.emit("failed loading session : empty load result")
             return loaded_chat_session
@@ -354,7 +355,9 @@ class SessionManager:
 
     def save_chathistory(self, file_path: str = None, chat_session: "ChatSession" = None) -> bool:
         """手动保存聊天记录（同步）"""
-        if not file_path or not chat_session or chat_session.chat_rounds <= 1:
+        if not file_path:
+            file_path = chat_session.chat_id + ".json"
+        if not chat_session or chat_session.chat_rounds <= 1:
             self.error.emit("保存聊天记录失败: 文件路径或会话为空")
             return False
         try:
@@ -389,17 +392,20 @@ class SessionManager:
             self.error.emit(f"聊天记录删除失败: {e}")
             return False
 
-    def is_saved_current_history(self, file_path: str) -> bool|"ChatSession":
+    def is_saved_current_history(self, file_path: str) -> "ChatSession":
         """
         检查当前历史是否已保存（与文件内容比较）
         """
         try:
+            print(file_path)
             loaded = self.chathistory_file_manager.load_chathistory(file_path)
         except Exception as e:
-            self.error.emit(f"聊天记录校对：载入旧历史失败。错误原因： {e}")
-            return False
+            self.signals.error.emit(f"聊天记录校对：载入旧历史失败。错误原因： {e}")
+            return ChatSession()
+
         if loaded is None:
-            return False
+            return ChatSession()
+        
         if self._is_equal(self.current_chat, loaded):
             return loaded
 
@@ -560,14 +566,17 @@ class SessionManager:
                 new_msg['info'][key] = value
 
         self.current_chat.history.append(new_msg)
+        self.signals.history_changed.emit(self.chat_id,self.history)
         self.request_autosave()
     
     def add_message(self,message:dict):
         self.current_chat.history.append(message)
+        self.signals.history_changed.emit(self.chat_id,self.history)
         self.request_autosave()
     
     def add_messages(self,messages:list[dict]):
         self.current_chat.history.extend(messages)
+        self.signals.history_changed.emit(self.chat_id,self.history)
         self.request_autosave()
 
    # ==================== 业务支持 ====================

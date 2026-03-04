@@ -24,6 +24,9 @@ class CWLACore:
             file_path=APP_RUNTIME.paths.log_path
         )
 
-        self.signals.log.connect(self.logger.info)
-        self.signals.warning.connect(self.logger.warning)
-        self.signals.error.connect(self.logger.error)
+        self.signals.log.connect        (self.logger.info)
+        self.signals.warning.connect    (self.logger.warning)
+        self.signals.error.connect      (self.logger.error)
+        self.signals.log.connect    (print)
+        self.signals.warning.connect(print)
+        self.signals.error.connect  (print)

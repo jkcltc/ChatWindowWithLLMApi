@@ -44,7 +44,7 @@ ConfigManager.load_settings(APP_SETTINGS)
 
 LOGGER.log(f'CWLA config recover finished, time stamp:{time.time()-start_time_stamp:.2f}s')
 
-from service.chat_completion import APIRequestHandler
+from service.chat_completion.llm_requester import APIRequestHandler
 from service.tts.chatapi_tts import TTSAgent
 
 LOGGER.log(f'CWLA service import finished, time stamp:{time.time()-start_time_stamp:.2f}s')
@@ -53,7 +53,6 @@ from core.session.title_generate import TitleGenerator
 from core.multimodal_coordination.background_generate import BackgroundAgent
 from core.story.mod_manager import ModConfiger
 from core.session.concurrentor import ConvergenceDialogueOptiProcessor
-from core.session.enforce_repeat import RepeatProcessor
 
 from core.app_core import CWLACore
 
@@ -76,7 +75,6 @@ LOGGER.log(f'CWLA UI import finished, time stamp:{time.time()-start_time_stamp:.
 
 from utils.preset_data import *
 from utils.usage_analysis import TokenAnalysisWidget
-from utils.status_analysis import StatusAnalyzer
 
 LOGGER.log(f'CWLA utils import finished, time stamp:{time.time()-start_time_stamp:.2f}s')
 
@@ -102,8 +100,6 @@ class MainWindow(QMainWindow):
         self.setupUi()
         self.setWindowTitle("CWLA - Chat Window with LLM Api")
         self.setWindowIcon(self.render_svg_to_icon(MAIN_ICON))
-        self.message_status=StatusAnalyzer()
-        self.repeat_processor=RepeatProcessor(self)
 
         screen_geometry = QApplication.primaryScreen().availableGeometry()
         
@@ -115,6 +111,9 @@ class MainWindow(QMainWindow):
         
         self.setGeometry(left, top, width, height)
 
+        self.init_app_core()
+        
+
         # 初始化参数
         self.init_self_params()
 
@@ -123,14 +122,11 @@ class MainWindow(QMainWindow):
 
         self.init_concurrenter()
 
-        self.init_chathistory_components()
-
-        self.init_title_creator()
         self.init_system_prompt_window()
+        self.init_chat_bubble_render_loop()
 
         self.init_signal_bus()
-
-        self.init_chat_service()
+        self.connect_bus_signals()
         
         # 模型轮询器
         self.ordered_model=RandomModelSelecter(
@@ -298,7 +294,7 @@ class MainWindow(QMainWindow):
         self.pause_button = QPushButton("暂停")
         self.pause_button.clicked.connect(lambda: self.control_frame_to_state('finished'))
         self.pause_button.clicked.connect(lambda _:self.chat_history_bubbles.streaming_scroll(False))
-        self.pause_button.clicked.connect(self.requester.pause)
+        self.pause_button.clicked.connect(self.cfm.pause)
 
 
         self.clear_button = QPushButton("清空")
@@ -545,13 +541,16 @@ class MainWindow(QMainWindow):
 
     if TYPE_CHECKING:
         from core.signals import MainBus
+
     @ property
     def BESB(self)->"MainBus":
         """MainWindow.back_end_signal_bridge"""
         return self.back_end_signal_bridge
 
     def connect_bus_signals(self):
+        self.BESB
         b=self.BESB
+        b.bus_connect(self.core.signals)
         b.full_content.connect(self.update_ai_response_text)
         b.full_reasoning.connect(self.update_think_response_text)
         b.full_tool_call.connect(self.update_tool_response_text)
@@ -563,10 +562,12 @@ class MainWindow(QMainWindow):
         b.avatar_changed.connect(self.update_avatar_to_chat_bubbles)
         b.history_changed.connect(self.finalize_chat_render)
 
+        b.warning.connect(self.info_manager.warning)
+        b.error.connect(self.info_manager.error)
+
 
     def init_app_core(self):
         self.core = CWLACore()
-        self.BESB.bus_connect(self.core.signals)
 
     @property
     def session_manager(self):
@@ -578,7 +579,6 @@ class MainWindow(QMainWindow):
 
 
     def init_self_params(self):
-        self.chathistory=[]
         self.setting_img = setting_img
         self.temp_style=''
 
@@ -638,11 +638,10 @@ class MainWindow(QMainWindow):
         # 切换选择时覆盖系统提示
         self.quick_system_prompt_changer.update_preset.connect(
             lambda preset:(
-                self.update_system_preset(preset),
-                self.system_prompt_override_window.load_income_prompt(preset),
+                self.update_system_preset(preset)
+                #self.system_prompt_override_window.load_income_prompt(preset),#todo
                 )
         )
-        self.quick_system_prompt_changer.update_tool_selection.connect(self.function_manager.set_active_tools)
         self.quick_system_prompt_changer.request_open_editor.connect(
             self.open_system_prompt
         )
@@ -652,6 +651,7 @@ class MainWindow(QMainWindow):
         self.bubble_background=QTextBrowser()
         self.main_layout.addWidget(self.bubble_background, 3, 2, 4, 3)
         self.chat_history_bubbles = ChatHistoryWidget()
+        self.init_chat_bubble()
         self.main_layout.addWidget(self.chat_history_bubbles, 3, 2, 4, 3)
         self.main_layout.addWidget(self.display_full_chat_history, 2, 4, 1, 1)
         self.main_layout.addWidget(self.chat_history_label, 2, 2, 1, 1)
@@ -661,19 +661,16 @@ class MainWindow(QMainWindow):
         self.chat_history_bubbles.regenerateRequested.connect(self.resend_message)
         self.chat_history_bubbles.editFinished.connect(self.session_manager.edit_by_id)
         self.chat_history_bubbles.RequestAvatarChange.connect(self.show_avatar_window)
-        
+
+    def init_chat_bubble(self):
+        self.chat_history_bubbles.avatars
+
     def init_concurrenter(self):
+        pass
         self.concurrent_model=ConvergenceDialogueOptiProcessor()
-        self.concurrent_model.concurrentor_content.connect(self.concurrentor_content_receive)
-        self.concurrent_model.concurrentor_reasoning.connect(self.concurrentor_reasoning_receive)
-        self.concurrent_model.concurrentor_finish.connect(self.concurrentor_finish_receive)
-
-
-    def init_chathistory_components(self):
-        raise
-
-    def init_title_creator(self):
-        raise
+        #self.concurrent_model.concurrentor_content.connect(self.concurrentor_content_receive)
+        #self.concurrent_model.concurrentor_reasoning.connect(self.concurrentor_reasoning_receive)
+        #self.concurrent_model.concurrentor_finish.connect(self.concurrentor_finish_receive)
 
     def init_web_searcher(self):
         """懒导入，不常用模块，加速启动"""
@@ -681,9 +678,6 @@ class MainWindow(QMainWindow):
             from service.web_search.online_rag import WebSearchSettingWindows
             self.web_searcher = WebSearchSettingWindows()
     
-    def create_one_time_use_title_creator(self):
-        raise
-        
     def add_tts_page(self):
         self.tts_handler=TTSAgent(setting=APP_SETTINGS.tts,application_path=APP_RUNTIME.paths.application_path)
         self.stat_tab_widget.addTab(self.tts_handler, "语音生成")
@@ -1101,7 +1095,7 @@ class MainWindow(QMainWindow):
         if self.system_prompt_override_window.isVisible():
             self.system_prompt_override_window.raise_()
             self.system_prompt_override_window.activateWindow()
-        self.system_prompt_override_window.load_income_prompt(self.chathistory[0])
+        self.system_prompt_override_window.load_income_prompt(self.session_manager.current_chat)
 
     #打开设置，快捷键
     def open_settings_window(self):
@@ -1180,7 +1174,7 @@ class MainWindow(QMainWindow):
 
         QShortcut(QKeySequence("Ctrl+N"), self).activated.connect(self.clear_history)
         QShortcut(QKeySequence("Ctrl+O"), self).activated.connect(self.load_chathistory)
-        QShortcut(QKeySequence("Ctrl+S"), self).activated.connect(lambda: self.session_manager.save_chathistory(self.chathistory))
+        QShortcut(QKeySequence("Ctrl+S"), self).activated.connect(lambda: self.save_chathistory())#self.session_manager.save_chathistory())
         QShortcut(QKeySequence("Ctrl+M"), self).activated.connect(self.show_mod_configer)
         QShortcut(QKeySequence("Ctrl+T"), self).activated.connect(self.show_theme_settings)
         QShortcut(QKeySequence("Ctrl+D"), self).activated.connect(self.open_main_setting_window)
@@ -1226,24 +1220,26 @@ f'''聊天记录已导入，当前聊天：{self.session_manager.title}
 
     #编辑记录
     def edit_chathistory(self, file_path=''):
-        session = self.session_manager.load_chathistory(
-            file_path=file_path
-        )
-        if session.chat_id == self.session_manager.chat_id:
-            editor = ChatHistoryEditor(
-                title_generator=self.cfm.title_generator,
+        connect_current = False
+        if file_path:
+            session = self.session_manager.load_chathistory(
+                file_path=file_path
+            )
+            if session.chat_id == self.session_manager.chat_id:
                 session= self.session_manager.current_chat
-            )
-            connect_current = True
+                connect_current = True
         else:
-            editor = ChatHistoryEditor(
-                title_generator=TitleGenerator(
-                    api_handler= APIRequestHandler(),
-                    settings=APP_SETTINGS.title
-                ),
-                session= session
-            )
-            connect_current = False
+            session = self.session_manager.current_chat
+            connect_current = True
+
+        editor = ChatHistoryEditor(
+            title_generator=TitleGenerator(
+                api_handler= APIRequestHandler(),
+                settings=APP_SETTINGS.title
+            ),
+            session= session
+        )
+        
 
         
         # 连接信号
@@ -1252,10 +1248,35 @@ f'''聊天记录已导入，当前聊天：{self.session_manager.title}
             editor.editCompleted.connect(self.session_manager.set_session)
         else:
             # 连接到文件保存
-            editor.editCompleted.connect(self.session_manager.save_chathistory)
+            editor.editCompleted.connect(
+                lambda ch: self.session_manager.save_chathistory(chat_session=ch)
+            )
             editor.editCompleted.connect(self.grab_past_chats)
         
         editor.show()
+    
+    def save_history(self):
+        """打开文件选择窗口并保存当前聊天记录"""
+
+        if self.session_manager.current_chat.chat_rounds <= 1:
+            QMessageBox.warning(self, "保存失败", "当前没有足够的聊天记录可以保存。")
+            return
+
+        default_file_name = "chat_history.json"
+        file_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "保存聊天记录",
+            default_file_name,
+            "JSON 文件 (*.json);;文本文件 (*.txt);;所有文件 (*)"
+        )
+
+        if not file_path:
+            return
+
+        success = self.session_manager.save_chathistory(
+            file_path=file_path,
+            chat_session=self.session_manager.current_chat
+        )
 
     #修改问题
     def edit_user_last_question(self):
@@ -1399,7 +1420,7 @@ f'''聊天记录已导入，当前聊天：{self.session_manager.title}
     def call_background_update(self):
         self._setup_bsw()
         self.background_agent.generate(
-            chathistory=self.chathistory,
+            chathistory=self.session_manager.history,
         )
 
     #背景更新：触发UI更新
@@ -1612,7 +1633,7 @@ f'''聊天记录已导入，当前聊天：{self.session_manager.title}
 
     def show_analysis_window(self,data=None):
         if not data:
-            data=self.chathistory
+            data=self.session_manager.history
         if not hasattr(self,'token_analyzer'):
             self.token_analyzer=TokenAnalysisWidget()
         self.token_analyzer.show()
@@ -1621,28 +1642,28 @@ f'''聊天记录已导入，当前聊天：{self.session_manager.title}
         self.token_analyzer.set_data(data)
 
     # 0.24.4 模型并发信号
-    def concurrentor_content_receive(self,msg_id,content):
-        self.full_response=content
-        self.update_ai_response_text(str(msg_id),content)
+    def concurrentor_content_receive(self,msg_id,content):pass
+        #self.full_response=content
+        #self.update_ai_response_text(str(msg_id),content)
 
-    def concurrentor_reasoning_receive(self,msg_id,content):
-        self.think_response=content
-        self.thinked=True
-        self.update_think_response_text(str(msg_id),content)
+    def concurrentor_reasoning_receive(self,msg_id,content):pass
+        #self.think_response=content
+        #self.thinked=True
+        #self.update_think_response_text(str(msg_id),content)
 
-    def concurrentor_finish_receive(self,msg_id,content):
-        self.last_chat_info = self.concurrent_model.get_concurrentor_info()
-        self.full_response=content
-        self._receive_message(
-            {
-                "role": "assistant",
-                "content": content,
-                "info": {
-                    "id": msg_id,
-                    "time":time.strftime("%Y-%m-%d %H:%M:%S")
-                }
-            }
-        )
+    def concurrentor_finish_receive(self,msg_id,content):pass
+    #    self.last_chat_info = self.concurrent_model.get_concurrentor_info()
+    #    self.full_response=content
+    #    self._receive_message(
+    #        {
+    #            "role": "assistant",
+    #            "content": content,
+    #            "info": {
+    #                "id": msg_id,
+    #                "time":time.strftime("%Y-%m-%d %H:%M:%S")
+    #            }
+    #        }
+    #    )
 
     # 0.25.1 avatar
     # 显示头像窗口
@@ -1684,13 +1705,13 @@ f'''聊天记录已导入，当前聊天：{self.session_manager.title}
                 model_map=APP_SETTINGS.api.model_map,
                 default_apis=APP_SETTINGS.api.providers,
                 msg_id=msg_id,
-                chathistory=self.chathistory
+                chathistory=self.session_manager.history
                 )
             self.avatar_creator.avatarCreated.connect(self.session_manager.set_role_avatar)
         
         # 更新选择
         self.avatar_creator.character_for.setCurrentText(avatar_info[name]['name'])
-        self.avatar_creator.chathistory=self.chathistory
+        self.avatar_creator.chathistory=self.session_manager.history
 
         # 显示窗口
         self.avatar_creator.show()
@@ -1714,7 +1735,7 @@ f'''聊天记录已导入，当前聊天：{self.session_manager.title}
         self.update_avatar_to_chat_bubbles()
         self.update_name_to_chatbubbles()
 
-    def update_avatar_to_chat_bubbles(self,avatars = None):
+    def update_avatar_to_chat_bubbles(self,avatars = {}):
         self.chat_history_bubbles.avatars = avatars
         self.chat_history_bubbles.update_all_avatars()
 

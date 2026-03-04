@@ -141,6 +141,9 @@ class ChatFlowManager:
             bgg=APP_SETTINGS.background.enabled
         )
     
+    def pause(self):
+        self.rfm.pause()
+    
     def resend_message(self,msg_id='')->bool:
         """
         resend_message : 重发消息，如果msg_id为空，则重发最后一条消息

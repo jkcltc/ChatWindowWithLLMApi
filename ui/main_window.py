@@ -3,16 +3,10 @@ start_time_stamp=time.time()
 
 _ts_1=f'CWLA init timer start, time stamp:{time.time()-start_time_stamp:.2f}s'
 
-import configparser
-import json
 import os
-import re
 import sys
-import threading
-import traceback
 import warnings
 from typing import TYPE_CHECKING
-from dataclasses import dataclass
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 warnings.filterwarnings("ignore", message="libpng warning: iCCP: known incorrect sRGB profile")
@@ -29,7 +23,6 @@ from PyQt6.QtWidgets import *
 from PyQt6.QtCore import *
 from PyQt6.QtGui import *
 from PyQt6.QtSvg import *
-import openai
 
 _ts_3=f'CWLA 3rd party lib import finished, time stamp:{time.time()-start_time_stamp:.2f}s'
 
@@ -51,15 +44,12 @@ ConfigManager.load_settings(APP_SETTINGS)
 
 LOGGER.log(f'CWLA config recover finished, time stamp:{time.time()-start_time_stamp:.2f}s')
 
-from service.chat_completion import FullFunctionRequestHandler,APIRequestHandler
+from service.chat_completion import APIRequestHandler
 from service.tts.chatapi_tts import TTSAgent
 
 LOGGER.log(f'CWLA service import finished, time stamp:{time.time()-start_time_stamp:.2f}s')
 
-from core.session.chat_history_manager import ChathistoryFileManager,ChatHistoryTools
 from core.session.title_generate import TitleGenerator
-from core.session.preprocessor import Preprocessor
-from core.tool_call.tool_core import get_functions_events
 from core.multimodal_coordination.background_generate import BackgroundAgent
 from core.story.mod_manager import ModConfiger
 from core.session.concurrentor import ConvergenceDialogueOptiProcessor
@@ -76,19 +66,17 @@ from ui.setting.api_config_widget import APIConfigWidget
 from ui.setting.model_poll_setting_widget import RandomModelSelecter
 from ui.setting.theme_manager import ThemeSelector
 from ui.avatar import AvatarCreatorWindow
-from ui.tool_call.tool_manager_widget import FunctionManager
 from ui.chat.user_input import MultiModalTextEdit
 from ui.chat.chathistory_view_widget import ChatapiTextBrowser,ChatHistoryWidget,ChatHistoryTextView,HistoryListWidget
 from ui.chat.chathistory_manage_widget import ChatHistoryEditor
 
-from ui.bridge import UiSignalBridge
+from ui.bridge import UiMainSignalBridge
 
 LOGGER.log(f'CWLA UI import finished, time stamp:{time.time()-start_time_stamp:.2f}s')
 
 from utils.preset_data import *
 from utils.usage_analysis import TokenAnalysisWidget
 from utils.status_analysis import StatusAnalyzer
-from utils.str_tools import StrTools
 
 LOGGER.log(f'CWLA utils import finished, time stamp:{time.time()-start_time_stamp:.2f}s')
 
@@ -130,17 +118,8 @@ class MainWindow(QMainWindow):
         # 初始化参数
         self.init_self_params()
 
-        #初始化响应管理器
-        self.init_response_manager()
-
-        # 请求发送器
-        self.init_requester()
-
         # 提示窗口
         self.init_info_manager()
-
-        #function call
-        self.init_function_call()
 
         self.init_concurrenter()
 
@@ -546,12 +525,10 @@ class MainWindow(QMainWindow):
             MainWindowPresetVars.toggle_tree_button_stylesheet
         )
 
-        self.sysrule=self.init_sysrule()
         self.creat_new_chat()
         self.ai_response_signal.connect(self.update_ai_response_text)
         self.update_background_signal.connect(self.update_background)#可以弃用了
         self.think_response_signal.connect(self.update_think_response_text)
-        self.thread_event = threading.Event()
         self.installEventFilter(self)
         self.bind_hot_key()
         self.update_opti_bar()
@@ -564,7 +541,7 @@ class MainWindow(QMainWindow):
 
 
     def init_signal_bus(self):
-        self.back_end_signal_bridge=UiSignalBridge()
+        self.back_end_signal_bridge=UiMainSignalBridge()
 
     if TYPE_CHECKING:
         from core.signals import MainBus
@@ -611,7 +588,6 @@ class MainWindow(QMainWindow):
 
         # 聊天会话管理
         self.new_chat_rounds = 0
-        self.last_summary = ''
         self.full_response = ''
 
         # 背景处理相关
@@ -620,10 +596,6 @@ class MainWindow(QMainWindow):
 
         #对话储存点
         self.think_response=''
-        self.full_response=''
-        self.tool_response=''
-        self.finish_reason_raw     =''
-        self.finish_reason_readable=''
         self._reset_cb_buffers()
 
     
@@ -631,98 +603,18 @@ class MainWindow(QMainWindow):
         self.system_prompt_override_window = SystemPromptManager(
             folder_path=APP_RUNTIME.paths.system_prompt_preset_path
         )
-        self.system_prompt_override_window.update_tool_selection.connect(self.function_manager.set_active_tools)
+        self.system_prompt_override_window.update_tool_selection.connect(self.session_manager.set_tools)
         self.system_prompt_override_window.update_preset.connect(self.update_system_preset)
-
-
-    def init_response_manager(self):
-        # AI响应更新控制
-        self.ai_last_update_time = 0
-        self.ai_update_timer = QTimer()
-        self.ai_update_timer.setSingleShot(True)
-
-        # 思考过程更新控制
-        self.think_last_update_time = 0
-        self.think_update_timer = QTimer()
-        self.think_update_timer.setSingleShot(True)
-
-        # 工具调用响应更新控制
-        self.tool_last_update_time = 0
-        self.tool_update_timer = QTimer()
-        self.tool_update_timer.setSingleShot(True)
-
-        self.last_chat_info={}
+        self.system_prompt_override_window.update_system_prompt.connect(self.session_manager.set_system_content)
 
     def init_mod_configer_page(self):
         self.mod_configer=ModConfiger()
-
-    def init_requester(self):
-        self.requester=FullFunctionRequestHandler()
-
-        # AI 响应，完整内容
-        self.requester.ai_response_signal.connect(
-            lambda id,content:
-            setattr(self,'request_id',id) 
-            or 
-            setattr(self,'full_response',content)
-        )
-        self.requester.ai_response_signal.connect(self.update_ai_response_text)
-
-        # 思维链，完整内容
-        self.requester.think_response_signal.connect(
-            lambda id,content:
-            setattr(self,'request_id',id) 
-            or 
-            setattr(self,'think_response',content)
-        )
-        self.requester.think_response_signal.connect(self.update_think_response_text)
-
-        self.requester.tool_response_signal.connect(
-            lambda id,content:
-            setattr(self,'request_id',id) 
-            or 
-            setattr(self,'tool_response',content)
-        )
-        self.requester.tool_response_signal.connect(self.update_tool_response_text)
-
-        # 对话生成失败
-        self.requester.completion_failed.connect(
-            self._requester_completion_failed
-            )
-
-        self.requester.request_finished.connect(self._receive_message)
-
-        self.requester.ask_repeat_request.connect(self.resend_message_by_tool)
-
-        self.requester.report_finish_reason.connect(
-            lambda request_id, finish_reason_raw, finish_reason_readable:
-            (
-                setattr(self,'finish_reason_raw'        ,finish_reason_raw      ),
-                setattr(self,'finish_reason_readable'   ,finish_reason_readable)
-            )
-        )
-
-        self.requester.log_signal.connect(lambda message: self.info_manager.log(str(message)))
-        self.requester.warning_signal.connect(lambda message: self.info_manager.notify(str(message), level='warning'))
-
-    def _requester_completion_failed(self, id_, content,message):
-        print('_requester_completion_failed',self.chathistory)
-        self.request_id = id_
-        self.full_response = content
-        self.info_manager.notify(content, level='error')
-        self._receive_message(message)
 
     def init_info_manager(self):
         self.info_manager=InfoManager(
             anchor_widget=self,
             log_manager=LOGGER,
         )
-
-    def init_function_call(self):
-        self.function_manager = FunctionManager()
-        get_functions_events().errorOccurred.connect(
-            lambda message: self.info_manager.notify(message, level='error')
-            )
 
 
     def init_post_ui_creation(self):
@@ -767,7 +659,7 @@ class MainWindow(QMainWindow):
 
         #气泡信号绑定
         self.chat_history_bubbles.regenerateRequested.connect(self.resend_message)
-        self.chat_history_bubbles.editFinished.connect(self.edit_chathistory_by_index)
+        self.chat_history_bubbles.editFinished.connect(self.session_manager.edit_by_id)
         self.chat_history_bubbles.RequestAvatarChange.connect(self.show_avatar_window)
         
     def init_concurrenter(self):
@@ -776,48 +668,6 @@ class MainWindow(QMainWindow):
         self.concurrent_model.concurrentor_reasoning.connect(self.concurrentor_reasoning_receive)
         self.concurrent_model.concurrentor_finish.connect(self.concurrentor_finish_receive)
 
-    def init_sysrule(self):
-        # 定义文件路径
-        file_path = os.path.join(APP_RUNTIME.paths.application_path,'data','system_prompt_presets','当前对话.json')
-        
-        # 检查文件是否存在
-        if os.path.exists(file_path):
-            # 读取JSON文件内容
-            with open(file_path, 'r', encoding='utf-8') as f:
-                config_data = json.load(f)
-            
-            # 获取content字段的值
-            self.sysrule = config_data["content"]
-            
-        else:
-            # 创建目录（如果不存在）
-            os.makedirs(os.path.dirname(file_path), exist_ok=True)
-            name_user=APP_SETTINGS.names.user
-            name_ai=APP_SETTINGS.names.ai
-            
-            # 创建默认配置数据
-            default_content = "你是一个有用的AI助手"
-            new_config = {
-                "name": "当前对话",
-                "content": default_content,
-                "post_history": "",
-                'info':{
-                    'id':'system_prompt',
-                    'name':{'user':name_user,'assistant':name_ai},
-                    'title':'New Chat',
-                    'tools':[]
-                }
-            }
-            
-            # 写入新文件
-            with open(file_path, 'w', encoding='utf-8') as f:
-                json.dump(new_config, f, ensure_ascii=False, indent=2)
-            
-            # 设置系统规则
-            self.sysrule = default_content
-        
-        # 返回当前系统规则
-        return self.sysrule
 
     def init_chathistory_components(self):
         raise
@@ -1061,11 +911,6 @@ class MainWindow(QMainWindow):
         
         self.history_text_view.show()
         self.history_text_view.raise_()
-
-    #流式处理的末端方法
-    def update_chat_history(self, clear=True, new_msg=None,msg_id=''):
-        print("让我看看哪里在用")
-        raise
     
     def init_chat_bubble_render_loop(self):
         self.cb_render_timer = QTimer(self)
@@ -1372,7 +1217,7 @@ class MainWindow(QMainWindow):
 
     #载入记录
     def load_chathistory(self,file_path=None):
-        self.session_manager.load_chathistory(file_path)
+        self.session_manager.change_session(file_path)
         self.info_manager.notify(
 f'''聊天记录已导入，当前聊天：{self.session_manager.title}
 对话轮数 {self.session_manager.chat_rounds},
@@ -1381,147 +1226,62 @@ f'''聊天记录已导入，当前聊天：{self.session_manager.title}
 
     #编辑记录
     def edit_chathistory(self, file_path=''):
-
-        # 确定要使用的聊天记录和标题生成器
-        if file_path:
-            chathistory = self.chathistory_file_manager.load_chathistory(file_path)
-            if self.chathistory == chathistory or self.chathistory_file_manager.is_equal(self.chathistory, chathistory):
-                # 使用当前聊天记录
-                target_history = self.chathistory
-                title_generator = self.title_generator
-                connect_current = True
-            else:
-                # 使用加载的聊天记录
-                target_history = chathistory
-                title_generator = self.create_one_time_use_title_creator()
-                connect_current = False
-        else:
-            # 使用当前聊天记录
-            target_history = self.chathistory
-            title_generator = self.title_generator
-            connect_current = True
-        
-        # 创建编辑器实例
-        # 低频使用，直接新创
-        self.history_editor = ChatHistoryEditor(
-            title_generator=title_generator, 
-            chathistory=target_history
+        session = self.session_manager.load_chathistory(
+            file_path=file_path
         )
+        if session.chat_id == self.session_manager.chat_id:
+            editor = ChatHistoryEditor(
+                title_generator=self.cfm.title_generator,
+                session= self.session_manager.current_chat
+            )
+            connect_current = True
+        else:
+            editor = ChatHistoryEditor(
+                title_generator=TitleGenerator(
+                    api_handler= APIRequestHandler(),
+                    settings=APP_SETTINGS.title
+                ),
+                session= session
+            )
+            connect_current = False
+
         
         # 连接信号
         if connect_current:
             # 连接到当前聊天记录的更新
-            self.history_editor.editCompleted.connect(lambda new_history: setattr(self, 'chathistory', new_history))
-            self.history_editor.editCompleted.connect(self.update_chat_history)
+            editor.editCompleted.connect(self.session_manager.set_session)
         else:
             # 连接到文件保存
-            self.history_editor.editCompleted.connect(self.chathistory_file_manager.autosave_save_chathistory)
-            self.history_editor.editCompleted.connect(self.grab_past_chats)
+            editor.editCompleted.connect(self.session_manager.save_chathistory)
+            editor.editCompleted.connect(self.grab_past_chats)
         
-        self.history_editor.show()
-
-    def edit_chathistory_by_index(self,id,text):
-        index=ChatHistoryTools.locate_chat_index(self.chathistory,id)
-        self.chathistory[index]['content']=text
+        editor.show()
 
     #修改问题
     def edit_user_last_question(self):
-        # 从后往前遍历聊天历史
-        if self.chathistory[-1]["role"]=="user":
-            self.user_input_text.setText(self.chathistory[-1]["content"])
-            self.user_input_text.setAttachments(self.chathistory[-1].get('info',{}).get('multimodal',[]))
-            self.chathistory.pop()
-        elif self.chathistory[-1]["role"]=="assistant" or self.chathistory[-1]["role"]=="tool":#处理工具调用时被用户截断
-            while self.chathistory[-1]["role"]!="user":
-                self.chathistory.pop()
-            self.user_input_text.setText(self.chathistory[-1]["content"])
-            self.user_input_text.setAttachments(self.chathistory[-1].get('info',{}).get('multimodal',[]))
-            self.chathistory.pop()
-        else:
-            QMessageBox.warning(self,'重传无效','至少需要发送过一次消息')
-        self.update_chat_history(clear= False)
+        self.user_input_text.setText(
+            self.session_manager.fallback_history_for_edit()
+        )
 
     #重生成消息，直接创建最后一条
     def resend_message_last(self):
         self.resend_message()
     
     def resend_message(self,request_id=''):
-        self.main_message_process_timer_start=time.time()*1000
-        if not self.send_button.isEnabled():
-            return
-
-        if request_id:
-            index=ChatHistoryTools.locate_chat_index(self.chathistory,request_id)
-            chathistory=self.chathistory[:index+1]
-        else:
-            chathistory=self.chathistory.copy()
-
-        if chathistory[-1]["role"]=="assistant" or chathistory[-1]["role"]=="tool":
-            while len(chathistory)>1 and chathistory[-1]["role"]!="user":
-                chathistory.pop()
-
-        if len(chathistory)==1 or chathistory[-1]["role"]!="user":
-            QMessageBox.warning(self,'重传无效','至少需要发送过一次消息')
-            return
-        
-        self.chathistory=chathistory
+        self.cfm.resend_message(request_id)
         self.control_frame_to_state('sending')
         self.ai_response_text.setText("正在重传，等待回复...")
-        self.update_chat_history()
-        self.send_request(create_thread= not APP_SETTINGS.concurrent.enabled)
 
     #重写关闭事件，添加自动保存聊天记录和设置
     def closeEvent(self, event):
         """窗口关闭事件"""
-        try:
-            self.chathistory_file_manager.autosave_save_chathistory(self.chathistory)  # 调用自动保存聊天历史的方法
-        except Exception as e:
-            LOGGER.error(f"autosave_save_chathistory fail: {e}")
-        try:
-            self.save_hotkey_config()
-        except Exception as e:
-            LOGGER.error(f"save_hotkey_config fail: {e}")
-        #try:
-        #    ConfigManagerOld.config_save(self)
-        #except Exception as e:
-        #    LOGGER.error(f"config_save fail: {e}")
-        #ModelMapManager().save_model_map(MODEL_MAP)
+        self.session_manager.autosave()
         ConfigManager.save_settings(APP_SETTINGS)
         self.mod_configer.run_close_event()
         # 确保执行父类关闭操作
         super().closeEvent(event)
         event.accept()  # 确保窗口可以正常关闭
 
-    #保存快捷键设置
-    def save_hotkey_config(self):
-        # 创建配置文件对象
-        config = configparser.ConfigParser()
-        # 添加一个section
-        config.add_section('HotkeyConfig')
-        # 设置变量值
-        config.set('HotkeyConfig', 'send_message_var', str(self.send_message_var))
-        config.set('HotkeyConfig', 'autoslide_var', str(self.autoslide_var))
-        config.set('HotkeyConfig', 'hotkey_sysrule_var', str(self.hotkey_sysrule_var))
-        # 写入文件
-        with open('hot_key.ini', 'w', encoding='utf-8') as configfile:
-            config.write(configfile)
-
-    #读取快捷键ini
-    def read_hotkey_config(self):
-        # 创建配置文件对象
-        config = configparser.ConfigParser()
-        # 读取文件
-        config.read('hot_key.ini')
-        # 读取变量值
-        try:
-            if 'HotkeyConfig' in config:
-                self.send_message_var = config.getboolean('HotkeyConfig', 'send_message_var')
-                self.autoslide_var = config.getboolean('HotkeyConfig', 'autoslide_var')
-                self.hotkey_sysrule_var=config.getboolean('HotkeyConfig', 'hotkey_sysrule_var')
-            else:
-                self.info_manager.warning("配置文件中没有找到 HotkeyConfig 部分。")
-        except Exception as e:
-            print(e)
 
     #获取历史记录
     def grab_past_chats(self):
@@ -1610,9 +1370,8 @@ f'''聊天记录已导入，当前聊天：{self.session_manager.title}
         if not file_path:
             self.info_manager.warning("No item selected")
             return
-        chathistory_to_delete=self.chathistory_file_manager.load_chathistory(file_path)
-        if chathistory_to_delete==self.chathistory or\
-            self.chathistory_file_manager.is_equal(self.chathistory,chathistory_to_delete):
+        chathistory_to_delete=self.session_manager.load_chathistory(file_path=file_path)
+        if self.session_manager.is_saved_current_history(chathistory_to_delete):
             self.clear_history()
 
         # 删除文件
@@ -1756,26 +1515,25 @@ f'''聊天记录已导入，当前聊天：{self.session_manager.title}
 
     #更新触发进度条
     def update_opti_bar(self,_=None):
-        try:
-            self.chat_opti_trigger_bar.setVisible(APP_SETTINGS.lci.enabled)
-            self.chat_opti_trigger_bar.setValue(self.new_chat_rounds)
-            self.chat_opti_trigger_bar.setMaximum(APP_SETTINGS.generation.max_message_rounds)
-            self.Background_trigger_bar.setVisible(APP_SETTINGS.background.enabled)
-            self.Background_trigger_bar.setValue(self.new_background_rounds)
-            self.Background_trigger_bar.setMaximum(APP_SETTINGS.background.max_rounds)
-            self.cancel_trigger_background_update.setVisible(APP_SETTINGS.background.enabled)
-            self.cancel_trigger_chat_opti.setVisible(APP_SETTINGS.lci.enabled)
-            if self.new_chat_rounds>=APP_SETTINGS.generation.max_message_rounds:
-                self.chat_opti_trigger_bar.setFormat(f'对话优化: 即将触发')
-            else:
-                self.chat_opti_trigger_bar.setFormat(f'对话优化: {self.new_chat_rounds}/{APP_SETTINGS.generation.max_message_rounds}')
-            if self.new_background_rounds>=APP_SETTINGS.generation.max_message_rounds:
-                self.Background_trigger_bar.setFormat(f'背景更新: 即将触发')
-            else:
-                self.Background_trigger_bar.setFormat(f'背景更新: {self.new_background_rounds}/{APP_SETTINGS.background.max_rounds}')
-            self.opti_frame.setVisible(APP_SETTINGS.background.enabled or APP_SETTINGS.lci.enabled)
-        except Exception as e:
-            self.info_manager.log(f"Setting up process bar,ignore if first set up: {e}")
+        ncr=self.session_manager.current_chat.new_chat_rounds
+        nbr=self.session_manager.current_chat.new_background_rounds
+        self.chat_opti_trigger_bar.setVisible(APP_SETTINGS.lci.enabled)
+        self.chat_opti_trigger_bar.setValue(ncr)
+        self.chat_opti_trigger_bar.setMaximum(APP_SETTINGS.lci.max_segment_rounds)
+        self.Background_trigger_bar.setVisible(APP_SETTINGS.background.enabled)
+        self.Background_trigger_bar.setValue(nbr)
+        self.Background_trigger_bar.setMaximum(APP_SETTINGS.background.max_rounds)
+        self.cancel_trigger_background_update.setVisible(APP_SETTINGS.background.enabled)
+        self.cancel_trigger_chat_opti.setVisible(APP_SETTINGS.lci.enabled)
+        if ncr>=APP_SETTINGS.lci.max_segment_rounds:
+            self.chat_opti_trigger_bar.setFormat(f'对话优化: 即将触发')
+        else:
+            self.chat_opti_trigger_bar.setFormat(f'对话优化: {ncr}/{APP_SETTINGS.generation.max_message_rounds}')
+        if nbr>=APP_SETTINGS.generation.max_message_rounds:
+            self.Background_trigger_bar.setFormat(f'背景更新: 即将触发')
+        else:
+            self.Background_trigger_bar.setFormat(f'背景更新: {nbr}/{APP_SETTINGS.background.max_rounds}')
+        self.opti_frame.setVisible(APP_SETTINGS.background.enabled or APP_SETTINGS.lci.enabled)
 
     #联网搜索结果窗口
     def handle_search_result_button_toggle(self):
@@ -2015,38 +1773,7 @@ f'''聊天记录已导入，当前聊天：{self.session_manager.title}
         table_body = "\n".join([f"{row:<20}|" for row in rows])
 
         return f"## 📊 对话状态\n---\n{header}\n{table_body}\n"
-    
-    
-    #0.25.3 info_manager + api request基础重构
-    def resend_message_by_tool(self):
-        self._receive_message([])
-        self.control_frame_to_state("sending")
-        self.send_request()
-    
-    def create_chat_title_when_empty(self,chathistory):
-        if chathistory[0]['info']['title'] in [None,'','New Chat',"Untitled Chat"] and len(chathistory)==2:
-            self.create_chat_title(chathistory)
-        
-    def create_chat_title(self,chathistory):
-        include_sys_pmt =   APP_SETTINGS.title.include_sys_pmt
-        use_local       =   APP_SETTINGS.title.use_local
-        max_length      =   APP_SETTINGS.title.max_length
-        task_id         =   chathistory[0]['info']['chat_id']
 
-        self.title_generator.create_chat_title(
-            chathistory=chathistory,
-            include_system_prompt=include_sys_pmt,
-            use_local=use_local,
-            max_length=max_length,
-            task_id= task_id
-        )
-
-    def update_chat_title(self,chat_id,title):
-        if self.chathistory and 'info' in self.chathistory[0] and self.chathistory[0]['info']['chat_id']==chat_id:
-            self.chathistory[0]['info']['title']=title
-            self.info_manager.log(f'对话标题更新为：{title}')
-            self.chathistory_file_manager.autosave_save_chathistory(self.chathistory)
-            self.grab_past_chats()
 
 LOGGER.log(f'CWLA Class import finished, time stamp:{time.time()-start_time_stamp:.2f}s',level='debug')
 

@@ -233,7 +233,7 @@ class RequestFlowManager:
         self.signals = RequestFlowManagerSignalBus()
 
         # 状态管理
-        self.status_analyzer = StatusAnalyzer()
+        self.status_analyzer:"StatusAnalyzer" = status_analyzer
 
         # tool loop，单例，硬薅
         self.function_manager = get_tool_registry()
@@ -303,7 +303,7 @@ class RequestFlowManager:
         self._update_status(request_id, content, 'content')
     
     def _update_status_tool(self, request_id: str, content: dict):
-        content = content['function']['arguments']
+        content = content['arguments_delta']
         self._update_status(request_id, content, 'tool')
 
     def _update_status(self, request_id: str, content: str, content_type:str):

@@ -697,3 +697,284 @@ class OneTimeLLMRequester:
             self._current_response = None
             self._state = RequestState.COMPLETED
             return success
+
+def get_back_up_api_config():
+    from config import APP_SETTINGS
+    return APP_SETTINGS.api.providers
+
+class APIRequestHandler:
+    """
+    兼容旧版 API 的请求处理器，内部使用 OneTimeLLMRequester + psygnal 信号。
+    不依赖 PyQt，可运行于纯 Python 环境。
+    """
+
+    # 信号定义
+    from psygnal import Signal
+    response_received = Signal(str)            # 部分响应正文
+    reasoning_response_received = Signal(str)  # 部分推理内容
+    request_completed = Signal(str)            # 完整正文（请求结束）
+    error_occurred = Signal(str)               # 错误信息
+
+    def __init__(self, api_config: Optional[Dict] = None, parent=None, enable_debug: bool = False):
+        """
+        :param api_config: 可选，全局 API 配置，格式与旧版兼容
+        :param parent:     仅用于兼容旧版签名，实际无作用
+        :param enable_debug: 是否打印调试信息到控制台
+        """
+        self.api_config = api_config or get_back_up_api_config()
+        self.enable_debug = enable_debug
+
+        # 当前配置（由 set_provider 设置）
+        self.current_provider: Optional[str] = None
+        self.current_model: Optional[str] = None
+        self.current_api_config: Optional[Dict] = None
+
+        # 累加结果（与旧版属性一致，便于外部读取）
+        self.full_response = ""
+        self.think_response = ""
+
+        # 当前运行的请求器（用于暂停）
+        self._current_requester: Optional[OneTimeLLMRequester] = None
+
+        if enable_debug:
+            self._connect_debug()
+
+    def _connect_debug(self):
+        """连接调试打印"""
+        self.response_received.connect(lambda text: print(text, end=''))
+        self.reasoning_response_received.connect(lambda text: print(text, end=''))
+        self.request_completed.connect(lambda text: print(f"\n[完成] {text}"))
+        self.error_occurred.connect(lambda text: print(f"[错误] {text}"))
+
+    def set_provider(self, provider: str, model: str, api_config: Optional[Dict] = None) -> None:
+        """
+        设置 API 提供商和模型
+        :param provider:   提供商名称（如 'openai', 'deepseek'）
+        :param model:      模型名称
+        :param api_config: 可选，覆盖初始化时的配置
+        """
+        self.current_provider = provider
+        self.current_model = model
+        self.current_api_config = api_config if api_config is not None else self.api_config
+
+    def send_request(self, message: Union[str, List[Dict[str, Any]]], model: str = '') -> None:
+        """
+        发送请求（自动在新线程中执行）
+        :param message: 字符串或符合 OpenAI 格式的消息列表
+        :param model:   可选，覆盖 set_provider 设置的模型
+        """
+        # 确定模型
+        model_to_use = model or self.current_model
+        if not model_to_use:
+            self.error_occurred.emit("未设置模型，请先调用 set_provider 或传入 model 参数")
+            return
+
+        # 确定提供商和配置
+        provider = self.current_provider
+        api_config = self.current_api_config or self.api_config
+        if not provider or not api_config:
+            self.error_occurred.emit("未设置提供商或API配置，请先调用 set_provider")
+            return
+
+        # 提取 API 信息
+        try:
+            api_key, url, provider_type = self._extract_api_info(provider, api_config)
+        except ValueError as e:
+            self.error_occurred.emit(f"API配置错误: {str(e)}")
+            return
+
+        # 构建消息列表
+        if isinstance(message, str):
+            messages = [{"role": "user", "content": message}]
+        else:
+            messages = message
+
+        params = {
+            "model": model_to_use,
+            "messages": messages,
+            "stream": True
+        }
+
+        # 创建 OneTimeLLMRequester 实例（每个请求独立）
+        config = RequestConfig(
+            key=api_key,
+            url=url,
+            provider_type=provider_type
+        )
+        requester = OneTimeLLMRequester(config=config)
+
+        # 生成内部请求 ID（仅用于跟踪）
+        request_id = f"api_req_{int(time.time())}"
+
+        # 连接内部信号到转发槽
+        requester.signals.stream_content.connect(lambda rid, delta: self._on_stream_content(delta))
+        requester.signals.stream_reasoning.connect(lambda rid, delta: self._on_stream_reasoning(delta))
+        requester.signals.finished.connect(lambda rid, result: self._on_finished())
+        requester.signals.failed.connect(lambda rid, err: self._on_error(err))
+        requester.signals.error.connect(lambda err: self._on_error(err))
+
+        # 保存当前请求器（用于暂停）
+        self._current_requester = requester
+
+        # 重置累加器（与旧版行为一致）
+        self.full_response = ""
+        self.think_response = ""
+
+        # 发送请求（在新线程中执行）
+        requester.send_request(params, create_thread=True, id=request_id)
+
+    def pause(self) -> None:
+        """暂停当前请求（如果有）"""
+        if self._current_requester:
+            self._current_requester.pause()
+            self._current_requester = None
+
+    # ---------- 内部转发槽 ----------
+    def _on_stream_content(self, delta: str) -> None:
+        self.full_response += delta
+        self.response_received.emit(delta)
+
+    def _on_stream_reasoning(self, delta: str) -> None:
+        self.think_response += delta
+        self.reasoning_response_received.emit(delta)
+
+    def _on_finished(self) -> None:
+        # 请求正常结束，发出完整内容（兼容旧版）
+        self.request_completed.emit(self.full_response)
+        self._current_requester = None
+
+    def _on_error(self, err: str) -> None:
+        self.error_occurred.emit(err)
+        self._current_requester = None
+
+
+    def _extract_api_info(self,provider, api_config=None):
+        """
+        提取API信息，支持多种api_config格式
+        :param provider: 提供商名称
+        :param api_config: API配置信息
+        :return: (api_key, url, provider_type)
+        """
+        def is_api_config_object(obj):
+            """判断是否为 ApiConfig 数据类"""
+            return hasattr(obj, 'providers') and hasattr(obj, 'endpoints')
+
+        def is_api_provider_object(obj):
+            """
+            判断是否为 ApiConfig.providers 字典结构
+            即: Dict[str, ProviderConfig]
+            """
+            if not isinstance(obj, dict):
+                return False
+
+            # 遍历检查内容
+            for k, v in obj.items():
+                if not isinstance(k, str):
+                    return False
+                if not (hasattr(v, 'url') and hasattr(v, 'key') and hasattr(v, 'models')):
+                    return False
+            return True
+
+        def is_dsls(obj):
+            """判断是否为{'provider':['url','key']}"""
+            if not isinstance(obj, dict):
+                return False
+
+            for key, value in obj.items():
+                if not isinstance(key, str):
+                    return False
+                if not isinstance(value, list) and not isinstance(value, tuple):
+                    return False
+                for item in value:
+                    if not isinstance(item, str):
+                        return False
+            return True
+
+        def is_dsds(obj):
+            """判断对象是否为: {'provider': {'url': 'str','key': 'str'}}"""
+            if not isinstance(obj, dict):
+                return False
+
+            for key, value in obj.items():
+                if not isinstance(key, str):
+                    return False
+                if not isinstance(value, dict):
+                    return False
+                for inner_key, inner_value in value.items():
+                    if not isinstance(inner_key, str) or not isinstance(inner_value, str):
+                        return False
+            return True
+
+        def is_dsuk(obj):
+            """判断是否为 {'url': 'str','key': 'str'}"""
+            if not isinstance(obj, dict):
+                return False
+            if 'url' not in obj or 'key' not in obj:
+                return False
+            return True
+
+        def get_provider_type(url):
+            """
+            根据字符串匹配确定供应商类型
+            """
+            pre_defined_provider_map={
+                'localhost':'local',
+                '127.0':'local',
+                '192.168':'local',
+                'api.deepseek.com':'deepseek',
+                'qianfan.baidubce.com':'baidu',
+                'api.siliconflow.cn':'siliconflow',
+                'api.lkeap.cloud.tencent.com':'tencent',
+                'api.moonshot.cn':'kimi',
+                'api.novita.ai':'novita',
+                'openrouter.ai':'openrouter'
+            }
+            for feature in pre_defined_provider_map.keys():
+                if feature in url:
+                    return pre_defined_provider_map[feature]
+            return 'openai_compatible'
+
+        # 逻辑判断开始
+        if not api_config:
+            return None, None, None
+
+        # List 情况
+        elif isinstance(api_config, list) and len(api_config) == 2:
+            url = api_config[0]
+            api_key = api_config[1]
+
+        # ApiConfig.providers
+        elif is_api_provider_object(api_config):
+            if provider not in api_config:
+                raise ValueError(f'Provider "{provider}" not found in provider config dict')
+            config = api_config[provider]
+            url = config.url
+            api_key = config.key
+
+        # ApiConfig 整体对象
+        elif is_api_config_object(api_config):
+            if provider not in api_config.providers:
+                raise ValueError(f'Provider "{provider}" not found in api_config')
+            config = api_config.providers[provider]
+            url = config.url
+            api_key = config.key
+
+        # 简单字典结构
+        elif is_dsls(api_config):
+            url = api_config[provider][0]
+            api_key = api_config[provider][1]
+
+        elif is_dsds(api_config):
+            url = api_config[provider]['url']
+            api_key = api_config[provider]['key']
+
+        elif is_dsuk(api_config):
+            url = api_config['url']
+            api_key = api_config['key']
+
+        else:
+            raise ValueError('Unrecognized structure: ' + str(api_config))
+
+        return api_key, url, get_provider_type(url)
+
+OneMessageLLMRequseter = APIRequestHandler

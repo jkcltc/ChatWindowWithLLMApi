@@ -314,12 +314,34 @@ class SessionManager:
         """获取最近的n条消息的长度"""
         return self.current_chat.get_last_n_length(n)
     
+    def edit_by_index(self, index: int, new_content: str) -> None:
+        try:
+            self.current_chat.edit_by_index(index, new_content)
+        except Exception as e:
+            self.error.emit(f"编辑消息失败: {e}")
+        self.signals.history_changed(self.chat_id,self.history)
+        self.request_autosave()
+    
+    def edit_by_id(self, id: int, new_content: str) -> None:
+        index = None
+        for i, msg in enumerate(self.history):
+            info = msg.get('info', {})
+            if str(info.get('id')) == str(id):
+                index = i
+        if index is None:
+            self.error.emit(f"未找到消息ID: {id}")
+            return
+        try:
+            self.current_chat.edit_by_index(index, new_content)
+        except Exception as e:
+            self.error.emit(f"编辑消息失败: {e}")
+        self.signals.history_changed(self.chat_id,self.history)
+        self.request_autosave()
 
     # ==================== 文件操作 ====================
 
     def load_chathistory(self, file_path: str = None) -> "ChatSession":
         """从文件加载聊天记录并覆盖"""
-        self.autosave()
         try:
             loaded_chat_session = self.chathistory_file_manager.load_chathistory(file_path)
         except Exception as e:
@@ -328,9 +350,7 @@ class SessionManager:
             self.error.emit("failed loading session : empty load result")
             return loaded_chat_session
 
-        self.current_chat = loaded_chat_session
-        self.signals.history_changed.emit(self.current_chat)
-        return self.current_chat
+        return loaded_chat_session
 
     def save_chathistory(self, file_path: str = None, chat_session: "ChatSession" = None) -> bool:
         """手动保存聊天记录（同步）"""
@@ -410,8 +430,7 @@ class SessionManager:
     # ==================== 会话数据操作 ====================
 
     def clear_history(self) -> None:
-        snap = self._snapshot_session()
-        self._do_autosave_once(snap)
+        self.autosave()
 
         self._autosave_worker.reset()
         self.current_chat = ChatSession()
@@ -432,6 +451,17 @@ class SessionManager:
         self.update_system_preset(preset)
         return self.current_chat
 
+    def change_session(self,path:str) -> "ChatSession":
+        self.autosave()
+        self.clear_history()
+        self.current_chat = self.load_chathistory(path)
+        self.signals.session_changed.emit(self.current_chat)
+        return self.current_chat
+
+    def set_session(self,session:ChatSession) -> "ChatSession":
+        self.current_chat = session
+        self.signals.session_changed.emit(self.current_chat)
+
     def update_message_by_id(self, msg_id: str, new_content: str) -> bool:
         """根据消息ID更新消息内容"""
         try:
@@ -447,7 +477,14 @@ class SessionManager:
         """回退到指定消息（包含目标消息）"""
         self.current_chat.truncate_to_message(msg_id, include_target=True)
         self.request_autosave()
-
+    
+    def fallback_history_for_edit(self) -> str:
+        self.fallback_history_for_resend()
+        content = self.history[-1]["content"]
+        self.history.pop()
+        self.request_autosave()
+        return content
+    
     def fallback_history_for_resend(self, msg_id: str = "") -> List[Dict]:
         """为重发准备历史记录"""
         if msg_id:
@@ -455,7 +492,7 @@ class SessionManager:
         self.current_chat.truncate_to_user()
         if self.current_chat.chat_rounds <= 1:
             self.error.emit("消息回退失败：消息数不足")
-            raise ValueError("消息回退失败：消息数不足")
+            #raise ValueError("消息回退失败：消息数不足")
         hist = self.current_chat.history
         self.request_autosave()
         return hist
@@ -464,6 +501,7 @@ class SessionManager:
         """设置会话标题"""
         self.current_chat.title = title
         self.request_autosave()
+        self.signals.title_changed.emit(self.chat_id,title)
 
     def set_avatar(self, avatar: Dict[str, str]) -> None:
         """设置会话头像"""

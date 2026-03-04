@@ -9,16 +9,16 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import pyqtSignal, QTimer
 
-from core.session.session_model import ChatSession
-
 if TYPE_CHECKING:
     from core.session.title_generate import TitleGenerator
+    from core.session.session_model import ChatSession
 
 
 class ChatHistoryEditor(QWidget):
     """
     聊天历史编辑器 - 仅支持 ChatSession 数据结构
     JSON 编辑页仅编辑 history 列表，不包含 Session 的顶层元数据
+    相对于主对话独立，需要持有单独的标题生成器
     """
     editCompleted = pyqtSignal(object) 
 
@@ -222,11 +222,11 @@ class ChatHistoryEditor(QWidget):
         self.btn_json_refresh_from_form.clicked.connect(self._update_json_editor_from_history)
         self.json_edit.textChanged.connect(self._on_json_text_changed)
 
-        # TitleGenerator 信号（假设 TitleGenerator 有这些信号）
+        # TitleGenerator 信号
         self._title_generator.title_generated.connect(self._on_title_generated)
-        self._title_generator.log_signal.connect(self._on_log_signal)
-        self._title_generator.warning_signal.connect(lambda s: self._append_log(s, "warn"))
-        self._title_generator.error_signal.connect(self._on_error_signal)
+        self._title_generator.log.connect(self._on_log_signal)
+        self._title_generator.warning.connect(lambda s: self._append_log(s, "warn"))
+        self._title_generator.error.connect(self._on_error_signal)
 
     # ---------- 数据访问辅助 ----------
     def _ensure_system_message(self) -> None:
@@ -382,7 +382,6 @@ class ChatHistoryEditor(QWidget):
         self.title_edit.setText(text)
         self._syncing = False
         self._on_title_changed(text)  # 更新 session.title
-        
         self._set_generating(False)
         self._current_task_id = None
 

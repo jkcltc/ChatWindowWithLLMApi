@@ -39,8 +39,12 @@ class ChatFlowManager:
         self.status_analyzer = StatusAnalyzer()
 
         # 标题生成器要发自己的api请求
-        api_requester=APIRequestHandler(api_config=APP_SETTINGS.api.providers)
-        self.title_generator=TitleGenerator(api_handler=api_requester)
+        api_requester=APIRequestHandler()
+        self.title_generator=TitleGenerator(
+            api_handler=api_requester,
+            settings=APP_SETTINGS.title
+        )
+        self._connect_title_signals()
 
         self.rfm=RequestFlowManager(status_analyzer=self.status_analyzer)
         self._connect_rfm_signals()
@@ -68,11 +72,20 @@ class ChatFlowManager:
 
         self.signals.request_status.emit(stats_dict)
 
-    def init_concurrenter(self):
-        self.concurrent_model=ConvergenceDialogueOptiProcessor()
-        self.concurrent_model.concurrentor_content.connect(self.concurrentor_content_receive)
-        self.concurrent_model.concurrentor_reasoning.connect(self.concurrentor_reasoning_receive)
-        self.concurrent_model.concurrentor_finish.connect(self.concurrentor_finish_receive)
+    #def init_concurrenter(self):
+    #    self.concurrent_model=ConvergenceDialogueOptiProcessor()
+    #    self.concurrent_model.concurrentor_content.connect(self.concurrentor_content_receive)
+    #    self.concurrent_model.concurrentor_reasoning.connect(self.concurrentor_reasoning_receive)
+    #    self.concurrent_model.concurrentor_finish.connect(self.concurrentor_finish_receive)
+
+    def _connect_title_signals(self):
+        def _set_title(id,title):
+            if id == self.session_manager.chat_id:
+                self.session_manager.set_title(title)
+        self.title_generator.title_generated.connect(_set_title)
+        self.title_generator.log.connect(self.signals.log.emit)
+        self.title_generator.warning.connect(self.signals.warning.emit)
+        self.title_generator.error.connect(self.signals.error.emit)
 
     def _connect_rfm_signals(self):
         self.rfm.signals.bus_connect(self.signals)
@@ -322,23 +335,6 @@ class ChatFlowManager:
 
         return start_successful
  
-
-    ##接受信息，信息后处理
-    #def _receive_message(self,message):
-    #    try:
-    #        message=self._replace_for_receive_message(message)
-    #        self.current_chat.history.extend(message)
-    #        # AI响应状态栏更新
-    #        self.ai_response_text.setMarkdown(self.get_status_str(message_finished=True))
-#
-    #        # mod后处理
-    #        self.mod_configer.handle_new_message(self.full_response,self.current_chat.history)
-    #    except Exception as e:
-    #        self.info_manager.notify(level='error',text='receive fail '+str(e))
-    #    finally:
-    #        self.control_frame_to_state('finished')
-    #        self.update_chat_history()
-
 
 if __name__ == "__main__":
     from core.utils import MainThreadDispatcher

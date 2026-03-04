@@ -22,7 +22,7 @@ class MainThreadDispatcher:
         """
         装饰器：强制目标函数在主线程排队执行。
         警告：被装饰的函数不能有返回值（即使有也会被丢弃）。
-        最好在线程归并时使用，在session Manager里用很蠢
+        在线程归并时使用
         """
         @wraps(func)
         def wrapper(*args, **kwargs) -> None:
@@ -49,4 +49,24 @@ class MainThreadDispatcher:
             
         return wrapper
 
+def quick_qt():
+    """todo: 脚手架，记得拆"""
+    from PyQt6.QtCore import QObject,pyqtSignal
+    class Dispatcher(QObject):
+        task_signal = pyqtSignal(object)
+
+        def __init__(self):
+            super().__init__()
+            self.task_signal.connect(self.execute_task)
+
+        def execute_task(self, task):
+            task()   # 在主线程中执行
+
+    dispatcher = Dispatcher()
+
+    def runner(task):
+        dispatcher.task_signal.emit(task)
+    MainThreadDispatcher.register_runner(runner)
+
+quick_qt()
 run_in_main = MainThreadDispatcher.run_in_main

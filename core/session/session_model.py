@@ -150,6 +150,8 @@ class ChatSession:
         if assistant_avatar:
             self.avatars['assistant'] = assistant_avatar
 
+        self.avatars = perset_avaters
+
         preset_names = preset.info.get("name", {})
         if preset_names:
             user_name = preset_names.get("user", "")
@@ -158,6 +160,8 @@ class ChatSession:
             assistant_name = preset_names.get("assistant", "")
             if assistant_name:
                 self.name['assistant'] = assistant_name
+                
+        self.name = preset_names
 
         self.tools = preset.tools
 
@@ -222,6 +226,10 @@ class ChatSession:
                 return i
         return -1
     
+    def edit_by_index(self, index: int, new_content: str) -> None:
+        self.history[index]['content'] = new_content
+
+
     @property
     def new_chat_length(self):
         return self.get_last_n_length(self.new_chat_rounds)

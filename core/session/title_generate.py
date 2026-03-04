@@ -1,36 +1,37 @@
 from typing import Any, Dict, List, Optional,TYPE_CHECKING
-from PyQt6.QtCore import QObject, pyqtSignal
-from service.chat_completion import APIRequestHandler
+from psygnal import Signal
+from service.chat_completion.llm_requester import APIRequestHandler,RequestConfig
 import time
 import re
 import uuid
+from core.utils import MainThreadDispatcher as MTD
 if TYPE_CHECKING:
     from config.settings import TitleSettings
 
-class TitleGenerator(QObject):
+class TitleGenerator:
     """标题生成器：支持本地/调用API生成标题，并与编辑器联动"""
 
-    log_signal = pyqtSignal(str)
-    warning_signal = pyqtSignal(str)
-    error_signal = pyqtSignal(str)
-    title_generated = pyqtSignal(str, str)
+    log = Signal(str)
+    warning = Signal(str)
+    error = Signal(str)
+    
+    title_generated = Signal(str, str)
+    """标题生成完成信号，参数：(chat_id, title)"""
+
+    _title_generated = Signal(str, str)
+    """内部信号，线程不安全，别用"""
 
     def __init__(self, api_handler: Optional['APIRequestHandler'] = None,settings:"TitleSettings" = None):
         super().__init__()
         self.api_handler = None
-        self.provider: Optional[str] = None
-        self.model: Optional[str] = None
-        self.api_config: Optional[Dict[str, Any]] = None
-
-        if settings:
-            self.provider = settings.provider
-            self.model = settings.model
-            
+        self.settings = settings
 
         self.task_id: Optional[str] = None
         self.add_date_prefix: bool = True
         self.date_prefix_format: str = "[%Y-%m-%d]"
         self._last_max_length: int = 20
+
+        self._title_generated.connect(self._on_title_generated)
 
         # 绑定（带防护）
         if api_handler is not None:
@@ -50,21 +51,8 @@ class TitleGenerator(QObject):
         if self.api_handler:
             self.api_handler.request_completed.connect(self._handle_title_response)
             self.api_handler.error_occurred.connect(self._on_api_error)
+            self.api_handler.set_provider(self.settings.provider,self.settings.model)
 
-    def set_provider(self, provider: str, model: str, api_config: Optional[Dict[str, Any]] = None):
-        """设置 API 提供商与配置信息"""
-        self.provider = provider
-        self.model = model
-        self.api_config = api_config or {}
-        if self.api_handler and hasattr(self.api_handler, "set_provider"):
-            try:
-                self.api_handler.set_provider(provider, model, self.api_config)
-                self.log_signal.emit(f"API 提供商/模型已设置：{provider}/{model}")
-            except Exception as e:
-                self.warning_signal.emit(f"设置 API 提供商失败：{e}")
-        else:
-            # 不阻断，仅日志提示
-            self.warning_signal.emit("API handler 未绑定或不支持 set_provider，已跳过设置。")
 
     # ---------- 本地生成 ----------
     def generate_title_from_history_local(self, chathistory: List[Dict[str, Any]], max_length: int = 20) -> str:
@@ -101,8 +89,8 @@ class TitleGenerator(QObject):
     ):
         """创建聊天标题；若使用 API，需要 API handler 支持 send_request(messages)"""
         if not isinstance(chathistory, list):
-            self.error_signal.emit("chathistory 非列表，无法生成标题。")
-            self._emit_fail(task_id, "生成失败")
+            self.error.emit("chathistory 非列表，无法生成标题。")
+            self._emit_fail(task_id, "New Chat")
             return
 
         self.task_id = task_id or str(uuid.uuid4())
@@ -111,15 +99,16 @@ class TitleGenerator(QObject):
         # 基础校验
         first_user_msg = next((msg for msg in chathistory if isinstance(msg, dict) and msg.get("role") == "user"), None)
         if not first_user_msg or not (first_user_msg.get("content") or "").strip():
-            self.warning_signal.emit("未找到有效的用户消息，已使用本地兜底生成。")
+            self.warning.emit("未找到有效的用户消息，已使用本地兜底生成。")
             title = self.generate_title_from_history_local(chathistory, max_length=max_length)
-            self.title_generated.emit(self.task_id, title)
+            self._title_generated.emit(self.task_id, title)
             return
 
+        print(use_local,self.api_handler,hasattr(self.api_handler, "send_request"))
         if use_local or not self.api_handler or not hasattr(self.api_handler, "send_request"):
-            self.log_signal.emit("使用本地逻辑生成标题。")
+            self.log.emit("使用本地逻辑生成标题。")
             title = self.generate_title_from_history_local(chathistory, max_length=max_length)
-            self.title_generated.emit(self.task_id, title)
+            self._title_generated.emit(self.task_id, title)
             return
 
         # 组装提示词（中英双语，尽量降低模型偏差）
@@ -145,9 +134,9 @@ class TitleGenerator(QObject):
             ]
 
         message = [{"role": "user", "content": "\n\n".join(prompt_parts)}]
-
+        print(message)
         try:
-            self.log_signal.emit("调用 API 请求生成标题...")
+            self.log.emit("调用 API 请求生成标题...")
             # 仅把核心消息交给 handler；provider/model/api_config 由 set_provider 预设
             self.api_handler.send_request(message)
         except Exception as e:
@@ -170,20 +159,20 @@ class TitleGenerator(QObject):
             if self.add_date_prefix and not cleaned.startswith("["):
                 cleaned = time.strftime(self.date_prefix_format, time.localtime()) + cleaned
 
-            self.log_signal.emit(f"API 返回标题：{cleaned}")
-            self.title_generated.emit(self.task_id or "", cleaned)
+            self.log.emit(f"API 返回标题：{cleaned}")
+            self._title_generated.emit(self.task_id or "", cleaned)
         except Exception as e:
             self._on_api_error(f"处理 API 响应异常：{e}")
 
     def _on_api_error(self, msg: Any):
         """统一 API 错误处理：日志 + 发出失败标题"""
         s = msg if isinstance(msg, str) else str(msg)
-        self.warning_signal.emit(f"标题生成错误: \n{s}")
-        self._emit_fail(self.task_id, "生成失败")
+        self.warning.emit(f"标题生成错误: \n{s}")
+        self._emit_fail(self.task_id, "New Chat")
 
     def _emit_fail(self, task_id: Optional[str], title: str):
-        """失败退路：也要发出 title_generated 以便 UI 解锁"""
-        self.title_generated.emit(task_id or "", title)
+        """失败退路：也要发出 _title_generated 以便 UI 解锁"""
+        self._title_generated.emit(task_id or "", title)
 
     # ---------- 内部工具 ----------
     def _sanitize_title(self, text: str, max_length: int) -> str:
@@ -199,3 +188,8 @@ class TitleGenerator(QObject):
         if len(text) > max_length:
             text = text[:max_length]
         return text
+
+    @ MTD.run_in_main
+    def _on_title_generated(self, task_id: str, title: str):
+        """处理标题生成完成信号"""
+        self.title_generated.emit(task_id, title)

@@ -1,8 +1,7 @@
-from .openai_chat_completion import FullFunctionRequestHandler,APIRequestHandler
+from .llm_requester import OneTimeLLMRequester,APIRequestHandler
 from .patch_manager import GlobalPatcher
-
 __all__ = [
-    "FullFunctionRequestHandler",
+    "OneTimeLLMRequester",
     "APIRequestHandler",
-    "GlobalPatcher"
+    "GlobalPatcher",
 ]

@@ -348,10 +348,29 @@ class ChatHistoryVersionPatcher:
 
             msg['info'] = new_info
 
-            # 对于 assistant 消息，保留 reasoning_content
+            # 1. Assistant 消息：保留 tool_calls
             if item['role'] == 'assistant':
+                if 'tool_calls' in item:
+                    msg['tool_calls'] = item['tool_calls']
                 if 'reasoning_content' in item:
                     msg['reasoning_content'] = item['reasoning_content']
+
+            # 2. Tool 消息：保留 tool_call_id（优先从顶层取，其次从 info.id 推断）
+            elif item['role'] == 'tool':
+                # 获取 tool_call_id：优先取顶层字段，否则用 info.id
+                tool_call_id = item.get('tool_call_id')
+                if not tool_call_id and 'id' in old_info:
+                    tool_call_id = old_info['id']
+                if tool_call_id:
+                    msg['tool_call_id'] = tool_call_id
+                
+                # 如果有 reasoning_content 也保留（某些格式可能有）
+                if 'reasoning_content' in item:
+                    msg['reasoning_content'] = item['reasoning_content']
+                
+                # 清理 info 中不应存在的 function/type 字段（这些是 assistant tool_calls 里的）
+                new_info.pop('function', None)
+                new_info.pop('type', None)
 
             cleaned_history.append(msg)
 

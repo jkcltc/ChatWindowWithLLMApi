@@ -96,8 +96,8 @@ class ChatSession:
     """ChatSession 类的版本号"""
 
     # chat_length 缓存相关字段（不参与序列化）
-    _cached_chat_length: Optional[int] = field(default=None, init=False, repr=False, compare=False)
-    _cached_history_signature: Optional[tuple] = field(default=None, init=False, repr=False, compare=False)
+    _cached_chat_length: Optional[int] = field(default=None, repr=False, compare=False)
+    _cached_history_signature: Optional[tuple] = field(default=None, repr=False, compare=False)
 
     def __post_init__(self):
         if not self.chat_id:
@@ -137,6 +137,7 @@ class ChatSession:
 
         while len(self.history) > 1 and self.history[-1].get('role') != 'user':
             self.history.pop()
+
 
     def apply_preset(self, preset: 'SystemPromptPreset'):
         self.history[0]["content"] = preset.content

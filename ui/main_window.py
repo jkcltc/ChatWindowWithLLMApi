@@ -3,13 +3,23 @@ start_time_stamp=time.time()
 
 _ts_1=f'CWLA init timer start, time stamp:{time.time()-start_time_stamp:.2f}s'
 
+# 并发导入重类
+import threading
+def _ir():
+    import requests
+def _ioai():
+    import openai
+
+threading.Thread(
+    target=_ir,
+).start()
+threading.Thread(
+    target=_ioai,
+).start()
+
 import os
 import sys
-import warnings
 from typing import TYPE_CHECKING
-
-warnings.filterwarnings("ignore", category=DeprecationWarning)
-warnings.filterwarnings("ignore", message="libpng warning: iCCP: known incorrect sRGB profile")
 
 #基础类初始化
 from common.init_functions import install_packages
@@ -23,8 +33,19 @@ from PyQt6.QtWidgets import *
 from PyQt6.QtCore import *
 from PyQt6.QtGui import *
 from PyQt6.QtSvg import *
+app = QApplication(sys.argv)
 
 _ts_3=f'CWLA 3rd party lib import finished, time stamp:{time.time()-start_time_stamp:.2f}s'
+
+from ui.splash_window import SplashScreen
+sp = SplashScreen()
+sp.show()
+st_ct = 1
+def start_log(ts):
+    global st_ct
+    st_ct += 1
+    LOGGER.log(ts)
+    sp.progress(int(100*st_ct/16), ts)
 
 #自定义类初始化
 
@@ -34,7 +55,8 @@ LOGGER=LOGMANAGER
 LOGGER.log(_ts_1)
 LOGGER.log(_ts_2)
 LOGGER.log(_ts_3)
-LOGGER.log(f'CWLA Log init finished, time stamp:{time.time()-start_time_stamp:.2f}s')
+
+start_log(f'CWLA Log init finished, time stamp:{time.time()-start_time_stamp:.2f}s')
 
 from config import APP_SETTINGS,APP_RUNTIME,ConfigManager
 from config.settings import LLMUsagePack # 不行我看不得这个
@@ -42,21 +64,23 @@ from config.settings import LLMUsagePack # 不行我看不得这个
 # 就地初始化
 ConfigManager.load_settings(APP_SETTINGS)
 
-LOGGER.log(f'CWLA config recover finished, time stamp:{time.time()-start_time_stamp:.2f}s')
+start_log(f'CWLA config recover finished, time stamp:{time.time()-start_time_stamp:.2f}s')
 
 from service.chat_completion.llm_requester import APIRequestHandler
 from service.tts.chatapi_tts import TTSAgent
 
-LOGGER.log(f'CWLA service import finished, time stamp:{time.time()-start_time_stamp:.2f}s')
+start_log(f'CWLA service import finished, time stamp:{time.time()-start_time_stamp:.2f}s')
 
 from core.session.title_generate import TitleGenerator
+start_log(f'CWLA core title import finished, time stamp:{time.time()-start_time_stamp:.2f}s')
+
 from core.multimodal_coordination.background_generate import BackgroundAgent
-from core.story.mod_manager import ModConfiger
-from core.session.concurrentor import ConvergenceDialogueOptiProcessor
+
+start_log(f'CWLA core multimodal_coordination import finished, time stamp:{time.time()-start_time_stamp:.2f}s')
 
 from core.app_core import CWLACore
 
-LOGGER.log(f'CWLA core import finished, time stamp:{time.time()-start_time_stamp:.2f}s')
+start_log(f'CWLA core import finished, time stamp:{time.time()-start_time_stamp:.2f}s')
 
 from ui.custom_widget import *
 from ui.setting.system_prompt_widget import SystemPromptManager,SystemPromptComboBox
@@ -68,17 +92,18 @@ from ui.avatar import AvatarCreatorWindow
 from ui.chat.user_input import MultiModalTextEdit
 from ui.chat.chathistory_view_widget import ChatapiTextBrowser,ChatHistoryWidget,ChatHistoryTextView,HistoryListWidget
 from ui.chat.chathistory_manage_widget import ChatHistoryEditor
+from ui.tool_call.tool_manager_widget import FunctionManager
 
 from ui.bridge import UiMainSignalBridge
 
-LOGGER.log(f'CWLA UI import finished, time stamp:{time.time()-start_time_stamp:.2f}s')
+start_log(f'CWLA UI import finished, time stamp:{time.time()-start_time_stamp:.2f}s')
 
 from utils.preset_data import *
 from utils.usage_analysis import TokenAnalysisWidget
 
-LOGGER.log(f'CWLA utils import finished, time stamp:{time.time()-start_time_stamp:.2f}s')
+start_log(f'CWLA utils import finished, time stamp:{time.time()-start_time_stamp:.2f}s')
 
-LOGGER.log(f'CWLA import finished, time stamp:{time.time()-start_time_stamp:.2f}s')
+start_log(f'CWLA import finished, time stamp:{time.time()-start_time_stamp:.2f}s')
 
 if TYPE_CHECKING:
     from core.session.session_model import ChatSession
@@ -121,6 +146,7 @@ class MainWindow(QMainWindow):
         self.init_info_manager()
 
         self.init_concurrenter()
+        self.init_function_window()
 
         self.init_system_prompt_window()
         self.init_chat_bubble_render_loop()
@@ -248,9 +274,6 @@ class MainWindow(QMainWindow):
 
         #tts页面初始化
         self.add_tts_page()
-        self.init_mod_configer_page()
-
-
 
         # 用户输入文本框
         user_input_label = QLabel("用户输入：")
@@ -533,7 +556,7 @@ class MainWindow(QMainWindow):
         self.recover_ui_status()
         #UI创建后
         self.init_post_ui_creation()
-        self.info_manager.log(f'CWLA init finished, time stamp:{time.time()-start_time_stamp:.2f}s',level='debug')
+        self.info_manager.log(f'CWLA init finished, time stamp:{time.time()-start_time_stamp:.2f}s')
 
 
     def init_signal_bus(self):
@@ -554,6 +577,7 @@ class MainWindow(QMainWindow):
         b.full_content.connect(self.update_ai_response_text)
         b.full_reasoning.connect(self.update_think_response_text)
         b.full_tool_call.connect(self.update_tool_response_text)
+        b.finished.connect(self.handle_main_chat_completed)
         b.history_changed.connect(
             lambda id,history: self.chat_history_bubbles.set_chat_history(history)
         )
@@ -561,6 +585,7 @@ class MainWindow(QMainWindow):
         b.name_changed.connect(self.update_name_to_chatbubbles)
         b.avatar_changed.connect(self.update_avatar_to_chat_bubbles)
         b.history_changed.connect(self.finalize_chat_render)
+        b.session_changed.connect(self.handle_session_change)
 
         b.warning.connect(self.info_manager.warning)
         b.error.connect(self.info_manager.error)
@@ -598,7 +623,10 @@ class MainWindow(QMainWindow):
         self.think_response=''
         self._reset_cb_buffers()
 
-    
+    def init_function_window(self):
+        self.function_manager = FunctionManager()
+        self.function_manager.activatedToolsChanged.connect(self.session_manager.set_tools)
+
     def init_system_prompt_window(self):
         self.system_prompt_override_window = SystemPromptManager(
             folder_path=APP_RUNTIME.paths.system_prompt_preset_path
@@ -607,8 +635,12 @@ class MainWindow(QMainWindow):
         self.system_prompt_override_window.update_preset.connect(self.update_system_preset)
         self.system_prompt_override_window.update_system_prompt.connect(self.session_manager.set_system_content)
 
-    def init_mod_configer_page(self):
-        self.mod_configer=ModConfiger()
+    @property
+    def mod_configer(self):
+        if not hasattr(self,'_mod_configer'):
+            from core.story.mod_manager import ModConfiger
+            self._mod_configer=ModConfiger()
+        return self._mod_configer
 
     def init_info_manager(self):
         self.info_manager=InfoManager(
@@ -667,7 +699,11 @@ class MainWindow(QMainWindow):
 
     def init_concurrenter(self):
         pass
-        self.concurrent_model=ConvergenceDialogueOptiProcessor()
+    
+    def ensure_concurrenter(self):
+        if not hasattr(self, 'concurrent_model'):
+            from core.session.concurrentor import ConvergenceDialogueOptiProcessor
+            self.concurrent_model=ConvergenceDialogueOptiProcessor()
         #self.concurrent_model.concurrentor_content.connect(self.concurrentor_content_receive)
         #self.concurrent_model.concurrentor_reasoning.connect(self.concurrentor_reasoning_receive)
         #self.concurrent_model.concurrentor_finish.connect(self.concurrentor_finish_receive)
@@ -765,7 +801,7 @@ class MainWindow(QMainWindow):
             {"上级名称": "记录", "提示语": "导入记录", "执行函数": "self.load_chathistory"},
             {"上级名称": "记录", "提示语": "修改原始记录", "执行函数": "self.edit_chathistory"},
             {"上级名称": "记录", "提示语": "对话分析", "执行函数": "self.show_analysis_window"},
-            {"上级名称": "对话", "提示语": "强制触发长对话优化", "执行函数": "self.long_chat_improve"},
+            {"上级名称": "对话", "提示语": "强制触发长对话优化", "执行函数": "self.cfm.enforce_lci"},
             {"上级名称": "对话", "提示语": "函数调用", "执行函数": "self.show_function_call_window"},
             {"上级名称": "背景", "提示语": "背景设置", "执行函数": "self.background_settings_window"},
             {"上级名称": "背景", "提示语": "触发背景更新（跟随聊天）", "执行函数": "self.call_background_update"},
@@ -1211,7 +1247,7 @@ class MainWindow(QMainWindow):
 
     #载入记录
     def load_chathistory(self,file_path=None):
-        self.session_manager.change_session(file_path)
+        self.session_manager.change_session_by_path(file_path)
         self.info_manager.notify(
 f'''聊天记录已导入，当前聊天：{self.session_manager.title}
 对话轮数 {self.session_manager.chat_rounds},
@@ -1280,9 +1316,14 @@ f'''聊天记录已导入，当前聊天：{self.session_manager.title}
 
     #修改问题
     def edit_user_last_question(self):
-        self.user_input_text.setText(
-            self.session_manager.fallback_history_for_edit()
-        )
+        if self.session_manager.chat_rounds <= 1:
+            self.info_manager.warning("当前没有可编辑的问题")
+            return
+        text,muti = self.session_manager.fallback_history_for_edit()
+        
+        self.user_input_text.setText(text)
+        self.user_input_text.setAttachments(muti)
+        
 
     #重生成消息，直接创建最后一条
     def resend_message_last(self):
@@ -1624,8 +1665,7 @@ f'''聊天记录已导入，当前聊天：{self.session_manager.title}
         self.theme_selector.show()
 
     def show_concurrent_model(self,show=False):
-        if not getattr(self,"concurrent_model",None):
-            self.concurrent_model=ConvergenceDialogueOptiProcessor()
+        self.ensure_concurrenter()
         if show:
             self.concurrent_model.show()
         else:
@@ -1727,7 +1767,7 @@ f'''聊天记录已导入，当前聊天：{self.session_manager.title}
         # 获取系统提示管理器洗干净的预设消息
         preset=self.system_prompt_override_window.get_init_preset()
 
-        self.session_manager.update_system_preset(preset)
+        self.session_manager.create_new_session(preset)
 
         self._update_preset_to_ui_by_system_message()
 
@@ -1735,12 +1775,15 @@ f'''聊天记录已导入，当前聊天：{self.session_manager.title}
         self.update_avatar_to_chat_bubbles()
         self.update_name_to_chatbubbles()
 
-    def update_avatar_to_chat_bubbles(self,avatars = {}):
+    def update_avatar_to_chat_bubbles(self,id='',avatars = {}):
+        if not id:
+            id=self.session_manager.chat_id
+        if not avatars:
+            avatars=self.session_manager.avatars
         self.chat_history_bubbles.avatars = avatars
         self.chat_history_bubbles.update_all_avatars()
 
-
-    def update_name_to_chatbubbles(self,names=None):
+    def update_name_to_chatbubbles(self,id='',names=None):
         if not names:
             names = self.core.session_manager.current_chat.name
 
@@ -1749,8 +1792,6 @@ f'''聊天记录已导入，当前聊天：{self.session_manager.title}
             'assistant': names.get('assistant', 'AI')
         }
         self.chat_history_bubbles.update_all_nicknames()
-
-    
 
     def update_request_status(self, stats: dict):
         self._cb_buffers.update(stats)
@@ -1795,14 +1836,22 @@ f'''聊天记录已导入，当前聊天：{self.session_manager.title}
 
         return f"## 📊 对话状态\n---\n{header}\n{table_body}\n"
 
+    def handle_session_change(self,session:'ChatSession'):
+        self.chat_history_bubbles.set_chat_history(session.history)
+        self.update_avatar_to_chat_bubbles()
+        self.update_name_to_chatbubbles()
+    
+    def handle_main_chat_completed(self,id,message):
+        self.control_frame_to_state('finished')
+        self.chat_history_bubbles.streaming_scroll(run=False)
 
-LOGGER.log(f'CWLA Class import finished, time stamp:{time.time()-start_time_stamp:.2f}s',level='debug')
+start_log(f'CWLA Class import finished, time stamp:{time.time()-start_time_stamp:.2f}s')
 
 def start():
-    app = QApplication(sys.argv)
     window = MainWindow()
     window.show()
-    LOGGER.log(f'CWLA shown on desktop, time stamp:{time.time()-start_time_stamp:.2f}s',level='debug')
+    start_log(f'CWLA shown on desktop, time stamp:{time.time()-start_time_stamp:.2f}s')
+    sp.close()
     sys.exit(app.exec())
 
 if __name__=="__main__":

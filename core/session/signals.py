@@ -47,3 +47,4 @@ class SessionManagerSignalBus(BaseSignalBus):
     avatar_changed = Signal(str, dict)   # (session_id, avatar_dict)
     title_changed = Signal(str, str)     # (session_id, new_title)
     name_changed = Signal(str, dict)     # (session_id, name_dict)
+    tool_changed = Signal(str, list)     # (session_id, tool_list)

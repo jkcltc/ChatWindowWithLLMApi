@@ -154,6 +154,8 @@ class ChatFlowManager:
         """
         chathistory=[]
         start_chat_length=self.session_manager.chat_rounds
+        if not msg_id:
+            msg_id=self.session_manager.get_last_message()['info']['id']
         try:
             chathistory = self.session_manager.fallback_history_for_resend(msg_id=msg_id)
         except Exception as e:
@@ -170,7 +172,6 @@ class ChatFlowManager:
         self.send_request(
             request_type=RequestType.USER_MESSAGE,
             LLM_usage=APP_SETTINGS.ui.LLM,
-            create_thread= not APP_SETTINGS.concurrent.enabled
         )
 
         return True
@@ -201,6 +202,12 @@ class ChatFlowManager:
     #            }
     #        }
     #    )
+    def enforce_lci(self):
+        self.session_manager.current_chat.reset_chat_rounds()
+        self.lci.start(
+            session=self.session_manager.current_chat,
+            setting=APP_SETTINGS.lci
+        )
     
     def _should_do_lci(self):
         if not APP_SETTINGS.lci.enabled:
@@ -231,6 +238,7 @@ class ChatFlowManager:
                 payload=self.session_manager.current_chat,
                 setting=APP_SETTINGS.lci
             )
+            self.session_manager.current_chat.reset_chat_rounds()
         # 还没写完
         #if self._should_update_background():
         #    self.bgg.start(

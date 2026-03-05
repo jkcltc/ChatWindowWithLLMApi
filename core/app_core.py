@@ -27,6 +27,3 @@ class CWLACore:
         self.signals.log.connect        (self.logger.info)
         self.signals.warning.connect    (self.logger.warning)
         self.signals.error.connect      (self.logger.error)
-        self.signals.log.connect    (print)
-        self.signals.warning.connect(print)
-        self.signals.error.connect  (print)

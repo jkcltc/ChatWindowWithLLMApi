@@ -1,5 +1,6 @@
 import json
 import os
+import time
 from typing import Any, List, Optional, Tuple,Dict
 
 from PyQt6.QtCore import (
@@ -811,6 +812,7 @@ class ChatHistoryWidget(QFrame):
         :param history: 新的聊天历史记录列表
         """
         # 恢复自动滚动功能
+        st=time.time()
         self.is_auto_scroll_enabled = True
         self.not_streaming_dont_scroll=True
         # 创建新历史记录的ID到内容的映射
@@ -891,6 +893,9 @@ class ChatHistoryWidget(QFrame):
             with open('chat_history_error_h4.json', 'w', encoding='utf-8') as f:
                 json.dump(h4, f, ensure_ascii=False, indent=2)
                 print('set chat history fail,payload dumped to chat_history_error_h4.json')
+        te= time.time()*1000-st*1000
+        f1 = te > 16.66
+        print('消息刷新timer',te,">1 fp:",f1)
 
     def _reorder_bubbles(self, history):
         """

@@ -11,6 +11,7 @@ from psygnal import Signal
 import uuid
 from core.utils import MainThreadDispatcher as MTD
 from .signals import SessionManagerSignalBus
+import functools
 
 if TYPE_CHECKING:
     from .system_prompt_manager import SystemPromptPreset
@@ -290,6 +291,14 @@ class SessionManager:
     def name(self)->dict:
         return self.current_chat.name
 
+    @property
+    def avatars(self) -> dict:
+        return self.current_chat.avatars
+
+    @property
+    def avatar(self) -> dict:
+        return self.current_chat.avatars
+    
     def get_system_message(self) -> Optional[Dict]:
         """获取系统消息（第一条role为system的消息）"""
         if self.current_chat.history and self.current_chat.history[0].get("role") == "system":
@@ -313,30 +322,28 @@ class SessionManager:
     def get_last_n_message_length(self, n: int = 10) -> int:
         """获取最近的n条消息的长度"""
         return self.current_chat.get_last_n_length(n)
-    
+
     def edit_by_index(self, index: int, new_content: str) -> None:
         try:
             self.current_chat.edit_by_index(index, new_content)
+            self.signals.history_changed(self.chat_id,self.history)
+            self.request_autosave()
         except Exception as e:
             self.error.emit(f"编辑消息失败: {e}")
-        self.signals.history_changed(self.chat_id,self.history)
-        self.request_autosave()
     
     def edit_by_id(self, id: int, new_content: str) -> None:
         index = None
-        for i, msg in enumerate(self.history):
-            info = msg.get('info', {})
-            if str(info.get('id')) == str(id):
-                index = i
+        index = self.current_chat.get_msg_index(id)
         if index is None:
             self.error.emit(f"未找到消息ID: {id}")
             return
         try:
             self.current_chat.edit_by_index(index, new_content)
+            self.signals.history_changed(self.chat_id,self.history)
+            self.request_autosave()
         except Exception as e:
             self.error.emit(f"编辑消息失败: {e}")
-        self.signals.history_changed(self.chat_id,self.history)
-        self.request_autosave()
+
 
     # ==================== 文件操作 ====================
 
@@ -440,6 +447,8 @@ class SessionManager:
 
         self._autosave_worker.reset()
         self.current_chat = ChatSession()
+        # 空的session，运算量应该不大
+        self.signals.session_changed.emit(self.current_chat)
 
     def update_system_preset(self, preset: "SystemPromptPreset") -> "ChatSession":
         self.current_chat.apply_preset(preset)
@@ -450,14 +459,22 @@ class SessionManager:
         """创建新会话"""
         self.clear_history()
 
+        avatar = preset.info.get("avatars",{})
         # 设置默认的有效头像和名字
-        self.set_avatar(self.default_avatar_path)
-        self.set_name(self.default_names)
+        if avatar:
+            self.set_avatar(avatar)
+        else:
+            self.set_avatar(self.default_avatar_path)
+        name=preset.info.get("name",{})
+        if name:
+            self.set_name(name)
+        else:
+            self.set_name(self.default_names)
 
         self.update_system_preset(preset)
         return self.current_chat
 
-    def change_session(self,path:str) -> "ChatSession":
+    def change_session_by_path(self,path:str) -> "ChatSession":
         self.autosave()
         self.clear_history()
         self.current_chat = self.load_chathistory(path)
@@ -467,17 +484,9 @@ class SessionManager:
     def set_session(self,session:ChatSession) -> "ChatSession":
         self.current_chat = session
         self.signals.session_changed.emit(self.current_chat)
+        self.request_autosave()
 
-    def update_message_by_id(self, msg_id: str, new_content: str) -> bool:
-        """根据消息ID更新消息内容"""
-        try:
-            index = self.current_chat.get_msg_index(msg_id)
-            self.current_chat.history[index]["content"] = new_content
-            self.request_autosave()
-            return True
-        except Exception as e:
-            self.error.emit(f"编辑消息失败: {e}")
-            return False
+
 
     def fallback_chat(self, msg_id: str):
         """回退到指定消息（包含目标消息）"""
@@ -487,9 +496,11 @@ class SessionManager:
     def fallback_history_for_edit(self) -> str:
         self.fallback_history_for_resend()
         content = self.history[-1]["content"]
+        muti = self.history[-1].get('info',{}).get('multimodal',[])
         self.history.pop()
         self.request_autosave()
-        return content
+        self.signals.history_changed.emit(self.chat_id, self.history)
+        return content,muti
     
     def fallback_history_for_resend(self, msg_id: str = "") -> List[Dict]:
         """为重发准备历史记录"""
@@ -498,9 +509,9 @@ class SessionManager:
         self.current_chat.truncate_to_user()
         if self.current_chat.chat_rounds <= 1:
             self.error.emit("消息回退失败：消息数不足")
-            #raise ValueError("消息回退失败：消息数不足")
         hist = self.current_chat.history
         self.request_autosave()
+        self.signals.history_changed.emit(self.chat_id, self.history)
         return hist
 
     def set_title(self, title: str):
@@ -513,27 +524,29 @@ class SessionManager:
         """设置会话头像"""
 
         self.current_chat.avatars = avatar
-        self.signals.avatar_changed.emit()
+        self.signals.avatar_changed.emit(self.chat_id,self.current_chat.avatars)
         self.request_autosave()
     
     def set_role_avatar(self,role:str,avatar:str) -> None:
         self.current_chat.avatars[role]=avatar
-        self.signals.avatar_changed.emit()
+        self.signals.avatar_changed.emit(self.chat_id,self.current_chat.avatars)
         self.request_autosave()
 
     def set_name(self, name: Dict[str, str]) -> None:
         """设置会话名称"""
         self.current_chat.name = name
         self.request_autosave()
-        self.signals.name_changed.emit()
+        self.signals.name_changed.emit(self.chat_id,self.current_chat.name)
 
     def set_tools(self, tool: List[str]) -> None:
         """设置会话工具列表"""
         self.current_chat.tools = tool
         self.request_autosave()
+        self.signals.tool_changed.emit(self.chat_id,self.current_chat.tools)
 
     def set_system_content(self, content: str) -> None:
         """设置系统消息内容"""
+        # system prompt 目前不显示
         if self.current_chat.history and self.current_chat.history[0].get("role") == "system":
             self.current_chat.history[0]["content"] = content
         self.request_autosave()
@@ -546,8 +559,10 @@ class SessionManager:
             self.current_chat.increment_background_rounds(amount)
         if avatar:
             self.current_chat.avatars = avatar
+            self.signals.avatar_changed.emit(self.chat_id,self.current_chat.avatars)
         if tools:
             self.current_chat.tools = tools
+            self.signals.tool_changed.emit(self.chat_id,self.current_chat.tools)
         self.request_autosave()
 
     def add_new_message(self,role:str,content: str, multimodal=None,info:dict=None):

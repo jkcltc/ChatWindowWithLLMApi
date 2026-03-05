@@ -52,7 +52,7 @@ class StatusAnalyzer:
         # 2. 计算瞬时速率
         dt = curr_time - self.last_update_time
         # 防跳, eg. 5 token/0.2s 然后 100 token/0.001s
-        if dt > 0.1:
+        if dt > 0.3:
             instant_speed = (self.total_chars - self.last_chars) / dt
             if instant_speed > self.peak_rate:
                 self.peak_rate = instant_speed

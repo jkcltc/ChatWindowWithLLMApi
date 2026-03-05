@@ -1,20 +1,22 @@
 from typing import TYPE_CHECKING
 import time
-
 from config import APP_SETTINGS,APP_RUNTIME
 
 from service.chat_completion import APIRequestHandler
 
-from core.session.concurrentor import ConvergenceDialogueOptiProcessor
 from core.session.title_generate import TitleGenerator
 from core.session.session_manager import SessionManager
+
 from core.context.lci.evaluate import LciMetrics,LciEvaluation
+from core.context.lci import LciEngine,LCIValidator
+
 from core.multimodal_coordination.background_generater_helper import BggEvaluation,BggMetrics
 from core.multimodal_coordination.background_generate import BackgroundWorker
+
 from core.session.data import ChatCompletionPack,RequestType
 from core.session.request_flow import RequestFlowManager
 from core.session.signals import ChatFlowManagerSignalBus
-from core.context.lci import LciEngine,LCIValidator
+
 from core.utils.dispatcher import MainThreadDispatcher as MTD
 
 from utils.status_analysis import StatusAnalyzer

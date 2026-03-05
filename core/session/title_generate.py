@@ -103,8 +103,7 @@ class TitleGenerator:
             title = self.generate_title_from_history_local(chathistory, max_length=max_length)
             self._title_generated.emit(self.task_id, title)
             return
-
-        print(use_local,self.api_handler,hasattr(self.api_handler, "send_request"))
+        
         if use_local or not self.api_handler or not hasattr(self.api_handler, "send_request"):
             self.log.emit("使用本地逻辑生成标题。")
             title = self.generate_title_from_history_local(chathistory, max_length=max_length)

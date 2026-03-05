@@ -5,7 +5,7 @@ from PyQt6.QtWidgets import *
 from PyQt6.QtCore import *
 from PyQt6.QtGui import *
 import threading
-import openai
+
 
 class StoryCreatorGlobalVar:
     def __init__(self):
@@ -259,6 +259,7 @@ class APIRequestHandler(QObject):
                 self.think_response += content.reasoning_content
                 print(content.reasoning_content, end='', flush=True)
         #try:
+        import openai
         client = openai.Client(
             api_key=self.api_config['key'],  # 替换为实际的 API 密钥
             base_url=self.api_config['url']  # 替换为实际的 API 基础 URL

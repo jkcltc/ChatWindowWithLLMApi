@@ -9,12 +9,19 @@ def _ir():
     import requests
 def _ioai():
     import openai
+def _ids():
+    from config import APP_SETTINGS,ConfigManager
+    ConfigManager.load_settings(APP_SETTINGS)
+
 
 threading.Thread(
     target=_ir,
 ).start()
 threading.Thread(
     target=_ioai,
+).start()
+threading.Thread(
+    target=_ids,
 ).start()
 
 import os
@@ -45,7 +52,7 @@ def start_log(ts):
     global st_ct
     st_ct += 1
     LOGGER.log(ts)
-    sp.progress(int(100*st_ct/16), ts)
+    sp.progress(int(100*st_ct/12), ts)
 
 #自定义类初始化
 
@@ -62,7 +69,7 @@ from config import APP_SETTINGS,APP_RUNTIME,ConfigManager
 from config.settings import LLMUsagePack # 不行我看不得这个
 
 # 就地初始化
-ConfigManager.load_settings(APP_SETTINGS)
+# ConfigManager.load_settings(APP_SETTINGS)
 
 start_log(f'CWLA config recover finished, time stamp:{time.time()-start_time_stamp:.2f}s')
 

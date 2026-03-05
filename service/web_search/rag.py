@@ -5,12 +5,6 @@ import re
 from dataclasses import dataclass
 from typing import List, Optional, Sequence
 
-try:
-    # openai>=1.x
-    from openai import OpenAI
-except Exception:
-    OpenAI = None  # type: ignore
-
 from .models import WebResult
 from .formatter import format_results
 
@@ -47,6 +41,7 @@ class RagFilter:
         model: str,
         timeout: float = 60.0,
     ) -> Optional[RagDecision]:
+        from openai import OpenAI
         if OpenAI is None:
             raise RuntimeError("openai SDK not available")
 

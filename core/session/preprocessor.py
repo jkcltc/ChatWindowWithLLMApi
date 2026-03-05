@@ -26,7 +26,11 @@ class Preprocessor:
     与 RequestWorkflowManager 分离，专注于数据转换逻辑。
     """
 
-    def __init__(self,search_facade:"WebSearchFacade",return_search_result:callable=None):
+    def __init__(self,search_facade:"WebSearchFacade"=None,return_search_result:callable=None):
+        self.search_facade = search_facade
+        self.return_search_result = return_search_result
+    
+    def web_enabled(self,search_facade:"WebSearchFacade",return_search_result:callable=None):
         self.search_facade = search_facade
         self.return_search_result = return_search_result
     
@@ -204,8 +208,11 @@ class Preprocessor:
                 messages.insert(-1, new_msg)
         
             return messages
-        
+
+            
         if not search_result and APP_SETTINGS.web_search.web_search_enabled:
+            if not self.search_facade:
+                raise RuntimeError("where is my searcher?")
             ct=pack.chat_session.history[-1]['content']
             if isinstance(ct, list):
                 for item in ct:

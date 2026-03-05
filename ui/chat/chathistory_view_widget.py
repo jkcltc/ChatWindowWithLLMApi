@@ -1110,7 +1110,7 @@ class ChatHistoryWidget(QFrame):
             self.scroll_bar.setValue(self.scroll_bar.maximum())
 
     def streaming_scroll(self,run=True,scroll_time=10):
-        self.not_streaming_dont_scroll=False
+        self.not_streaming_dont_scroll=not run
         if not self.is_auto_scroll_enabled:
             self.scroll_timer.stop()
             return  # 自动滚动被禁用，不执行任何操作

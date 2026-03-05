@@ -1,4 +1,4 @@
-import sys,threading,openai,os,configparser,json,random
+import threading,os,json,random
 from PyQt6.QtWidgets import *
 from PyQt6.QtCore import *
 from PyQt6.QtGui import *
@@ -1010,6 +1010,7 @@ class APIRequestHandler(QObject):
                 self.think_response += content.reasoning_content
                 self.reasoning_response_received.emit(content.reasoning_content)
         #try:
+        import openai
         client = openai.Client(
             api_key=self.api_config['key'],  # 替换为实际的 API 密钥
             base_url=self.api_config['url']  # 替换为实际的 API 基础 URL

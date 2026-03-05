@@ -9,7 +9,7 @@ from PyQt6.QtWidgets import *
 from PyQt6.QtCore import *
 from PyQt6.QtGui import *
 from PyQt6.QtSvg import *
-import openai, requests
+import requests
 from requests.adapters import HTTPAdapter
 from requests.exceptions import RequestException
 from lxml import etree
@@ -396,6 +396,8 @@ class WebSearchTool:
         if self.search_results == {}:
             print("no search results,returning None")
             return None
+        
+        import openai
         client = openai.Client(
             api_key=api_key,
             base_url=rag_provider_link

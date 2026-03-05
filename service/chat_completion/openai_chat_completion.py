@@ -1,6 +1,5 @@
 from PyQt6.QtCore import QObject,pyqtSignal
 import threading
-import openai
 import time
 import json
 import requests

@@ -15,9 +15,8 @@ from core.session.signals import RequestFlowManagerSignalBus
 
 from utils.str_tools import StrTools
 
-
 from service.chat_completion.signals import RequesterSignals
-from service.web_search import WebSearchFacade,RagFilter,WebRagPresetVars
+
 from service.chat_completion.llm_requester import OneTimeLLMRequester,RequestConfig
 from .data import RequestType
 
@@ -238,22 +237,8 @@ class RequestFlowManager:
         # tool loop，单例，硬薅
         self.function_manager = get_tool_registry()
 
-        # 搜索组件
-        self.search_facade = WebSearchFacade(
-            engine_name=APP_SETTINGS.web_search.search_engine,
-            max_workers=min(6, APP_SETTINGS.web_search.search_results_num),
-            timeout=12,
-            rag_filter=RagFilter(
-                prefix=WebRagPresetVars.prefix,
-                suffix=WebRagPresetVars.subfix,
-            )
-        )
-
         # Request 三阶段
-        self.pre_processor:Preprocessor = Preprocessor(
-            search_facade=self.search_facade,
-            return_search_result = self.signals.web_search_result.emit
-        )
+        self.pre_processor:Preprocessor = Preprocessor()
         
 
         self.mid_processor = MidProcessor(
@@ -278,6 +263,22 @@ class RequestFlowManager:
         # cache
         self._request_id_for_tool=''
 
+    @property
+    def search_facade(self):
+        if not hasattr(self,"_search_facade"):
+            from service.web_search import WebSearchFacade,RagFilter,WebRagPresetVars
+            self._search_facade = WebSearchFacade(
+                engine_name=APP_SETTINGS.web_search.search_engine,
+                max_workers=min(6, APP_SETTINGS.web_search.search_results_num),
+                timeout=12,
+                rag_filter=RagFilter(
+                    prefix=WebRagPresetVars.prefix,
+                    suffix=WebRagPresetVars.subfix,
+                )
+            )
+        return self._search_facade
+
+        
     def _connect_mid_signals(self):
         """
         连接中间处理器的信号到主信号总线。
@@ -319,6 +320,12 @@ class RequestFlowManager:
         result = self.status_analyzer.process_stream(request_id, content,content_type)
         self.signals.request_status.emit(result)
 
+    def _ensure_web_ability(self):
+        self.pre_processor.web_enabled(
+            search_facade= self.search_facade,
+            return_search_result= self.signals.web_search_result.emit
+        )
+    
     def reset(self):
         """
         重置 RequestFlowManager 的状态。
@@ -506,6 +513,10 @@ class RequestFlowManager:
             网络错误由 requester 自身处理，此处只捕获处理内部错误。
         """
         start_time=time.time()*1000
+        
+        if APP_SETTINGS.web_search.web_search_enabled:
+            self._ensure_web_ability()
+
         try:
             # 1. 前处理
             __messages_unused, payload = self.pre_processor.prepare_message(pack)

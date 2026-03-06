@@ -430,7 +430,7 @@ class ChathistoryFileManager:
         with open(file_path, "r", encoding="utf-8") as file:
             chathistory = json.load(file)
         if not chathistory:
-            raise ValueError(f"文件为空: {file_path}")
+            raise ValueError(f"无有效历史记录: {file_path}")
 
         return ChatSession.from_dict(self.patcher.patch(chathistory))
 

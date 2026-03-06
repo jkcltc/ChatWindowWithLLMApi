@@ -292,7 +292,7 @@ class AutoReplaceSettings(BaseSettings):
 class UserToolPermission(BaseSettings):
     """用户工具权限"""
     enabled:bool = True
-    names:list = []
+    names:list = Field(default_factory=list)
 
 # ==================== 快捷键 =====================
 
@@ -588,7 +588,7 @@ class ForceRepeatSettings(BaseSettings):
 
 class DangerousTools(BaseSettings):
     """危险工具"""
-    names:list = []
+    names:list = Field(default_factory=lambda : ['python_cmd'])
 
 # >>> 全局运行时单例 <<<
 class AppRuntime(BaseSettings):

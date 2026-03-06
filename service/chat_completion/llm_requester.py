@@ -39,6 +39,7 @@ from typing import Dict, Any, List, Optional, Callable, Union,TYPE_CHECKING,Iter
 from dataclasses import dataclass, field
 import traceback
 import requests
+import json
 
 import uuid
 
@@ -341,7 +342,6 @@ class OneTimeLLMRequester:
                 
         except Exception as e:
             # 发生异常时，先看是不是因为用户按了暂停
-            
             if self._pause_flag.is_set():
 
                 # 如果是，说明流式请求被用户主动终止
@@ -418,7 +418,7 @@ class OneTimeLLMRequester:
             if response.status_code != 200:
                 error_text = decode_content(response.content)
                 raise requests.HTTPError(
-                    f"HTTP {response.status_code}: {error_text}",
+                    error_text,
                     response=response
                 )
             # 解析 SSE 流
@@ -668,18 +668,13 @@ class OneTimeLLMRequester:
         """格式化错误信息"""
         error_type = type(error).__name__
         error_msg = str(error)
+        try:
+            error_msg = json.loads(error_msg)
+            error_msg = '``` json \n'+json.dumps(error_msg, indent=2, ensure_ascii=False)+'\n```'
+        except Exception as e:
+            pass
         
-        # 尝试提取更详细的错误信息
-        if hasattr(error, 'response') and error.response is not None:
-            try:
-                error_data = error.response.json()
-                if 'error' in error_data:
-                    error_msg = f"{error_msg} - {error_data['error']}"
-            except:
-                error_data = error.response.text
-                error_msg = f"{error_msg} - {error_data}"
-        
-        return f"[{error_type}] {error_msg}"
+        return f"\n[{error_type}] \n{error_msg}"
     
     
     def close(self):

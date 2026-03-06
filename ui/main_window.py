@@ -115,10 +115,10 @@ start_log(f'CWLA import finished, time stamp:{time.time()-start_time_stamp:.2f}s
 if TYPE_CHECKING:
     from core.session.session_model import ChatSession
 
-#主类
 class MainWindow(QMainWindow):
-    ai_response_signal= pyqtSignal(str,str)
-    think_response_signal= pyqtSignal(str,str)
+    pass
+#主类
+class MainWindow(MainWindow):
     back_animation_finished = pyqtSignal()
     update_background_signal= pyqtSignal(str)
 
@@ -552,9 +552,6 @@ class MainWindow(QMainWindow):
         )
 
         self.creat_new_chat()
-        self.ai_response_signal.connect(self.update_ai_response_text)
-        self.update_background_signal.connect(self.update_background)#可以弃用了
-        self.think_response_signal.connect(self.update_think_response_text)
         self.installEventFilter(self)
         self.bind_hot_key()
         self.update_opti_bar()
@@ -588,6 +585,7 @@ class MainWindow(QMainWindow):
         b.history_changed.connect(
             lambda id,history: self.chat_history_bubbles.set_chat_history(history)
         )
+        
         b.request_status.connect(self.update_request_status)
         b.name_changed.connect(self.update_name_to_chatbubbles)
         b.avatar_changed.connect(self.update_avatar_to_chat_bubbles)
@@ -799,28 +797,25 @@ class MainWindow(QMainWindow):
 
     #设置界面：函数库
     def populate_tree_view(self):
-        # 数据结构
         data = [
-            {"上级名称": "系统", "提示语": "API/模型库设置", "执行函数": "self.open_api_window"},
-            {"上级名称": "系统", "提示语": "System Prompt 设定 Ctrl+E", "执行函数": "self.open_system_prompt"},
-            {"上级名称": "系统", "提示语": "MOD管理器", "执行函数": "self.show_mod_configer"},
-            {"上级名称": "记录", "提示语": "保存记录", "执行函数": "self.save_chathistory"},
-            {"上级名称": "记录", "提示语": "导入记录", "执行函数": "self.load_chathistory"},
-            {"上级名称": "记录", "提示语": "修改原始记录", "执行函数": "self.edit_chathistory"},
-            {"上级名称": "记录", "提示语": "对话分析", "执行函数": "self.show_analysis_window"},
-            {"上级名称": "对话", "提示语": "强制触发长对话优化", "执行函数": "self.cfm.enforce_lci"},
-            {"上级名称": "对话", "提示语": "函数调用", "执行函数": "self.show_function_call_window"},
-            {"上级名称": "背景", "提示语": "背景设置", "执行函数": "self.background_settings_window"},
-            {"上级名称": "背景", "提示语": "触发背景更新（跟随聊天）", "执行函数": "self.call_background_update"},
-            {"上级名称": "背景", "提示语": "生成自定义背景（正在重构）", "执行函数": "self.show_pic_creater"},
-            {"上级名称": "设置", "提示语": "对话设置", "执行函数": "self.open_main_setting_window"},
-            {"上级名称": "设置", "提示语": "主题", "执行函数": "self.show_theme_settings"},
-            {"上级名称": "设置", "提示语": "快捷键", "执行函数": "self.open_settings_window"},
-            {"上级名称": "设置", "提示语": "联网搜索", "执行函数": "self.open_web_search_setting_window"},
-           
+            {"上级名称": "系统", "提示语": "API/模型库设置", "执行函数": self.open_api_window},
+            {"上级名称": "系统", "提示语": "System Prompt 设定 Ctrl+E", "执行函数": self.open_system_prompt},
+            {"上级名称": "系统", "提示语": "MOD管理器", "执行函数": self.show_mod_configer},
+            {"上级名称": "记录", "提示语": "保存记录", "执行函数": self.save_chathistory},
+            {"上级名称": "记录", "提示语": "导入记录", "执行函数": self.load_chathistory},
+            {"上级名称": "记录", "提示语": "修改原始记录", "执行函数": self.edit_chathistory},
+            {"上级名称": "记录", "提示语": "对话分析", "执行函数": self.show_analysis_window},
+            {"上级名称": "对话", "提示语": "强制触发长对话优化", "执行函数": self.cfm.enforce_lci},
+            {"上级名称": "对话", "提示语": "函数调用", "执行函数": self.show_function_call_window},
+            {"上级名称": "背景", "提示语": "背景设置", "执行函数": self.background_settings_window},
+            {"上级名称": "背景", "提示语": "触发背景更新（跟随聊天）", "执行函数": self.call_background_update},
+            {"上级名称": "背景", "提示语": "生成自定义背景（正在重构）", "执行函数": self.show_pic_creater},
+            {"上级名称": "设置", "提示语": "对话设置", "执行函数": self.open_main_setting_window},
+            {"上级名称": "设置", "提示语": "主题", "执行函数": self.show_theme_settings},
+            {"上级名称": "设置", "提示语": "快捷键", "执行函数": self.open_settings_window},
+            {"上级名称": "设置", "提示语": "联网搜索", "执行函数": self.open_web_search_setting_window},
         ]
 
-        # 创建根节点
         parent_nodes = {}
         for item in data:
             parent_name = item["上级名称"]
@@ -829,24 +824,19 @@ class MainWindow(QMainWindow):
                 self.tree_view.addTopLevelItem(parent_item)
                 parent_nodes[parent_name] = parent_item
 
-        # 创建子节点
-        for item in data:
-            parent_name = item["上级名称"]
             parent_item = parent_nodes[parent_name]
             child_item = QTreeWidgetItem([item["提示语"]])
-            child_item.setData(0, Qt.ItemDataRole.UserRole, item["执行函数"])  # 将执行函数存储在用户数据中
+            # 直接存函数对象
+            child_item.setData(0, Qt.ItemDataRole.UserRole, item["执行函数"])
             parent_item.addChild(child_item)
+        
         self.tree_view.expandAll()
 
-    #设置界面：响应点击
     def on_tree_item_clicked(self, item, column):
-        # 获取用户数据（执行函数名）
-        function_name = item.data(column, Qt.ItemDataRole.UserRole)
-        if function_name:
-            # 动态调用对应的函数
-            func = getattr(self, function_name.split('.')[-1])
-            if callable(func):
-                func()
+        func = item.data(column, Qt.ItemDataRole.UserRole)
+        # 直接调用，省去getattr解析
+        if callable(func):
+            func()
 
     #设置界面：展开/收起 带动画绑定
     def toggle_tree_view(self):
@@ -924,6 +914,7 @@ class MainWindow(QMainWindow):
       return super().eventFilter(obj, event)
 
     def show_function_call_window(self):
+        self.function_manager.set_active_tools(self.session_manager.tools)
         self.function_manager.show()
         self.function_manager.raise_()
 
@@ -1254,8 +1245,19 @@ class MainWindow(QMainWindow):
 
     #载入记录
     def load_chathistory(self,file_path=None):
-        self.session_manager.change_session_by_path(file_path)
-        self.info_manager.notify(
+        if not file_path:
+            file_path, _ = QFileDialog.getOpenFileName(
+                self,
+                "选择聊天记录文件",
+                "",
+                "JSON Files (*.json);;All Files (*)"
+            )
+            if not file_path:
+                self.BESB.warning.emit("未选择文件")
+                return
+        
+        if self.session_manager.change_session_by_path(file_path):
+            self.info_manager.notify(
 f'''聊天记录已导入，当前聊天：{self.session_manager.title}
 对话轮数 {self.session_manager.chat_rounds},
 对话标识 {self.session_manager.chat_id}'''
@@ -1298,7 +1300,7 @@ f'''聊天记录已导入，当前聊天：{self.session_manager.title}
         
         editor.show()
     
-    def save_history(self):
+    def save_chathistory(self):
         """打开文件选择窗口并保存当前聊天记录"""
 
         if self.session_manager.current_chat.chat_rounds <= 1:

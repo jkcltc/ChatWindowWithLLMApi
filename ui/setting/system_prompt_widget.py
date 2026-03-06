@@ -8,7 +8,7 @@ from ui.tool_call.tool_manager_widget import FunctionsSelectorWidget
 class SystemPromptManager(QtWidgets.QWidget):
     update_system_prompt = QtCore.pyqtSignal(str)
     update_tool_selection = QtCore.pyqtSignal(list)
-    update_preset = QtCore.pyqtSignal(dict)
+    update_preset = QtCore.pyqtSignal(object)
 
     def __init__(self, store=None, parent=None,folder_path=''):
         super().__init__(parent)
@@ -523,7 +523,7 @@ class SystemPromptManager(QtWidgets.QWidget):
             return
         self.update_system_prompt.emit(preset.content)
         self.update_tool_selection.emit(preset.tools)
-        self.update_preset.emit(preset.to_json())  # 内含 info.avatar
+        self.update_preset.emit(preset)  # 内含 info.avatar
         QtWidgets.QMessageBox.information(self, "已覆盖", "已覆盖到当前对话")
 
     def _pick_avatar(self, who: str):
@@ -553,8 +553,8 @@ class SystemPromptManager(QtWidgets.QWidget):
 
 class SystemPromptComboBox(QtWidgets.QWidget):
     update_system_prompt = QtCore.pyqtSignal(str)
-    update_tool_selection = QtCore.pyqtSignal(list)  # 新增
-    update_preset = QtCore.pyqtSignal(dict)          # 新增
+    update_tool_selection = QtCore.pyqtSignal(list)
+    update_preset = QtCore.pyqtSignal(object)
     request_open_editor = QtCore.pyqtSignal()
 
     class _Entry:
@@ -788,7 +788,7 @@ class SystemPromptComboBox(QtWidgets.QWidget):
             return
         self.update_system_prompt.emit(preset.content or "")
         self.update_tool_selection.emit(preset.tools or [])
-        self.update_preset.emit(preset.to_json())
+        self.update_preset.emit(preset)
 
     def _on_index_changed(self, idx):
         if self.ignore_combo_signals:

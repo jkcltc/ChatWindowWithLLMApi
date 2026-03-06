@@ -299,6 +299,10 @@ class SessionManager:
     def avatar(self) -> dict:
         return self.current_chat.avatars
     
+    @property
+    def tools(self):
+        return self.current_chat.tools
+    
     def get_system_message(self) -> Optional[Dict]:
         """获取系统消息（第一条role为system的消息）"""
         if self.current_chat.history and self.current_chat.history[0].get("role") == "system":
@@ -352,8 +356,10 @@ class SessionManager:
         try:
             loaded_chat_session = self.chathistory_file_manager.load_chathistory(file_path)
         except Exception as e:
-            self.error.emit(f"载入旧历史失败。错误原因： {e}")
+            self.error.emit(f"载入旧历史失败。错误原因 - {e}")
             return
+        if not loaded_chat_session:
+            self.error.emit("载入旧历史失败。空结果。")
         if loaded_chat_session == ChatSession():
             self.error.emit("failed loading session : empty load result")
             return loaded_chat_session
@@ -450,8 +456,15 @@ class SessionManager:
         # 空的session，运算量应该不大
         self.signals.session_changed.emit(self.current_chat)
 
+    def _refresh_preset(self):
+        self.signals.avatar_changed.emit(self.chat_id,self.current_chat.avatars)
+        self.signals.name_changed.emit(self.chat_id,self.current_chat.name)
+        self.signals.tool_changed.emit(self.chat_id,self.current_chat.tools)
+
     def update_system_preset(self, preset: "SystemPromptPreset") -> "ChatSession":
+        # preset 包含了系统提示词、头像、名字、工具
         self.current_chat.apply_preset(preset)
+        self._refresh_preset()
         self.request_autosave()
         return self.current_chat
 
@@ -477,7 +490,11 @@ class SessionManager:
     def change_session_by_path(self,path:str) -> "ChatSession":
         self.autosave()
         self.clear_history()
-        self.current_chat = self.load_chathistory(path)
+        cs = self.load_chathistory(path)
+        if cs:
+            self.current_chat = cs
+        else:
+            return
         self.signals.session_changed.emit(self.current_chat)
         return self.current_chat
 
@@ -485,8 +502,6 @@ class SessionManager:
         self.current_chat = session
         self.signals.session_changed.emit(self.current_chat)
         self.request_autosave()
-
-
 
     def fallback_chat(self, msg_id: str):
         """回退到指定消息（包含目标消息）"""
@@ -565,12 +580,12 @@ class SessionManager:
             self.signals.tool_changed.emit(self.chat_id,self.current_chat.tools)
         self.request_autosave()
 
-    def add_new_message(self,role:str,content: str, multimodal=None,info:dict=None):
+    def create_new_message(self,role:str,content: str, multimodal=None,info:dict=None):
         new_msg = {
             'role': role,
             'content': content,
             'info': {
-                "id": str(int(time.time())),
+                "id": "CWLA_"+str(uuid.uuid4()),
                 "time": time.strftime("%Y-%m-%d %H:%M:%S")
             }
         }
@@ -579,10 +594,14 @@ class SessionManager:
         if info:
             for key, value in info.items():
                 new_msg['info'][key] = value
-
+        return new_msg
+    
+    def add_new_message(self,role:str,content: str, multimodal=None,info:dict=None):
+        new_msg = self.create_new_message(role,content,multimodal,info)
         self.current_chat.history.append(new_msg)
         self.signals.history_changed.emit(self.chat_id,self.history)
         self.request_autosave()
+
     
     def add_message(self,message:dict):
         self.current_chat.history.append(message)

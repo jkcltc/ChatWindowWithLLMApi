@@ -27,3 +27,12 @@ class CWLACore:
         self.signals.log.connect        (self.logger.info)
         self.signals.warning.connect    (self.logger.warning)
         self.signals.error.connect      (self.logger.error)
+        self.signals.failed.connect     (self.logger.error)
+
+        self.signals.name_changed.connect(print)
+        self.signals.session_changed.connect(print)
+        self.signals.avatar_changed.connect(print)
+        self.signals.tool_changed.connect(print)
+        self.signals.title_changed.connect(print)
+
+        self.signals.ask_for_tool_permission.connect(print)

@@ -96,6 +96,18 @@ class ChatFlowManager:
         self.rfm.signals.finished.connect(self._handle_message_update)
         # todo: tts现在接了完整的内容，O(n^2)，要换成接流式
         self.rfm.signals.full_content.connect(self._dist_tts)
+        self.rfm.signals.failed.connect(self._handle_request_fail)
+
+    def _handle_request_fail(self, request_id: str, error: str):
+        self.signals.error.emit(error)
+        self.session_manager.add_new_message(
+            role='assistant',
+            content=error,
+            info={
+                'id': 'ERROR_'+request_id,
+                'model' : 'ERROR'
+            }
+        )
 
     def _handle_message_update(self,request_id,messages):
         self.session_manager.add_messages(messages)

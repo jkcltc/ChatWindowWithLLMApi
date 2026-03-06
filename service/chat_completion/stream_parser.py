@@ -117,6 +117,9 @@ class DeltaObject:
             return False
         if self.delta_type == DeltaType.DONE:
             return False
+        # 只要包含 usage 就不算空（即使 delta_type 不是 USAGE）
+        if self.usage:
+            return False
 
         return not (self.content or self.reasoning_content or self.tool_calls)
 

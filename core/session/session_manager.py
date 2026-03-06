@@ -441,10 +441,6 @@ class SessionManager:
         else:
             self.error.emit("didn't get any valid input to load sys pmt")
             return ""
-    
-    def replace_system_prompt_by_past_record(self,file_path = None):
-        content = self.load_sys_pmt_from_past_record(file_path)
-        self.set_system_content(content=content)
 
     # ==================== 会话数据操作 ====================
 
@@ -602,12 +598,6 @@ class SessionManager:
         self.signals.history_changed.emit(self.chat_id,self.history)
         self.request_autosave()
 
-    
-    def add_message(self,message:dict):
-        self.current_chat.history.append(message)
-        self.signals.history_changed.emit(self.chat_id,self.history)
-        self.request_autosave()
-    
     def add_messages(self,messages:list[dict]):
         self.current_chat.history.extend(messages)
         self.signals.history_changed.emit(self.chat_id,self.history)

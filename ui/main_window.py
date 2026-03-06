@@ -1267,11 +1267,8 @@ f'''聊天记录已导入，当前聊天：{self.session_manager.title}
     def edit_chathistory(self, file_path=''):
         connect_current = False
         if file_path:
-            session = self.session_manager.load_chathistory(
-                file_path=file_path
-            )
-            if session.chat_id == self.session_manager.chat_id:
-                session= self.session_manager.current_chat
+            if self.session_manager.is_saved_current_history(file_path):
+                session = self.session_manager.current_chat
                 connect_current = True
         else:
             session = self.session_manager.current_chat
@@ -1446,7 +1443,7 @@ f'''聊天记录已导入，当前聊天：{self.session_manager.title}
             self.clear_history()
 
         # 删除文件
-        self.chathistory_file_manager.delete_chathistory(file_path)
+        self.session_manager.delete_chathistory(file_path)
 
         # 从界面移除项
         item = self.past_chat_list.currentItem()

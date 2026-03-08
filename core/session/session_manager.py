@@ -410,7 +410,6 @@ class SessionManager:
         检查当前历史是否已保存（与文件内容比较）
         """
         try:
-            print(file_path)
             loaded = self.chathistory_file_manager.load_chathistory(file_path)
         except Exception as e:
             self.signals.error.emit(f"聊天记录校对：载入旧历史失败。错误原因： {e}")
@@ -629,7 +628,7 @@ class SessionManager:
                 continue
             
             for rid in related:
-                if rid and ('CWLA_req' in rid or 'CWLA_user' in rid):
+                if rid and str(rid) != 'system_prompt':
                     if rid not in seen:
                         seen.add(rid)
                         related_ids.append(rid)
@@ -662,9 +661,26 @@ class SessionManager:
             }
         
         # 存在且升序，允许间歇插入消息，如system/tool
-        indices = [idx for _, idx in id_index_pairs]
-        is_continuous = all(indices[i] < indices[i+1] for i in range(len(indices)-1))
+
         sorted_pairs = sorted(id_index_pairs, key=lambda x: x[1])
+
+        if not sorted_pairs:
+            is_continuous = False
+        else:
+            min_idx = sorted_pairs[0][1]
+            max_idx = sorted_pairs[-1][1]
+            provided_indices = set(idx for _, idx in sorted_pairs)
+
+            is_continuous = True
+            # 从最小索引遍历到最大索引，检查历史记录
+            for i in range(min_idx, max_idx + 1):
+                role = self.current_chat.history[i].get('role', '')
+                # 如果历史记录里有一句 user 或 assistant 的话
+                if role in ('user', 'assistant'):
+                    if i not in provided_indices:
+                        is_continuous = False
+                        break
+
         
         
         texts = []

@@ -26,7 +26,7 @@ threading.Thread(
 
 import os
 import sys
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING,TypedDict, Optional, Literal
 
 #基础类初始化
 from common.init_functions import install_packages
@@ -107,6 +107,7 @@ start_log(f'CWLA UI import finished, time stamp:{time.time()-start_time_stamp:.2
 
 from utils.preset_data import *
 from utils.usage_analysis import TokenAnalysisWidget
+from utils.chat_buffer import ChatBuffer
 
 start_log(f'CWLA utils import finished, time stamp:{time.time()-start_time_stamp:.2f}s')
 
@@ -115,9 +116,84 @@ start_log(f'CWLA import finished, time stamp:{time.time()-start_time_stamp:.2f}s
 if TYPE_CHECKING:
     from core.session.session_model import ChatSession
 
+import csv
+class FPSMonitor(QLabel):
+    def __init__(self, parent=None, alert_threshold_ms=100):
+        super().__init__(parent)
+        self.setStyleSheet("""
+            QLabel {
+                background-color: rgba(0, 0, 0, 180);
+                color: #00FF00;
+                font-family: Consolas, monospace;
+                font-size: 12px;
+                font-weight: bold;
+                padding: 4px 8px;
+                border-radius: 4px;
+            }
+        """)
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        self.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        self.alert_threshold_ms = alert_threshold_ms
+        self.frames = 0
+        self.max_dt = 0.0
+        self.last_tick = time.perf_counter()
+
+        self.perf_history = []
+        self.start_timestamp = time.time()
+
+        self.heartbeat = QTimer(self)
+        self.heartbeat.timeout.connect(self._on_tick)
+        self.heartbeat.start(0) 
+
+        self.updater = QTimer(self)
+        self.updater.timeout.connect(self._update_display)
+        self.updater.start(500)
+
+    def _on_tick(self):
+        now = time.perf_counter()
+        dt = now - self.last_tick
+        self.last_tick = now
+
+        self.frames += 1
+        if dt > self.max_dt:
+            self.max_dt = dt
+
+    def _update_display(self):
+        fps = int(self.frames * 2) 
+        lag_ms = int(self.max_dt * 1000)
+
+        run_time = round(time.time() - self.start_timestamp, 1)
+        self.perf_history.append((run_time, fps, lag_ms))
+
+        color = "#00FF00"
+        if lag_ms > 30:  color = "#FFFF00"
+        if lag_ms > 100: color = "#FF0000"
+
+        self.setText(f"FPS: {fps:02d} | Lag: <span style='color:{color}'>{lag_ms}ms</span>")
+        self.adjustSize()
+
+        self.frames = 0
+        self.max_dt = 0.0
+
+    def export_csv(self, file_path="ui_performance.csv"):
+        if not self.perf_history:
+            return
+
+        try:
+            with open(file_path, mode='w', newline='', encoding='utf-8') as f:
+                writer = csv.writer(f)
+                # 写入表头
+                writer.writerow(["Run_Time(s)", "FPS", "Max_Lag(ms)"])
+                # 批量写入数据
+                writer.writerows(self.perf_history)
+            print(f"性能数据已成功导出至: {os.path.abspath(file_path)}")
+        except Exception as e:
+            print(f"导出性能数据失败: {e}")
+
 class MainWindow(QMainWindow):
     pass
-#主类
+
 class MainWindow(MainWindow):
     back_animation_finished = pyqtSignal()
     update_background_signal= pyqtSignal(str)
@@ -244,18 +320,10 @@ class MainWindow(MainWindow):
         self.opti_frame_layout.addWidget(self.chat_opti_trigger_bar,1,0,1,7)
 
         self.cancel_trigger_background_update=QPushButton("×")
-        self.cancel_trigger_background_update.clicked.connect(
-            lambda: (setattr(
-                self, 'new_background_rounds', 0), 
-                self.update_opti_bar())
-                )
+        self.cancel_trigger_background_update.clicked.connect(self.session_manager.current_chat.reset_background_rounds)
 
         self.cancel_trigger_chat_opti=QPushButton("×")
-        self.cancel_trigger_chat_opti.clicked.connect(
-            lambda: (
-                setattr(self, 'new_chat_rounds', 0), 
-                self.update_opti_bar())
-                )
+        self.cancel_trigger_chat_opti.clicked.connect(self.session_manager.current_chat.reset_chat_rounds)
 
         self.opti_frame_layout.addWidget(self.cancel_trigger_background_update, 0,  8,  1,  1)
         self.opti_frame_layout.addWidget(self.cancel_trigger_chat_opti,         1,  8,  1,  1)
@@ -562,6 +630,11 @@ class MainWindow(MainWindow):
         self.init_post_ui_creation()
         self.info_manager.log(f'CWLA init finished, time stamp:{time.time()-start_time_stamp:.2f}s')
 
+        self.fps_monitor = FPSMonitor(self)
+        self.fps_monitor.show()
+        # 让它飘在最上层
+        self.fps_monitor.raise_()
+
 
     def init_signal_bus(self):
         self.back_end_signal_bridge=UiMainSignalBridge()
@@ -585,13 +658,14 @@ class MainWindow(MainWindow):
         b.history_changed.connect(
             lambda id,history: self.chat_history_bubbles.set_chat_history(history)
         )
-        
-        b.request_status.connect(self.update_request_status)
+        b.request_status.connect(self.update_status)
+
         b.name_changed.connect(self.update_name_to_chatbubbles)
         b.avatar_changed.connect(self.update_avatar_to_chat_bubbles)
         b.history_changed.connect(self.finalize_chat_render)
         b.session_changed.connect(self.handle_session_change)
 
+        b.notify.connect(self.info_manager.notify)
         b.warning.connect(self.info_manager.warning)
         b.error.connect(self.info_manager.error)
 
@@ -614,19 +688,10 @@ class MainWindow(MainWindow):
 
         # 状态控制标志
         self.hotkey_sysrule_var = True
-        self.difflib_modified_flag = False
-
-        # 聊天会话管理
-        self.new_chat_rounds = 0
-        self.full_response = ''
-
-        # 背景处理相关
-        self.new_background_rounds = 0
-        """自从上次背景更新后的新对话轮数"""
 
         #对话储存点
-        self.think_response=''
-        self._reset_cb_buffers()
+        self._cb_buffers=ChatBuffer()
+        self._cb_buffers.reset()
 
     def init_function_window(self):
         self.function_manager = FunctionManager()
@@ -944,19 +1009,7 @@ class MainWindow(MainWindow):
         self.cb_render_timer = QTimer(self)
         self.cb_render_timer.setInterval(300)
         self.cb_render_timer.timeout.connect(self._flush_chat_buffer)
-        self._reset_cb_buffers()
     
-    def _reset_cb_buffers(self):
-        self._cb_buffers = {
-            'content': '', 
-            'reasoning': '', 
-            'tool': '', 
-            'renewed': False,
-            'id': '',
-            'model':'AI',
-            'role':'assistant'
-        }
-
     def update_ai_response_text(self, request_id, full_content):
         self._update_buffer(request_id, 'content', full_content)
 
@@ -965,37 +1018,46 @@ class MainWindow(MainWindow):
 
     def update_tool_response_text(self, request_id, full_tool):
         self._update_buffer(request_id, 'tool', full_tool)
+    
+    def update_status(self,status:dict):
+        self._cb_buffers.status=status
+        if not self.cb_render_timer.isActive():
+            def _u():
+                self.update_request_status(status)
+            QTimer.singleShot(10,_u)
 
     def _update_buffer(self, req_id, key, text):
-        self._cb_buffers['id'] = req_id
-        self._cb_buffers[key] = text
-        self._cb_buffers['renewed'] = True
-        self._cb_buffers['role'] = 'assistant' if key in ['content','reasoning'] else 'tool'
+        self._cb_buffers.id = req_id
+
+        setattr(self._cb_buffers, key, text)
+
+        self._cb_buffers.renewed = True
+        self._cb_buffers.role = 'assistant' if key in ['content', 'reasoning'] else 'tool'
 
         if not self.cb_render_timer.isActive():
             self.cb_render_timer.start()
 
     def _flush_chat_buffer(self):
-        if not self._cb_buffers['renewed']:
+        if not self._cb_buffers.renewed:
             return
 
         self.chat_history_bubbles.streaming_scroll(True)
         self.chat_history_bubbles.update_bubble(
-            msg_id=self._cb_buffers['id'],
-            content=self._cb_buffers['content'],
-            reasoning_content=self._cb_buffers['reasoning'],
-            tool_content=self._cb_buffers['tool'],
+            msg_id=self._cb_buffers.id,
+            content=self._cb_buffers.content,
+            reasoning_content=self._cb_buffers.reasoning,
+            tool_content=self._cb_buffers.tool,
             streaming='streaming',
-            role= self._cb_buffers['role'],
-            model= self._cb_buffers['model']
+            role=self._cb_buffers.role,
+            model=self._cb_buffers.model
         )
-        self._cb_buffers['renewed'] = False
+
+        self.update_request_status(self._cb_buffers.status)
     
     def finalize_chat_render(self, req_id, msg):
         self._flush_chat_buffer()
         self.cb_render_timer.stop()
         self.chat_history_bubbles.streaming_scroll(False)
-        self._reset_cb_buffers()
 
     def control_frame_to_state(self,state:bool | str):
         if not isinstance(state,bool):
@@ -1010,13 +1072,59 @@ class MainWindow(MainWindow):
         self.edit_question_button.setEnabled(state)
         self.past_chat_list.setEnabled(state)
 
+    def _get_current_llm_usage(self) -> LLMUsagePack:
+        """：处理模型轮询，并组装当前 UI 选择的模型参数"""
+        if APP_SETTINGS.model_poll.enabled:
+            s = self.ordered_model.get_next_model()
+            if s.provider and s.model:
+                self.api_var.setCurrentText(s.provider)
+                self.model_combobox.setCurrentText(s.model)
+
+        return LLMUsagePack(
+            provider=self.api_var.currentText(),
+            model=self.model_combobox.currentText()
+        )
+
+    def _prepare_ui_for_sending(self, model_name: str, status_text: str):
+        """抽取公共逻辑：请求成功后的 UI 初始化动作"""
+        self._cb_buffers.model = model_name
+        self.control_frame_to_state('sending')
+        self.ai_response_text.setText(status_text)
+    
+    #重生成消息，直接创建最后一条
+    def resend_message_last(self):
+        self.resend_message()
+
+    def resend_message(self, request_id=''):
+        # 防呆
+        if not self.send_button.isEnabled():
+            return
+        self._cb_buffers.reset()
+
+        # 1. 拿参数
+        llm_usage = self._get_current_llm_usage()
+
+        # 2. 进 CFM
+        success = self.cfm.resend_message(
+            msg_id=request_id,
+            LLM_usage=llm_usage,
+            temp_style=self.temp_style
+        )
+
+        # 3. 走 UI 流程
+        if success:
+            self._prepare_ui_for_sending(llm_usage.model, "正在重传，等待回复...")
+
 
     def send_message(self):
-        # 1. 读取内容
+        if not self.send_button.isEnabled():
+            return
+        self._cb_buffers.reset()
+
         user_input = self.user_input_text.toPlainText()
         multimodal_input = self.user_input_text.get_multimodal_content()
 
-        # 2. 纯 UI 防呆拦截
+        # 1. UI 防呆拦截
         if self.session_manager.get_last_message().get("role", '') == "user":
             msg_box = QMessageBox(self)
             msg_box.setWindowTitle('确认操作')
@@ -1043,39 +1151,21 @@ class MainWindow(MainWindow):
             if reply == QMessageBox.StandardButton.No: return
             user_input = "_" # 占位符
 
-        # 3. 模型轮询 | 屎山还在发力
-        if APP_SETTINGS.model_poll.enabled:
-            s = self.ordered_model.get_next_model()
-            if s.provider and s.model:
-                self.api_var.setCurrentText(s.provider)
-                self.model_combobox.setCurrentText(s.model)
 
-        # 4. 组装要发给后端的参数
-        llm_usage = LLMUsagePack(
-            provider=self.api_var.currentText(),
-            model=self.model_combobox.currentText()
-        )
+        # 2. 拿参数
+        llm_usage = self._get_current_llm_usage()
 
-        temp_style = self.temp_style # 即时同步
-
-        # 5. CFM开始主请求
+        # 3. 进 CFM
         success = self.cfm.send_new_message(
             prompt_pack=(user_input, multimodal_input),
             LLM_usage=llm_usage,
-            temp_style=temp_style
+            temp_style=self.temp_style
         )
 
-        
-        # 6. UI 开始初始化
-        self._reset_cb_buffers()
-        self._cb_buffers['model'] = llm_usage.model # 给渲染器标记当前模型
-        self.user_input_text.clear() # 清空输入框
-
-        if not success:
-            return 
-
-        self.control_frame_to_state('sending') # 锁定按钮
-        self.ai_response_text.setText("已发送，等待回复...")
+        # 4. 走 UI 流程
+        if success:
+            self.user_input_text.clear() # 独有逻辑：清空输入框
+            self._prepare_ui_for_sending(llm_usage.model, "已发送，等待回复...")
 
     #api导入窗口
     def open_api_window(self):
@@ -1114,7 +1204,7 @@ class MainWindow(MainWindow):
     def clear_history(self):
         self.chat_history_bubbles.clear()
         self.ai_response_text.clear()
-        self._reset_cb_buffers()
+        self._cb_buffers.reset()
         self.creat_new_chat()
 
     # 系统提示预设更新
@@ -1331,14 +1421,6 @@ f'''聊天记录已导入，当前聊天：{self.session_manager.title}
         self.user_input_text.setAttachments(muti)
         
 
-    #重生成消息，直接创建最后一条
-    def resend_message_last(self):
-        self.resend_message()
-    
-    def resend_message(self,request_id=''):
-        self.cfm.resend_message(request_id)
-        self.control_frame_to_state('sending')
-        self.ai_response_text.setText("正在重传，等待回复...")
 
     #重写关闭事件，添加自动保存聊天记录和设置
     def closeEvent(self, event):
@@ -1346,6 +1428,8 @@ f'''聊天记录已导入，当前聊天：{self.session_manager.title}
         self.session_manager.autosave()
         ConfigManager.save_settings(APP_SETTINGS)
         self.mod_configer.run_close_event()
+        if hasattr(self, 'fps_monitor'):
+            self.fps_monitor.export_csv("cwla_ui_performance.csv")
         # 确保执行父类关闭操作
         super().closeEvent(event)
         event.accept()  # 确保窗口可以正常关闭
@@ -1438,8 +1522,7 @@ f'''聊天记录已导入，当前聊天：{self.session_manager.title}
         if not file_path:
             self.info_manager.warning("No item selected")
             return
-        chathistory_to_delete=self.session_manager.load_chathistory(file_path=file_path)
-        if self.session_manager.is_saved_current_history(chathistory_to_delete):
+        if self.session_manager.is_saved_current_history(file_path):
             self.clear_history()
 
         # 删除文件
@@ -1799,10 +1882,11 @@ f'''聊天记录已导入，当前聊天：{self.session_manager.title}
         }
         self.chat_history_bubbles.update_all_nicknames()
 
-    def update_request_status(self, stats: dict):
-        self._cb_buffers.update(stats)
-        markdown_str = self._render_status_markdown(stats)
-        self.ai_response_text.setMarkdown(markdown_str)
+
+    def update_request_status(self, status: dict):
+        if self._cb_buffers.status:
+            markdown_str = self._render_status_markdown(status)
+            self.ai_response_text.setMarkdown(markdown_str)
 
     def _render_status_markdown(self, stats: dict) -> str:
         #状态分析器    def _render_status_markdown(self, stats: dict) -> str:

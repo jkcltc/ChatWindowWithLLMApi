@@ -36,3 +36,6 @@ class RequesterSignals(BaseSignalBus):
     warning = Signal(str)                   # (warning_message)
     error=Signal(str)                       # (error_message)
     """internal error"""
+
+    notify = Signal(str)               # (message)
+    """notify the user"""

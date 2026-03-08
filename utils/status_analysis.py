@@ -24,12 +24,16 @@ class StatusAnalyzer:
 
         self.model = ''
         self.provider = ''
+        self.finish_reason = ''
 
     def start_record(self, model='', provider='', send_time=0):
         self.reset()
         self.model = model
         self.provider = provider
         self.request_send_time = send_time if send_time else time.time()
+    
+    def update_finish_reason(self, finish_reason:str):
+        self.finish_reason = finish_reason
 
     def process_stream(self, req_id:str , delta: str, content_type:str):
 
@@ -87,6 +91,7 @@ class StatusAnalyzer:
             "content_chars": self.content_chars,
             "reasoning_chars": self.reasoning_chars,
             "tool_chars": self.tool_chars,
+            'finish_reason': self.finish_reason
         }
 
         return stats

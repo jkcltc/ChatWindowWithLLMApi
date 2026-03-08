@@ -60,20 +60,6 @@ class ChatFlowManager:
 
         self.bgg= BackgroundWorker()
 
-        self.init_signal_action()
-    
-    def init_signal_action(self):
-        self.signals.finish_reason_received.connect(self.emit_finished_status)
-        
-    def emit_finished_status(self,a,b,readable_reason):
-        stats_dict=self.status_analyzer.process_full(
-        )
-        stats_dict['total_rounds'] = self.session_manager.current_chat.chat_rounds
-        stats_dict['total_length'] = self.session_manager.current_chat.chat_length
-        stats_dict['finish_reason'] = readable_reason
-
-        self.signals.request_status.emit(stats_dict)
-
     #def init_concurrenter(self):
     #    self.concurrent_model=ConvergenceDialogueOptiProcessor()
     #    self.concurrent_model.concurrentor_content.connect(self.concurrentor_content_receive)
@@ -90,7 +76,7 @@ class ChatFlowManager:
         self.title_generator.error.connect(self.signals.error.emit)
 
     def _connect_rfm_signals(self):
-        self.rfm.signals.bus_connect(self.signals)
+        self.rfm.signals.bus_connect(self.signals,exclude='finish_reason_received')
         self.rfm.signals.request_toolcall_resend.connect(self._request_toolcall_resend)
         self.rfm.signals.update_message.connect(self._handle_message_update)
         self.rfm.signals.finished.connect(self._handle_message_update)
@@ -109,9 +95,16 @@ class ChatFlowManager:
             }
         )
 
+
+
     def _handle_message_update(self,request_id,messages):
         self.session_manager.add_messages(messages)
-        
+        stats_dict = self.status_analyzer.process_full()
+        stats_dict['total_rounds'] = self.session_manager.current_chat.chat_rounds
+        stats_dict['total_length'] = self.session_manager.current_chat.chat_length
+
+        self.signals.request_status.emit(stats_dict)
+
     def _request_toolcall_resend(self,request_id):
         self.send_request(
             request_type=RequestType.TOOL_MESSAGE,
@@ -134,11 +127,6 @@ class ChatFlowManager:
             task_id= task_id
         )
     
-    
-    #重生成消息，直接创建最后一条
-    def resend_message_last(self):
-        self.resend_message()
-    
     def _dist_tts(self,id,text):
         if APP_SETTINGS.tts.tts_enabled:
             self.signals.tts.emit(id,text)
@@ -158,39 +146,55 @@ class ChatFlowManager:
     def pause(self):
         self.rfm.pause()
     
-    def resend_message(self,msg_id='')->bool:
+    def resend_message(self, msg_id='', LLM_usage=None, temp_style='') -> bool:
         """
         resend_message : 重发消息，如果msg_id为空，则重发最后一条消息
-
-        :param msg_id: 说明
-        :return: 成功则返回True，实际用于UI的setEnabled(not status)
-        :rtype: bool
         """
-        chathistory=[]
-        start_chat_length=self.session_manager.chat_rounds
+        chathistory = []
+        start_chat_length = self.session_manager.chat_rounds
         if not msg_id:
-            msg_id=self.session_manager.get_last_message()['info']['id']
+            msg_id = self.session_manager.get_last_message()['info']['id']
+
         try:
             chathistory = self.session_manager.fallback_history_for_resend(msg_id=msg_id)
         except Exception as e:
-            self.signals.error.emit("重发失败：消息回退失败"+str(e))
+            self.signals.error.emit("重发失败：消息回退失败" + str(e))
             return False
 
         if not chathistory or len(chathistory) < 2:
             self.signals.error.emit("重发失败：消息数不足")
             return False
 
-        end_chat_length=self.session_manager.chat_rounds
-        self._rollback_lci_counters(end_chat_length-start_chat_length)
+        request_type = None
+        for message in reversed(chathistory):
+            role = message['role']
+            if role == 'user':
+                request_type = RequestType.USER_MESSAGE
+                break
+            elif role == 'assistant':
+                request_type = RequestType.ASSISTANT_CONTINUE
+                break
+            elif role == 'tool':
+                request_type = RequestType.TOOL_MESSAGE
+                break
+        if not request_type:
+            self.signals.error.emit("这是塞了什么鬼东西进来重传？")
+            return False
+
+        end_chat_length = self.session_manager.chat_rounds
+        self._rollback_lci_counters(end_chat_length - start_chat_length)
+
+        # 如果上层没传参数，兜底使用全局设置
+        if not LLM_usage:
+            LLM_usage = APP_SETTINGS.ui.LLM
 
         self.send_request(
-            request_type=RequestType.USER_MESSAGE,
-            LLM_usage=APP_SETTINGS.ui.LLM,
+            request_type=request_type,
+            LLM_usage=LLM_usage,
+            temp_style=temp_style
         )
 
         return True
-    
-
 
     # 抛弃功能
     # 0.24.4 模型并发信号
@@ -218,9 +222,11 @@ class ChatFlowManager:
     #    )
     def enforce_lci(self):
         self.session_manager.current_chat.reset_chat_rounds()
+        self.signals.notify.emit("LCI已启动。")
         self.lci.start(
             session=self.session_manager.current_chat,
-            setting=APP_SETTINGS.lci
+            lci_settings=APP_SETTINGS.lci,
+            api_settings=APP_SETTINGS.api
         )
     
     def _should_do_lci(self):
@@ -248,9 +254,11 @@ class ChatFlowManager:
     def _trigger_accompanying_function(self):
         # 三位启动自己的线程
         if self._should_do_lci():
+            self.signals.notify.emit("LCI已启动。")
             self.lci.start(
-                payload=self.session_manager.current_chat,
-                setting=APP_SETTINGS.lci
+                session=self.session_manager.current_chat,
+                lci_settings=APP_SETTINGS.lci,
+                api_settings=APP_SETTINGS.api
             )
             self.session_manager.current_chat.reset_chat_rounds()
         # 还没写完
@@ -267,6 +275,8 @@ class ChatFlowManager:
     
     @MTD.run_in_main
     def _on_lci_complete(self, generated_items: list[dict], anchor_id: str):
+
+        print(generated_items)
         
         # 135μs  @ scan 5000 items, 10 generated_items, 9800X3D
         context_data = self.session_manager.get_filtered_context_data(generated_items, anchor_id)

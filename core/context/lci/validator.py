@@ -4,8 +4,9 @@ from .model import LCIValidationReport
 
 
 class LCIValidator:
-    MIN_SUMMARY_RATIO: float = 0.15
+    MIN_SUMMARY_RATIO: float = 0.05
     MAX_SUMMARY_RATIO: float = 0.95
+    MIN_SUMMARY_LENGTH : int = 150
 
     def validate(
         self,
@@ -14,6 +15,7 @@ class LCIValidator:
         context_data: Optional[Dict],
     ) -> LCIValidationReport:
         contents = self._extract_contents(generated_items)
+        print(contents,generated_items,anchor_id,context_data)
         if not contents:
             return LCIValidationReport(
                 is_empty=True,
@@ -68,7 +70,7 @@ class LCIValidator:
 
         ratio = summary_len / original_len
 
-        if ratio < self.MIN_SUMMARY_RATIO:
+        if ratio < self.MIN_SUMMARY_RATIO and summary_len < self.MIN_SUMMARY_LENGTH:
             return LCIValidationReport(
                 is_empty=False,
                 anchor_found=True,

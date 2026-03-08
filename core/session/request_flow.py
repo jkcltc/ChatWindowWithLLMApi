@@ -226,8 +226,6 @@ class RequestFlowManager:
         
         初始化各处理器(pre/mid/post)、请求池、搜索组件和信号连接。
         """
-        super().__init__()
-
         # 信号总线
         self.signals = RequestFlowManagerSignalBus()
 
@@ -262,6 +260,9 @@ class RequestFlowManager:
 
         # cache
         self._request_id_for_tool=''
+
+        # signals
+        self.signals.finish_reason_received.connect(self._on_finish_reason_received)
 
     @property
     def search_facade(self):
@@ -325,6 +326,9 @@ class RequestFlowManager:
             search_facade= self.search_facade,
             return_search_result= self.signals.web_search_result.emit
         )
+    
+    def _on_finish_reason_received(self,request_id,finish_reason,readable_reason):
+        self.status_analyzer.update_finish_reason(readable_reason)
     
     def reset(self):
         """

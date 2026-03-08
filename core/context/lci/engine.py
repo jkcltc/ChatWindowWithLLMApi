@@ -2,7 +2,7 @@ from __future__ import annotations
 import threading
 import uuid
 import time
-import openai
+
 from typing import TYPE_CHECKING,Optional,Callable,Literal
 
 
@@ -119,9 +119,10 @@ class LongChatImprove:
              return False
         return True
 
-    def _get_client(self) -> openai.Client:
+    def _get_client(self):
         """Get OpenAI Client Instance"""
         provider = self._lci_settings.api_provider
+        import openai
         return openai.Client(
             api_key=self._api_settings.providers[provider].key,
             base_url=self._api_settings.providers[provider].url

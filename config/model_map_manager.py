@@ -43,7 +43,7 @@ class ModelListUpdater:
 
 
     @staticmethod
-    def get_model_list(platform_config: dict) -> List[str]:
+    def get_model_list(platform_config: dict, timeout: int = 30) -> List[str]:
         """
         platform_config: {"url": "...", "key": "..."}
         """
@@ -55,7 +55,8 @@ class ModelListUpdater:
         }
 
         try:
-            response = requests.get(platform_config["url"], headers=headers)
+            # 添加 timeout 参数
+            response = requests.get(platform_config["url"], headers=headers, timeout=timeout)
             response.raise_for_status()
 
             data = response.json()

@@ -118,9 +118,9 @@ class TitleGenerator:
         prompt_parts = []
         if include_system_prompt and system_content:
             prompt_parts = [
-                f"请结合以下'AI角色'和'用户输入'，生成一个不超过{max_length}字的简短标题。",
+                f"请结合以下'AI角色的背景提示'和'用户输入'，生成一个不超过{max_length}字的简短标题。",
                 "要求：仅输出标题本身，不要加引号、句号或其他标点；标题语言应与用户输入一致；要能体现AI对用户输入的处理意图。",
-                f"AI角色:\n{system_content}",
+                f"AI角色的背景提示:\n{system_content}",
                 f"用户输入:\n{user_content}",
                 "标题："
             ]

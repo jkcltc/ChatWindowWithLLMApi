@@ -166,7 +166,7 @@ class ChatSession:
 
         self.tools = preset.tools
 
-    def get_last_n_length(self,n:int=1):
+    def get_last_n_length(self,n:int=0):
         target_types_set = MEDIA_TYPES
         _len = len
         _str = str
@@ -246,8 +246,7 @@ class ChatSession:
     @property
     def chat_length(self):
         return self.get_last_n_length()
-        
-    
+
     @classmethod
     def from_json(cls, json_str):
         """

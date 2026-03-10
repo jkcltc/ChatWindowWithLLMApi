@@ -38,7 +38,7 @@ def patch_deepseek_logic(params, config):
 
             # 如果有被禁止的类型，先在前面插一条 System Message
             if has_forbidden:
-                warning_text = "[multimodal intercept]The appearance of this message indicates that the user has sent multimodal data that the current model does not support.You should inform the user that you are unable to read the content."
+                warning_text = "[multimodal content intercepted]The appearance of this message indicates that the user has sent multimodal data that the current model does not support.You should inform the user that you are unable to read the content."
                 new_messages.append({
                     "role": "system",
                     "content": warning_text

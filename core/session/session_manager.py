@@ -335,7 +335,7 @@ class SessionManager:
         except Exception as e:
             self.error.emit(f"编辑消息失败: {e}")
     
-    def edit_by_id(self, id: int, new_content: str) -> None:
+    def edit_by_id(self, id: int, new_content: str,notify = False) -> None:
         index = None
         index = self.current_chat.get_msg_index(id)
         if index is None:
@@ -343,7 +343,8 @@ class SessionManager:
             return
         try:
             self.current_chat.edit_by_index(index, new_content)
-            self.signals.history_changed(self.chat_id,self.history)
+            if notify:
+                self.signals.history_changed(self.chat_id,self.history)
             self.request_autosave()
         except Exception as e:
             self.error.emit(f"编辑消息失败: {e}")

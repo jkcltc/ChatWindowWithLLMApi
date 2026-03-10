@@ -563,7 +563,7 @@ class MainSettingWindow(QWidget):
         layout.addStretch()
 
         param_tab.setLayout(layout)
-        self.tab_widget.addTab(param_tab, "AI参数")
+        self.tab_widget.addTab(param_tab, "生成参数")
 
     def create_replace_tab(self):
         """创建自动替换选项卡"""

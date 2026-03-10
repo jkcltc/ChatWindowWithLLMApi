@@ -353,9 +353,12 @@ class RequestFlowManager:
         # self.post_processor.reset() # 无状态
     
     def pause(self):
-        if self.current_requester:
-            self.current_requester.pause()
-            self.reset()
+        def tg():
+            if self.current_requester:
+                self.current_requester.pause()
+        threading.Thread(target=tg).start()
+        self.reset()
+        
     def _should_send_message(
         self,
         chat_session: "ChatSession",

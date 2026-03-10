@@ -481,6 +481,9 @@ class UIStatus(BaseSettings):
     past_chat_load_count : int = 100
     """历史聊天加载数量"""
 
+    display_message_count : int = 10
+    """显示消息数量"""
+
 # ==============>>> 用户配置总入口 <<<==============
 class AppSettings(BaseSettings):
     generation: GenerationSettings = Field(default_factory=GenerationSettings)

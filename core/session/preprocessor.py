@@ -97,8 +97,6 @@ class Preprocessor:
 
         LOGGER.info(f'发送长度: {StrTools.get_chat_content_length(messages)}，消息数: {len(messages)}')
         LOGGER.info(f'消息打包耗时:{(time.perf_counter()-start)*1000:.2f}ms')
-        import json
-        print('payload:',json.dumps(params,indent=2,ensure_ascii=False))
         return messages, params
     
     def _get_raw_messages(self, pack: ChatCompletionPack, max_rounds: int):
@@ -190,10 +188,14 @@ class Preprocessor:
             if messages[i]["role"] == "user":
                 user_index = i
                 break
-
+        
+        append_text = []
         if user_index is not None:
-            append_text = f'【{temp_style}|{force_text}】'
-            new_system_msg = {"role": "system", "content": append_text}
+            if temp_style:
+                append_text += [f"请使用该指定风格回答用户:{temp_style}"]
+            if force_text:
+                append_text += [f"你必须避免重复以下内容:{force_text}"]
+            new_system_msg = {"role": "system", "content": '\n'.join(append_text)}
             messages.insert(user_index, new_system_msg)
         
         return messages

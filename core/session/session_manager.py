@@ -353,7 +353,7 @@ class SessionManager:
     # ==================== 文件操作 ====================
 
     def load_chathistory(self, file_path: str = None) -> "ChatSession":
-        """从文件加载聊天记录并覆盖"""
+        """从文件加载聊天记录,不覆盖"""
         try:
             loaded_chat_session = self.chathistory_file_manager.load_chathistory(file_path)
         except Exception as e:
@@ -370,7 +370,7 @@ class SessionManager:
     def save_chathistory(self, file_path: str = None, chat_session: "ChatSession" = None) -> bool:
         """手动保存聊天记录（同步）"""
         if not file_path:
-            file_path = chat_session.chat_id + ".json"
+            file_path = APP_RUNTIME.paths.history_path + '\\' + chat_session.chat_id + ".json"
         if not chat_session or chat_session.chat_rounds <= 1:
             self.error.emit("保存聊天记录失败: 文件路径或会话为空")
             return False
@@ -379,6 +379,7 @@ class SessionManager:
                 chat_session=chat_session,
                 file_path=file_path,
             )
+            self.log.emit(f"聊天记录保存成功：{file_path}")
             return True
         except Exception as e:
             self.error.emit(f"保存聊天记录失败: {e}")
@@ -414,10 +415,10 @@ class SessionManager:
             loaded = self.chathistory_file_manager.load_chathistory(file_path)
         except Exception as e:
             self.signals.error.emit(f"聊天记录校对：载入旧历史失败。错误原因： {e}")
-            return ChatSession()
+            return None
 
         if loaded is None:
-            return ChatSession()
+            return None
         
         if self._is_equal(self.current_chat, loaded):
             return loaded

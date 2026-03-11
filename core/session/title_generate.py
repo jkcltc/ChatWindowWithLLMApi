@@ -112,7 +112,7 @@ class TitleGenerator:
 
         # 组装提示词（中英双语，尽量降低模型偏差）
         user_content = first_user_msg.get("content", "")
-        system_msg = next((msg for msg in chathistory if isinstance(msg, dict) and msg.get("role") == "system"), None)
+        system_msg = chathistory[0] if chathistory[0]['role']=='system' else {}
         system_content = system_msg.get("content", "") if (include_system_prompt and system_msg) else ""
 
         prompt_parts = []

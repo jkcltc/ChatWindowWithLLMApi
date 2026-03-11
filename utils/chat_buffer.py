@@ -17,9 +17,10 @@ class ChatBuffer:
 
     @tool.setter
     def tool(self, text: str):
-        self._tool = text
         if text:
-            self.content = ''
+            self.clean()
+        self._tool = text
+
     
     @property
     def content(self) -> str:
@@ -27,10 +28,16 @@ class ChatBuffer:
     
     @content.setter
     def content(self, text: str):
-        self._content = text
         if text:
-            self.reasoning = ''
-    
+            self.clean()
+        self._content = text
+        
+
+    def clean(self):
+        self.content = ''
+        self.reasoning = ''
+        self._tool = ''
+
     def reset(self):
         self.content = ''
         self.reasoning = ''

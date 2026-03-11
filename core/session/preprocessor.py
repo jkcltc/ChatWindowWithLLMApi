@@ -157,6 +157,11 @@ class Preprocessor:
         not_needed = ['info']
         
         for item in messages:
+            # recover
+            info = item.get('info', {})
+            server_id = item.get('server_id', [])
+            if server_id:
+                item['id'] = server_id[-1]
             temp_dict = {}
             for key, value in item.items():
                 if key not in not_needed:

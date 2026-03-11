@@ -1027,6 +1027,9 @@ class MainWindow(MainWindow):
             QTimer.singleShot(10,_u)
 
     def _update_buffer(self, req_id, key, text):
+        if req_id!=self._cb_buffers.id:
+            self._cb_buffers.clean()
+
         self._cb_buffers.id = req_id
 
         setattr(self._cb_buffers, key, text)
@@ -1360,6 +1363,9 @@ f'''聊天记录已导入，当前聊天：{self.session_manager.title}
             if self.session_manager.is_saved_current_history(file_path):
                 session = self.session_manager.current_chat
                 connect_current = True
+            else:
+                session = self.session_manager.load_chathistory(file_path)
+                connect_current = False
         else:
             session = self.session_manager.current_chat
             connect_current = True
@@ -1371,9 +1377,7 @@ f'''聊天记录已导入，当前聊天：{self.session_manager.title}
             ),
             session= session
         )
-        
 
-        
         # 连接信号
         if connect_current:
             # 连接到当前聊天记录的更新
@@ -1464,12 +1468,12 @@ f'''聊天记录已导入，当前聊天：{self.session_manager.title}
         # LCI开关 → 更新状态栏图标
         self.main_setting_window.lci_enabled_changed.connect(self.update_opti_bar)
 
-        # 标题生成provider/model变更 → 重新设置title_generator
-        self.main_setting_window.title_provider_changed.connect(
-            lambda provider, model: self.title_generator.set_provider(
-                provider=provider, model=model, api_config=APP_SETTINGS.api.providers
-            )
-        )
+        ## 标题生成provider/model变更 → 重新设置title_generator
+        #self.main_setting_window.title_provider_changed.connect(
+        #    lambda provider, model: self.title_generator.set_provider(
+        #        provider=provider, model=model, api_config=APP_SETTINGS.api.providers
+        #    )
+        #)
 
 
     #历史对话

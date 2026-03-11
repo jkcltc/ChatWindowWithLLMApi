@@ -591,7 +591,7 @@ class ForceRepeatSettings(BaseSettings):
 
 class DangerousTools(BaseSettings):
     """危险工具"""
-    names:list = Field(default_factory=lambda : ['python_cmd'])
+    names:list = Field(default_factory=lambda : [])# ['python_cmd'])
 
 # >>> 全局运行时单例 <<<
 class AppRuntime(BaseSettings):

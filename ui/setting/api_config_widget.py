@@ -32,7 +32,7 @@ class APIConfigWidget(QWidget):
 
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
-        self.preset_apis = ["baidu", "deepseek", "siliconflow", "tencent", "novita", "ollama"]
+        self.preset_apis = ["deepseek"]
         self.custom_apis = []
 
         # self.application_path = APP_RUNTIME.paths.application_path

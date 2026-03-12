@@ -144,7 +144,7 @@ class FPSMonitor(QLabel):
 
         self.heartbeat = QTimer(self)
         self.heartbeat.timeout.connect(self._on_tick)
-        self.heartbeat.start(0) 
+        self.heartbeat.start(2) 
 
         self.updater = QTimer(self)
         self.updater.timeout.connect(self._update_display)
@@ -659,6 +659,7 @@ class MainWindow(MainWindow):
             lambda id,history: self.chat_history_bubbles.set_chat_history(history)
         )
         b.request_status.connect(self.update_status)
+        b.failed.connect(self.handle_main_chat_completed)
 
         b.name_changed.connect(self.update_name_to_chatbubbles)
         b.avatar_changed.connect(self.update_avatar_to_chat_bubbles)

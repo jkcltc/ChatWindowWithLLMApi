@@ -738,7 +738,7 @@ class FunctionsPluginManager(FunctionsPluginManager):  # 继续类定义
         api_file = self._dir.parent / "functions_api.py"  # core/tool_call/function_lib/functions_api.py
         if not api_file.exists():
             api_code = (
-                "from core.tool_call.function_lib import get_tool_registry\n"
+                "from core.tool_call.tool_core import get_tool_registry\n"
                 "def user_tool(name=None, description=None, parameters=None, **meta):\n"
                 "    \"\"\"装饰器：桥接到全局 ToolRegistry 单例。\"\"\"\n"
                 "    return get_tool_registry().tool(name=name, description=description, parameters=parameters, **meta)\n"
@@ -893,6 +893,7 @@ class FunctionsPluginManager(FunctionsPluginManager):  # 继续类定义
 
         self._event_bus.reloadFinished.emit(summary.to_dict())
         self._event_bus.toolsChanged.emit()
+        print("reload_all", summary.to_dict())
         return summary.to_dict()
 
     def create_tool_file_from_template(

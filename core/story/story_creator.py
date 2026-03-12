@@ -683,7 +683,7 @@ class StoryManagerBackend(QWidget):
         providers = list(self.model_map.keys())
         for combo in [self.ui.story_create_api_provider, self.ui.story_update_api_provider]:
             combo.addItems(providers)
-            combo.setCurrentIndex(providers.index("baidu"))
+            combo.setCurrentIndex(0)
 
     def _init_nodes(self):
         if not getattr(self, 'nodes', None):# 如果 nodes 已经存在，则不重新加载

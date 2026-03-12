@@ -207,6 +207,12 @@ class OneTimeLLMRequester:
         别忘了requester.signals.disconnect_all()
         """
         self._pause_flag.set()
+
+        if not self.result:
+            # 给个空结果，上层报空回警告
+            self.result = RequestResult(request_id=self._current_request_id)
+        self.signals.finished.emit(self._current_request_id, self.result.to_chat_history())
+
         if self._current_request_id:
             self.signals.paused.emit(self._current_request_id)
         
@@ -322,8 +328,8 @@ class OneTimeLLMRequester:
             if 'extra_headers' in params:
                 params.pop('extra_headers')
             #print('otlr headers',headers)
-            #import json
-            #print('otlr payload:',json.dumps(params,indent=2,ensure_ascii=False))
+            import json
+            print('otlr payload:',json.dumps(params,indent=2,ensure_ascii=False))
 
             is_stream = params.get('stream', False)
             
@@ -345,21 +351,6 @@ class OneTimeLLMRequester:
         except Exception as e:
             # 发生异常时，先看是不是因为用户按了暂停
             if self._pause_flag.is_set():
-
-                # 如果是，说明流式请求被用户主动终止
-                self._log(f"请求被用户中断，忽略异常: {e}")
-                print(traceback.format_exc())
-
-                # 用户中断视为正确完成
-                self._state = RequestState.COMPLETED
-
-                # 检查之前是否已经有部分结果
-                if not self.result:
-                    # 给个空结果，上层报空回警告
-                    self.result = RequestResult(request_id=self._current_request_id)
-
-                self.signals.finished.emit(self._current_request_id, self.result.to_chat_history())
-
                 # 安全无视报错
                 return None
 

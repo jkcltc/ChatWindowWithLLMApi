@@ -304,10 +304,7 @@ class SessionManager:
         return self.current_chat.tools
     
     def get_system_message(self) -> Optional[Dict]:
-        """获取系统消息（第一条role为system的消息）"""
-        if self.current_chat.history and self.current_chat.history[0].get("role") == "system":
-            return self.current_chat.history[0]
-        return None
+        return self.current_chat.system_prompt
 
     def get_all_role_messages(self, role: str = "") -> List["ChatMessage"]:
         """获取指定角色的所有消息"""
@@ -334,7 +331,7 @@ class SessionManager:
             self.request_autosave()
         except Exception as e:
             self.error.emit(f"编辑消息失败: {e}")
-    
+
     def edit_by_id(self, id: int, new_content: str,notify = False) -> None:
         index = None
         index = self.current_chat.get_msg_index(id)
@@ -453,15 +450,19 @@ class SessionManager:
         # 空的session，运算量应该不大
         self.signals.session_changed.emit(self.current_chat)
 
-    def _refresh_preset(self):
-        self.signals.avatar_changed.emit(self.chat_id,self.current_chat.avatars)
-        self.signals.name_changed.emit(self.chat_id,self.current_chat.name)
-        self.signals.tool_changed.emit(self.chat_id,self.current_chat.tools)
+    def update_preset(self, preset: "SystemPromptPreset") -> "ChatSession":
 
-    def update_system_preset(self, preset: "SystemPromptPreset") -> "ChatSession":
-        # preset 包含了系统提示词、头像、名字、工具
-        self.current_chat.apply_preset(preset)
-        self._refresh_preset()
+        self.set_system_content(preset.content)
+
+        ava = preset.info.get("avatar",{})
+        self.set_avatar(ava)
+
+        na = preset.info.get('name',{})
+        self.set_name(na)
+
+        to = preset.info.get('tools',[])
+        self.set_tools(preset.tools)
+
         self.request_autosave()
         return self.current_chat
 
@@ -469,19 +470,8 @@ class SessionManager:
         """创建新会话"""
         self.clear_history()
 
-        avatar = preset.info.get("avatars",{})
-        # 设置默认的有效头像和名字
-        if avatar:
-            self.set_avatar(avatar)
-        else:
-            self.set_avatar(self.default_avatar_path)
-        name=preset.info.get("name",{})
-        if name:
-            self.set_name(name)
-        else:
-            self.set_name(self.default_names)
+        self.update_preset(preset)
 
-        self.update_system_preset(preset)
         return self.current_chat
 
     def change_session_by_path(self,path:str) -> "ChatSession":
@@ -535,6 +525,14 @@ class SessionManager:
     def set_avatar(self, avatar: Dict[str, str]) -> None:
         """设置会话头像"""
 
+        user_avatar = avatar.get("user",None)
+        if not user_avatar:
+            avatar["user"] = self.default_avatar_path.user
+        
+        assistant_avatar = avatar.get("assistant",None)
+        if not assistant_avatar:
+            avatar["assistant"] = self.default_avatar_path.ai
+
         self.current_chat.avatars = avatar
         self.signals.avatar_changed.emit(self.chat_id,self.current_chat.avatars)
         self.request_autosave()
@@ -543,9 +541,23 @@ class SessionManager:
         self.current_chat.avatars[role]=avatar
         self.signals.avatar_changed.emit(self.chat_id,self.current_chat.avatars)
         self.request_autosave()
+    
+    def set_role_name(self,role:str,name:str) -> None:
+        self.current_chat.name[role]=name
+        self.signals.name_changed.emit(self.chat_id,self.current_chat.name)
+        self.request_autosave()
 
     def set_name(self, name: Dict[str, str]) -> None:
         """设置会话名称"""
+
+        user_name = name.get("user",None)
+        if not user_name:
+            name["user"] = self.default_names.user
+
+        assistant_name = name.get("assistant",None)
+        if not assistant_name:
+            name["assistant"] = self.default_names.ai
+            
         self.current_chat.name = name
         self.request_autosave()
         self.signals.name_changed.emit(self.chat_id,self.current_chat.name)

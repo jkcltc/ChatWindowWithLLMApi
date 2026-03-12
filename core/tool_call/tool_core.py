@@ -173,7 +173,7 @@ class ToolRegistry:
 
         start = time.time()
         try:
-            result = self._run(tool, args)
+            result = str(self._run(tool, args)) #兼容性转写
             return {
                 "ok": True,
                 "tool": name,
@@ -222,7 +222,7 @@ class ToolRegistry:
         def runner():
             start = time.time()
             try:
-                result = self._run(tool, args)
+                result = str(self._run(tool, args)) #兼容性转写
                 return {
                     "ok": True,
                     "tool": name,

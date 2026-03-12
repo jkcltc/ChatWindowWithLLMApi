@@ -1213,8 +1213,7 @@ class MainWindow(MainWindow):
 
     # 系统提示预设更新
     def update_system_preset(self, preset):
-        self.session_manager.update_system_preset(preset)
-        self._update_preset_to_ui_by_system_message()
+        self.session_manager.update_preset(preset)
 
     # 打开系统提示设置窗口
     def open_system_prompt(self, show_at_call=True):
@@ -1468,6 +1467,7 @@ f'''聊天记录已导入，当前聊天：{self.session_manager.title}
     def _connect_setting_signals(self):
         # LCI开关 → 更新状态栏图标
         self.main_setting_window.lci_enabled_changed.connect(self.update_opti_bar)
+        self.main_setting_window.name_changed.connect(self.session_manager.set_role_name)
 
         ## 标题生成provider/model变更 → 重新设置title_generator
         #self.main_setting_window.title_provider_changed.connect(
@@ -1861,17 +1861,11 @@ f'''聊天记录已导入，当前聊天：{self.session_manager.title}
         # 获取系统提示管理器洗干净的预设消息
         preset=self.system_prompt_override_window.get_init_preset()
 
+        print('self.session_manager.create_new_session(preset)',preset,type(preset.info['name']))
+
         self.session_manager.create_new_session(preset)
 
-        self._update_preset_to_ui_by_system_message()
-
-    def _update_preset_to_ui_by_system_message(self):
-        self.update_avatar_to_chat_bubbles()
-        self.update_name_to_chatbubbles()
-
     def update_avatar_to_chat_bubbles(self,id='',avatars = {}):
-        if not id:
-            id=self.session_manager.chat_id
         if not avatars:
             avatars=self.session_manager.avatars
         self.chat_history_bubbles.avatars = avatars
@@ -1885,6 +1879,7 @@ f'''聊天记录已导入，当前聊天：{self.session_manager.title}
             'user': names.get('user', 'User'), 
             'assistant': names.get('assistant', 'AI')
         }
+
         self.chat_history_bubbles.update_all_nicknames()
 
 

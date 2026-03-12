@@ -226,7 +226,7 @@ class SystemPromptManager(QtWidgets.QWidget):
 
     def load_income_prompt(self, chat_session: 'ChatSession'):
         # 检查是否有未保存的更改
-        if self.is_modified and system_prompt != self.content_edit.toPlainText():
+        if self.is_modified and chat_session.system_prompt != self.content_edit.toPlainText():
             self._save_current_config()
         """从 ChatSession 加载系统提示和配置（兼容新接口）"""
         if chat_session.history and len(chat_session.history) > 0:

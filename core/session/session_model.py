@@ -138,34 +138,6 @@ class ChatSession:
         while len(self.history) > 1 and self.history[-1].get('role') != 'user':
             self.history.pop()
 
-
-    def apply_preset(self, preset: 'SystemPromptPreset'):
-        self.history[0]["content"] = preset.content
-
-        # 非空时覆盖，否则用默认
-        perset_avaters = preset.avatars
-        user_avatar = perset_avaters.get("user", "")
-        if user_avatar:
-            self.avatars['user'] = user_avatar
-        assistant_avatar = perset_avaters.get("assistant", "")
-        if assistant_avatar:
-            self.avatars['assistant'] = assistant_avatar
-
-        self.avatars = perset_avaters
-
-        preset_names = preset.info.get("name", {})
-        if preset_names:
-            user_name = preset_names.get("user", "")
-            if user_name:
-                self.name['user'] = user_name
-            assistant_name = preset_names.get("assistant", "")
-            if assistant_name:
-                self.name['assistant'] = assistant_name
-                
-        self.name = preset_names
-
-        self.tools = preset.tools
-
     def get_last_n_length(self,n:int=0):
         target_types_set = MEDIA_TYPES
         _len = len
@@ -227,9 +199,29 @@ class ChatSession:
                 return i
         return -1
     
+    def get_all_role_messages(self, role: str = "") -> List["ChatMessage"]:
+        """获取指定角色的所有消息"""
+        if role:
+            return [msg for msg in self.current_chat.history if msg.get("role") == role]
+        return []
+
     def edit_by_index(self, index: int, new_content: str) -> None:
         self.history[index]['content'] = new_content
 
+    @property
+    def system_messages(self) -> list:
+        '''返回所有系统消息'''
+        return self.get_all_role_messages('system')
+
+    @property
+    def system_prompt(self) -> str:
+        '''返回第一条系统消息的内容'''
+        return self.history[0]['content']
+    
+    @property
+    def system_prompts(self) ->str:
+        '''返回所有系统消息的内容'''
+        return '\n'.join(self.get_all_role_messages('system'))
 
     @property
     def new_chat_length(self):

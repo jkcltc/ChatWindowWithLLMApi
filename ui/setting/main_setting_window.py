@@ -421,7 +421,8 @@ class LongChatSettingsWidget(QWidget):
 
 class MainSettingWindow(QWidget):
     lci_enabled_changed = pyqtSignal(bool)       
-    title_provider_changed = pyqtSignal(str, str)    
+    title_provider_changed = pyqtSignal(str, str)
+    name_changed = pyqtSignal(str,str)  
 
     def __init__(self, settings: AppSettings = None, parent=None):
         super().__init__(parent)
@@ -638,9 +639,12 @@ class MainSettingWindow(QWidget):
 
         name_layout.addWidget(QuickSeparator(), 5, 0, 1, 2)
 
-        desc_label = QLabel("设置后，如果预设未设置代称，"
-                           "则对话中将使用这些代称。"
-                           "如果全部为空，将使用模型名。")
+        desc_label = QLabel(
+            "设置时，当前会话的代称将更新。"
+            "设置后，如果新开对话时预设未设置代称，"
+            "则对话中将使用这些代称。"
+            "如果全部为空，将使用模型名。"
+        )
         desc_label.setWordWrap(True)
 
         name_layout.addWidget(desc_label, 6, 0, 1, 2) 
@@ -800,10 +804,14 @@ class MainSettingWindow(QWidget):
         bind(self.autoreplace_to_edit.textChanged, set_replace_to)
 
         # === 代称 (带信号发射) ===
-        def set_user_name(v): s.names.user = v
+        def set_user_name(v): 
+            s.names.user = v
+            self.name_changed.emit('user',v)
         bind(self.user_name_edit.textChanged, set_user_name)
 
-        def set_ai_name(v): s.names.ai = v
+        def set_ai_name(v): 
+            s.names.ai = v
+            self.name_changed.emit('assistant',v)
         bind(self.ai_name_edit.textChanged, set_ai_name)
 
         def set_char_enforce(v): s.names.character_enforce = v

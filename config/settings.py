@@ -536,6 +536,18 @@ class AppSettings(BaseSettings):
 # 初始化单例
 APP_SETTINGS = AppSettings()
 
+class AvatarPath(BaseSettings):
+    user:str = "" #'data','pics','avatar','AI_avatar.png'
+    assistant:str = "" # 'data','pics','avatar','USER_avatar.png'
+
+    @property
+    def ai(self):
+        return self.assistant
+    
+    @ai.setter
+    def ai(self, value):
+        self.assistant = value
+
 # ==================== 运行时配置 ====================
 class AppPaths(BaseSettings):
     # 先定义成普通字段，给个空字符串当占位符
@@ -545,7 +557,7 @@ class AppPaths(BaseSettings):
     system_prompt_preset_path: str = ""
     config_path:str = ""
     log_path:str = ""
-    avatar_path:dict = Field(default_factory=dict)
+    avatar_path:AvatarPath = Field(default_factory=AvatarPath)
 
 
     @model_validator(mode='after')
@@ -574,14 +586,9 @@ class AppPaths(BaseSettings):
         if not self.log_path:
             self.log_path=os.path.join(self.application_path, 'cwla_run_time.log')
 
-        if not self.avatar_path:
-            default_ai = os.path.join(self.application_path, 'data','pics','avatar','AI_avatar.png')
-            default_user = os.path.join(self.application_path, 'data','pics','avatar','USER_avatar.png')
-            self.avatar_path={
-                'user': default_user if os.path.exists(default_user) else '',
-                'assistant': default_ai if os.path.exists(default_ai) else ''
-            }
-
+        self.avatar_path.ai = os.path.join(self.application_path, 'data','pics','avatar','AI_avatar.png')
+        self.avatar_path.user = os.path.join(self.application_path, 'data','pics','avatar','USER_avatar.png')
+        
         return self
 
 class ForceRepeatSettings(BaseSettings):

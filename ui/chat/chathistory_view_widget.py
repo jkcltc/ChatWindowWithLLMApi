@@ -410,7 +410,7 @@ class ChatBubble(QWidget):
         if self._pending_reasoning:
             self.buttons.set_has_reasoning(True)
         if not self._pending_content:
-            self.content.hide()
+            self.content_container.hide()
 
         self._connect_signals()
 
@@ -443,10 +443,10 @@ class ChatBubble(QWidget):
         self.message_data['content'] = content
 
         if content:
-            self.content.setMarkdown(content)       # 异步渲染，~1ms
-            self.content.show()
+            self.content.setMarkdown(content)
+            self.content_container.show()
         else:
-            self.content.hide()
+            self.content_container.hide()
 
         # 标记编辑器为脏，不立即填充内容
         self._editor_dirty = True
@@ -494,10 +494,10 @@ class ChatBubble(QWidget):
             if len(self._pending_content) > 200:
                 preview += '\n...'
             self.content.setPlainText(preview)
-            self.content.show()
+            self.content_container.show()
         else:
             self.content.clear()
-            self.content.hide()
+            self.content_container.hide()
 
         # 标记编辑器为脏，延迟填充
         self.editor.clear()
@@ -571,12 +571,15 @@ class ChatBubble(QWidget):
         if editing:
             # 进入编辑模式时才填充编辑器内容
             self._ensure_editor_content()
+            self.content_container.show()
             self.content_container.setCurrentIndex(1)
         else:
             self.content_container.setCurrentIndex(0)
             new_content = self.editor.toPlainText()
             self.editFinished.emit(self.id, new_content)
             self.content.setMarkdown(new_content)
+            if not new_content:
+                self.content_container.hide()
 
     def _handle_detail_toggle(self, showing):
         real_showing = not self.reasoning_display.isVisible()
@@ -625,6 +628,12 @@ class ChatBubble(QWidget):
         self._content_fp = content
         self.message_data['content'] = content
         self._rendered = True
+
+        if content:
+            self.content_container.show()
+        else:
+            self.content_container.hide()
+
         self.content.setMarkdown(content, is_streaming=is_streaming)
         if not is_streaming:
             # 标记编辑器为脏，避免立即填充
@@ -640,10 +649,10 @@ class ChatBubble(QWidget):
             self.buttons.set_has_reasoning(True)
             self.reasoning_display.setMarkdown(reasoning_content)
             self.reasoning_display.setVisible(True)
-            if not self.content.toPlainText().strip():
-                self.content.hide()
-            else:
-                self.content.show()
+            #if not self.content.toPlainText().strip():
+            #    self.content.hide()
+            #else:
+            #    self.content.show()
         if reasoning_data.get('state') == 'finished':
             self.reasoning_display.setMarkdown(reasoning_content)
 
@@ -1087,16 +1096,29 @@ class ChatHistoryWidget(QFrame):
             t_del = (time.time() - t_del_start) * 1000
 
             t_upd_start = time.time()
+            
             for alive_id in old_id_set & new_id_set:
                 bubble = self.bubbles[alive_id]
                 new_msg = new_id_map[alive_id]
-                bubble.update_content({
-                    'content': new_msg.get('content', ''),
-                    'state': 'finished'})
-                new_r = new_msg.get('reasoning_content', '')
+                role = new_msg.get('role', '')
+ 
+                if role == 'tool' and 'function' in new_msg.get('info', {}):
+                    new_r = new_msg['info']['function']['arguments']
+                else:
+                    new_r = new_msg.get('reasoning_content', '')
+                
                 if new_r != bubble._reasoning_fp:
                     bubble.update_reasoning({
                         'reasoning_content': new_r, 'state': 'finished'})
+                
+                
+                new_c = new_msg.get('content', '')
+
+                if new_c != bubble._content_fp:
+                    bubble.update_content({
+                        'content': new_c,
+                        'state': 'finished'})
+
                 new_info = new_msg.get('info', {})
                 if new_info != bubble.message_data.get('info', {}):
                     bubble.message_data['info'] = new_info

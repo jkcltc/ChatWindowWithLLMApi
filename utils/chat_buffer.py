@@ -17,8 +17,6 @@ class ChatBuffer:
 
     @tool.setter
     def tool(self, text: str):
-        if text:
-            self.clean()
         self._tool = text
 
     
@@ -28,8 +26,6 @@ class ChatBuffer:
     
     @content.setter
     def content(self, text: str):
-        if text:
-            self.clean()
         self._content = text
         
 

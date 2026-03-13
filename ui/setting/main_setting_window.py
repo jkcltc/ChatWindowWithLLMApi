@@ -853,7 +853,7 @@ class MainSettingWindow(QWidget):
             self.max_rounds_slider.blockSignals(True)
             self.max_rounds_slider.setValue(value)
             self.max_rounds_slider.blockSignals(False)
-            self.settings.limits.max_send_rounds = value if value >= 0 else 999
+            self.settings.generation.max_message_rounds = value if value >= 0 else 999
         except ValueError:
             pass
 
@@ -861,7 +861,7 @@ class MainSettingWindow(QWidget):
         self.max_rounds_edit.blockSignals(True)
         self.max_rounds_edit.setText(str(value))
         self.max_rounds_edit.blockSignals(False)
-        self.settings.limits.max_send_rounds = value if value >= 0 else 999
+        self.settings.generation.max_message_rounds = value if value >= 0 else 999
 
     def _handle_title_method(self, checked):
         if self.title_local_radio.isChecked() == checked:
@@ -913,8 +913,8 @@ class MainSettingWindow(QWidget):
         self._populate_provider_combos()
 
         # 生成参数
-        self.max_rounds_edit.setText(str(s.limits.max_send_rounds))
-        self.max_rounds_slider.setValue(s.limits.max_send_rounds)
+        self.max_rounds_edit.setText(str(s.generation.max_message_rounds))
+        self.max_rounds_slider.setValue(s.generation.max_message_rounds)
         self.top_p_checkbox.setChecked(s.generation.top_p_enable)
         self.top_p_edit.setText(str(s.generation.top_p))
         self.temp_checkbox.setChecked(s.generation.temperature_enable)

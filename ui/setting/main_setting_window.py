@@ -3,7 +3,7 @@ from PyQt6.QtCore import *
 from PyQt6.QtWidgets import *
 from PyQt6.QtGui import QFont
 from config import APP_SETTINGS, AppSettings
-
+from .theme_manager import ThemeSelector
 # 简易小组件
 class QuickSeparator(QFrame):
     """统一风格的分隔线组件"""
@@ -453,6 +453,7 @@ class MainSettingWindow(QWidget):
         self.create_replace_tab()
         self.create_name_tab()
         self.create_title_creator_tab()
+        self.create_theme_tab()
         
         # 将选项卡添加到主窗口
         main_layout.addWidget(self.tab_widget)
@@ -740,6 +741,10 @@ class MainSettingWindow(QWidget):
 
         title_tab.setLayout(layout)
         self.tab_widget.addTab(title_tab, "标题生成")
+
+    def create_theme_tab(self):
+        self.theme_selector = ThemeSelector(self)
+        self.tab_widget.addTab(self.theme_selector, "主题设置")
 
     def setup_connections(self):
         s = self.settings

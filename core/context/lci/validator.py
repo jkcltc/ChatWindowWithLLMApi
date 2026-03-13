@@ -15,7 +15,6 @@ class LCIValidator:
         context_data: Optional[Dict],
     ) -> LCIValidationReport:
         contents = self._extract_contents(generated_items)
-        print(contents,generated_items,anchor_id,context_data)
         if not contents:
             return LCIValidationReport(
                 is_empty=True,

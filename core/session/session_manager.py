@@ -496,7 +496,10 @@ class SessionManager:
         self.request_autosave()
     
     def fallback_history_for_edit(self) -> str:
-        self.fallback_history_for_resend()
+        self.current_chat.truncate_to_user()
+        if self.current_chat.chat_rounds <= 1:
+            self.error.emit("消息回退失败：消息数不足")
+            return False
         content = self.history[-1]["content"]
         muti = self.history[-1].get('info',{}).get('multimodal',[])
         self.history.pop()
@@ -511,6 +514,7 @@ class SessionManager:
         self.current_chat.truncate_to_user()
         if self.current_chat.chat_rounds <= 1:
             self.error.emit("消息回退失败：消息数不足")
+            return False
         hist = self.current_chat.history
         self.request_autosave()
         self.signals.history_changed.emit(self.chat_id, self.history)

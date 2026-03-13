@@ -732,6 +732,7 @@ class ChatHistoryWidget(QFrame):
 
         self._pool_hits: int = 0
         self._pool_misses: int = 0
+        self._deleted_ids = {}                   # 孤儿更新拦截黑名单
 
         # 预热相关变量
         self._preheat_queue: List[str] = []       
@@ -1022,6 +1023,7 @@ class ChatHistoryWidget(QFrame):
             new_bubbles = []
             for msg in batch:
                 mid = msg['info']['id']
+
                 if mid in self.bubbles:
                     continue
                 role = msg['role']
@@ -1090,6 +1092,11 @@ class ChatHistoryWidget(QFrame):
         try:
             t_del_start = time.time()
             for dead_id in old_id_set - new_id_set:
+                self._deleted_ids[dead_id] = None
+
+                if len(self._deleted_ids) > 1000:
+                    self._deleted_ids.pop(next(iter(self._deleted_ids)))
+
                 bubble = self.bubbles.pop(dead_id)
                 self.bubble_list = [b for b in self.bubble_list if b.msg_id != dead_id]
                 self._release_bubble(bubble)
@@ -1128,6 +1135,7 @@ class ChatHistoryWidget(QFrame):
             existing = set(self.bubbles.keys())
             for msg in tail:
                 mid = msg['info']['id']
+                self._deleted_ids.pop(mid, None) 
                 if mid not in existing:
                     role = msg['role']
                     reasoning = msg.get('reasoning_content', '')
@@ -1167,7 +1175,18 @@ class ChatHistoryWidget(QFrame):
               f'气泡数={len(self.bubble_list)}, '
               f'pending={self._pending_renders}, '
               f'未加载={remaining}, '
-              f'池={self._pool_status()}')
+              f'池={self._pool_status()}'
+              f'已显示数量：{self._count_visible_bubbles_in_layout()}')
+    
+    def _count_visible_bubbles_in_layout(self) -> int:
+        """从 UI 布局中真实统计当前可见的 ChatBubble 数量，用于 DEBUG 校对"""
+        count = 0
+        for i in range(self.content_layout.count()):
+            item = self.content_layout.itemAt(i)
+            w = item.widget()
+            if isinstance(w, ChatBubble) and w.isVisible():
+                count += 1
+        return count
 
     def _force_sync(self, expected_ids: set):
         """强制清理并同步布局中任何游离的无用气泡和控件。"""
@@ -1238,7 +1257,9 @@ class ChatHistoryWidget(QFrame):
         self._perf_start = 0
 
         for bubble in self.bubble_list:
-            self._release_bubble(bubble)
+            self._deleted_ids[bubble.msg_id] = None
+            if len(self._deleted_ids) > 1000:
+                self._deleted_ids.pop(next(iter(self._deleted_ids)))
 
         self.bubbles = {}
         self.bubble_list = []
@@ -1267,7 +1288,11 @@ class ChatHistoryWidget(QFrame):
         role = message_data['role']
         if role not in ('user', 'assistant', 'tool'):
             return
+        
         msg_id = message_data['info']['id']
+        if not msg_id or msg_id in self._deleted_ids:
+            return
+        
         reasoning_content = message_data.get('reasoning_content', '')
         if role == 'tool' and 'function' in message_data.get('info', {}):
             reasoning_content = message_data['info']['function']['arguments']
@@ -1307,9 +1332,21 @@ class ChatHistoryWidget(QFrame):
         """流式输出时的综合气泡内容更新接口，支持全量字典覆盖或按字段更新。"""
         if tool_content:
             reasoning_content = tool_content
+        
+        target_id = msg_id
+        if message:
+            if isinstance(message, dict):
+                target_id = message.get('info', {}).get('id', message.get('id', target_id))
+
+        if target_id in self._deleted_ids:
+            # 命中黑名单，放弃任何更新或新建
+            return
+
+
         if message and message['id'] not in self.bubbles:
             self.add_message(message)
             return
+        
         if message and message['id'] in self.bubbles:
             if 'content' in message:
                 self.update_bubble_content(

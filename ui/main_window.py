@@ -198,14 +198,27 @@ class MainWindow(MainWindow):
     back_animation_finished = pyqtSignal()
     update_background_signal= pyqtSignal(str)
 
-    def setupUi(self):
-        self.theme_selector = ThemeSelector()
-        self.theme_selector.apply_saved_theme()
+    def setupTheme(self):
+        # 从全局配置获取路径
+        theme_path = APP_SETTINGS.ui.theme
+
+        if not theme_path:
+            return
+
+        if os.path.exists(theme_path):
+            try:
+                with open(theme_path, "r", encoding="utf-8") as f:
+                    qss = f.read()
+                    QApplication.instance().setStyleSheet(qss)
+            except Exception as e:
+                print(f"应用保存的主题失败: {e}")
+        else:
+            print(f"配置的主题文件不存在: {theme_path}")
 
 
     def __init__(self):
         super().__init__()
-        self.setupUi()
+        self.setupTheme()
         self.setWindowTitle("CWLA - Chat Window with LLM Api")
         self.setWindowIcon(self.render_svg_to_icon(MAIN_ICON))
 
@@ -877,7 +890,6 @@ class MainWindow(MainWindow):
             {"上级名称": "背景", "提示语": "触发背景更新（跟随聊天）", "执行函数": self.call_background_update},
             {"上级名称": "背景", "提示语": "生成自定义背景（正在重构）", "执行函数": self.show_pic_creater},
             {"上级名称": "设置", "提示语": "对话设置", "执行函数": self.open_main_setting_window},
-            {"上级名称": "设置", "提示语": "主题", "执行函数": self.show_theme_settings},
             {"上级名称": "设置", "提示语": "快捷键", "执行函数": self.open_settings_window},
             {"上级名称": "设置", "提示语": "联网搜索", "执行函数": self.open_web_search_setting_window},
         ]
@@ -1303,7 +1315,6 @@ class MainWindow(MainWindow):
         QShortcut(QKeySequence("Ctrl+O"), self).activated.connect(self.load_chathistory)
         QShortcut(QKeySequence("Ctrl+S"), self).activated.connect(lambda: self.save_chathistory())#self.session_manager.save_chathistory())
         QShortcut(QKeySequence("Ctrl+M"), self).activated.connect(self.show_mod_configer)
-        QShortcut(QKeySequence("Ctrl+T"), self).activated.connect(self.show_theme_settings)
         QShortcut(QKeySequence("Ctrl+D"), self).activated.connect(self.open_main_setting_window)
         QShortcut(QKeySequence("Ctrl+B"), self).activated.connect(self.background_settings_window)
         QShortcut(QKeySequence("Ctrl+F"), self).activated.connect(self.show_function_call_window)
@@ -1753,10 +1764,6 @@ f'''聊天记录已导入，当前聊天：{self.session_manager.title}
     def open_web_search_setting_window(self):
         self.init_web_searcher()
         self.web_searcher.search_settings_widget.show()
- 
-    def show_theme_settings(self):
-        self.theme_selector.hide()
-        self.theme_selector.show()
 
     def show_concurrent_model(self,show=False):
         self.ensure_concurrenter()

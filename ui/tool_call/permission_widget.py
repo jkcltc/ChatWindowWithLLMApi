@@ -238,7 +238,7 @@ class _CardWrapper(QWidget):
             a.setDuration(450)
             a.setStartValue(h)
             a.setEndValue(0)
-            a.setEasingCurve(QEasingCurve.Type.OutBounce)
+            a.setEasingCurve(QEasingCurve.Type.InOutCirc)
             grp.addAnimation(a)
 
         grp.finished.connect(self._on_done)

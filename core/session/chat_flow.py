@@ -155,11 +155,7 @@ class ChatFlowManager:
         if not msg_id:
             msg_id = self.session_manager.get_last_message()['info']['id']
 
-        try:
-            chathistory = self.session_manager.fallback_history_for_resend(msg_id=msg_id)
-        except Exception as e:
-            self.signals.error.emit("重发失败：消息回退失败" + str(e))
-            return False
+        chathistory = self.session_manager.fallback_history_for_resend(msg_id=msg_id)
 
         if not chathistory or len(chathistory) < 2:
             self.signals.error.emit("重发失败：消息数不足")

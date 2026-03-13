@@ -1,19 +1,36 @@
+# ui\setting\theme_manager.py
 import os
-import configparser
-from PyQt6.QtWidgets import *
-from PyQt6.QtCore import *
-from PyQt6.QtGui import *
-from config import APP_SETTINGS,APP_RUNTIME
+from PyQt6.QtWidgets import (
+    QWidget,QHBoxLayout,QFrame,
+    QVBoxLayout,QListWidget,QPushButton,
+    QGroupBox,QMessageBox,QLabel,
+    QLineEdit,QComboBox,QCheckBox,
+    QListWidgetItem,QApplication
+)
+from PyQt6.QtCore import QSize,Qt
+from PyQt6.QtGui import QFont
+from config import APP_SETTINGS, APP_RUNTIME
 
 class ThemeSelector(QWidget):
-    def __init__(self, init_path=None):
-        super().__init__()
+    def __init__(self, parent=None):
+        super().__init__(parent)
         self.current_theme = ""
-        self.applied_theme = "" 
-        self.init_path = init_path or os.getcwd() # 确保有路径
-        self.setWindowTitle("主题选择器")
-        self.setMinimumSize(800, 600)
+        self.applied_theme = ""
+        self.init_path = os.getcwd()
+        
+        self.init_ui()
+        self.load_themes()
+        
+        # 基础样式
+        self.setStyleSheet("""
+            QWidget { background-color: #f0f0f0; }
+            QGroupBox { border: 1px solid #aaa; border-radius: 5px; margin-top: 1ex; font-weight: bold; }
+            QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 5px; }
+            QListWidget { border: 1px solid #ccc; border-radius: 3px; background-color: white; }
+            QPushButton { min-width: 80px; padding: 5px; border-radius: 4px; background-color: white; color: black; border: 1px solid #CCCCCC; }
+        """)
 
+    def init_ui(self):
         # 创建主布局
         main_layout = QHBoxLayout()
         self.setLayout(main_layout)
@@ -63,21 +80,18 @@ class ThemeSelector(QWidget):
 
         # 按钮区域
         button_layout = QHBoxLayout()
+        
         self.apply_button = QPushButton("应用主题")
         self.apply_button.setMinimumHeight(40)
         self.apply_button.clicked.connect(self.apply_theme)
 
-        self.ok_button = QPushButton("确定")
-        self.ok_button.setMinimumHeight(40)
-        self.ok_button.clicked.connect(self.apply_and_close)
-
-        self.cancel_button = QPushButton("取消")
-        self.cancel_button.setMinimumHeight(40)
-        self.cancel_button.clicked.connect(self.close)
+        self.reset_button = QPushButton("重置为默认")
+        self.reset_button.setMinimumHeight(40)
+        self.reset_button.clicked.connect(self.reset_theme)
 
         button_layout.addWidget(self.apply_button)
-        button_layout.addWidget(self.ok_button)
-        button_layout.addWidget(self.cancel_button)
+        button_layout.addWidget(self.reset_button)
+        button_layout.addStretch()
 
         # 组装右侧布局
         right_layout.addWidget(self.preview_group)
@@ -86,18 +100,6 @@ class ThemeSelector(QWidget):
         # 添加到主布局
         main_layout.addWidget(left_panel)
         main_layout.addWidget(right_panel, 1)
-
-        # 加载可用主题
-        self.load_themes()
-
-        # 设置初始样式 (保持不变)
-        self.setStyleSheet("""
-            QWidget { background-color: #f0f0f0; }
-            QGroupBox { border: 1px solid #aaa; border-radius: 5px; margin-top: 1ex; font-weight: bold; }
-            QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 5px; }
-            QListWidget { border: 1px solid #ccc; border-radius: 3px; background-color: white; }
-            QPushButton { min-width: 80px; padding: 5px; border-radius: 4px; background-color: white; color: black; border: 1px solid #CCCCCC; }
-        """)
 
     def get_theme_dir(self):
         """获取主题目录路径"""
@@ -112,8 +114,7 @@ class ThemeSelector(QWidget):
 
         # 获取当前配置中的主题文件名（用于回显选中状态）
         current_config_theme = APP_SETTINGS.ui.theme
-        # 转换为绝对路径以便比较
-        abs_current_theme = os.path.abspath(current_config_theme)
+        abs_current_theme = os.path.abspath(current_config_theme) if current_config_theme else ""
 
         target_row = 0
 
@@ -127,13 +128,14 @@ class ThemeSelector(QWidget):
             item.setData(Qt.ItemDataRole.UserRole, theme_path)
             self.theme_list.addItem(item)
 
-            # 比较路径是否一致（处理 / 和 \ 的差异）
-            if os.path.normpath(abs_path) == os.path.normpath(abs_current_theme):
+            if abs_path == abs_current_theme:
                 target_row = index
 
         # 选中当前配置的主题
         if self.theme_list.count() > 0:
             self.theme_list.setCurrentRow(target_row)
+            # 立即预览当前选中的主题
+            self.preview_theme()
 
     def preview_theme(self):
         """预览选中的主题（仅对预览区域生效）"""
@@ -150,84 +152,34 @@ class ThemeSelector(QWidget):
                 qss = f.read()
                 self.preview_group.setStyleSheet(qss)
         except Exception as e:
-            print(f"加载预览主题失败: {e}")
+            QMessageBox.warning(self, "预览失败", f"加载预览主题失败: {e}")
 
     def apply_theme(self):
         """将主题应用到整个应用程序并更新全局配置"""
-        if self.current_theme:
+        try:
+            with open(self.current_theme, "r", encoding="utf-8") as f:
+                qss = f.read()
+                QApplication.instance().setStyleSheet(qss)
+                self.applied_theme = self.current_theme
+
+            # 为了保持配置文件的可移植性，存储相对路径
             try:
-                with open(self.current_theme, "r", encoding="utf-8") as f:
-                    qss = f.read()
-                    QApplication.instance().setStyleSheet(qss)
-                    self.applied_theme = self.current_theme
+                rel_path = os.path.relpath(self.current_theme, os.getcwd())
+                APP_SETTINGS.ui.theme = rel_path
+            except ValueError:
+                # 如果跨驱动器等情况无法计算相对路径，则存储绝对路径
+                APP_SETTINGS.ui.theme = self.current_theme
+                
+        except Exception as e:
+            QMessageBox.critical(self, "应用失败", f"应用主题失败: {e}")
 
-                # 为了保持配置文件的可移植性，存储相对路径
-                try:
-                    rel_path = os.path.relpath(self.current_theme, os.getcwd())
-                    APP_SETTINGS.ui.theme = rel_path
-                except ValueError:
-                    # 如果跨驱动器等情况无法计算相对路径，则存储绝对路径
-                    APP_SETTINGS.ui.theme = self.current_theme
-            except Exception as e:
-                print(f"应用主题失败: {e}")
-
-    def apply_and_close(self):
-        """应用主题并关闭窗口"""
-        self.apply_theme()
-        self.close()
-
-
-    @staticmethod
-    def apply_saved_theme():
-        """
-        静态方法：从 APP_SETTINGS 读取并应用主题
-        """
-        # 从全局配置获取路径
-        theme_path = APP_SETTINGS.ui.theme
-
-        if not theme_path:
-            return
-
-        # 如果是相对路径，转换为绝对路径
-        if not os.path.isabs(theme_path):
-            theme_path = os.path.abspath(theme_path)
-
-        if os.path.exists(theme_path):
-            try:
-                with open(theme_path, "r", encoding="utf-8") as f:
-                    qss = f.read()
-                    QApplication.instance().setStyleSheet(qss)
-            except Exception as e:
-                print(f"应用保存的主题失败: {e}")
-        else:
-            print(f"配置的主题文件不存在: {theme_path}")
-
-# 使用示例
-if __name__ == "__main__":
-    import sys
-    from PyQt6.QtWidgets import QMainWindow, QTextEdit
-    
-    class MainWindow(QMainWindow):
-        def __init__(self):
-            super().__init__()
-            self.setWindowTitle("主应用窗口")
-            self.setGeometry(100, 100, 800, 600)
-            
-            # 创建中央部件
-            central_widget = QTextEdit()
-            central_widget.setPlaceholderText("这里是主应用内容区域...")
-            self.setCentralWidget(central_widget)
-            
-            # 添加主题选择按钮
-            theme_button = QPushButton("更换主题", self)
-            theme_button.move(20, 20)
-            theme_button.clicked.connect(self.open_theme_selector)
-        
-        def open_theme_selector(self):
-            selector = ThemeSelector(self,init_path=r'C:\Users\Administrator\Desktop\chatApi\ChatWindowWithLLMApi')
-            selector.show()
-    
-    app = QApplication(sys.argv)
-    window = MainWindow()
-    window.show()
-    sys.exit(app.exec())
+    def reset_theme(self):
+        """重置为系统默认主题（清除全局样式表）"""
+        QApplication.instance().setStyleSheet("")
+        self.applied_theme = ""
+        APP_SETTINGS.ui.theme = ""
+        # 取消列表选中状态
+        self.theme_list.clearSelection()
+        # 清除预览区域的样式
+        self.preview_group.setStyleSheet("")
+        self.current_theme = ""

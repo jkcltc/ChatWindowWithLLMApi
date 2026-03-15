@@ -1,10 +1,13 @@
 from __future__ import annotations
 
-from config import APP_SETTINGS
+from typing import TYPE_CHECKING
 
 from .signals import BackgroundSignalBus
 from .worker import BackgroundWorker
 
+if TYPE_CHECKING:
+    from core.session.session_model import ChatSession
+    from config.settings import BackgroundSettings
 
 class BackgroundAgent:
     """背景生成代理（Qt-free）。"""
@@ -16,10 +19,6 @@ class BackgroundAgent:
         self.worker = BackgroundWorker()
 
         self._setup_connections()
-
-    @property
-    def cfg(self):
-        return APP_SETTINGS.background
 
     @property
     def is_processing(self) -> bool:
@@ -43,24 +42,26 @@ class BackgroundAgent:
         self.signals.error.emit(message)
 
     # ==================== 公开方法 ====================
-
-    def generate(self, chathistory: list):
+    def generate(self, chat_session: "ChatSession",cfg:'BackgroundSettings' = None):
         """
         生成背景图
-        只需要传 chathistory，其他参数全从 APP_SETTINGS.background 读
+        需要传 ChatSession，其他参数全从 APP_SETTINGS.background 读
         """
+        # 保底自检
         if self._processing:
             self.signals.warning.emit('[BackgroundAgent] 正在处理中，忽略重复请求')
             return False
 
-        if not self.cfg.enabled:
+        if not cfg.enabled:
             return False
 
-        if self.cfg.lock:
+        if cfg.lock:
             # 锁定模式，不自动生成
             return False
         
-        if len(chathistory)<=1:
+        history = chat_session.history
+        
+        if len(history)<=1:
             import traceback
             message = '\n'.join(traceback.format_stack())
             self.signals.warning.emit(f'初始消息触发了图像生成：{message}')
@@ -69,7 +70,7 @@ class BackgroundAgent:
         self._processing = True
         self.signals.log.emit("BackgroundAgent locked: generate start")
         try:
-            self.worker.generate(chathistory)
+            self.worker.generate(history,cfg=cfg)
         except Exception as e:
             self._processing = False
             self.signals.error.emit(f"BackgroundAgent generate exception: {e}")
@@ -85,9 +86,7 @@ class BackgroundAgent:
             message = '\n'.join(traceback.format_stack())
             self.signals.warning.emit(f'初始消息触发了图像生成：{message}')
             return
-        
-        print('genst')
-        
+
         self._processing = True
         self.signals.log.emit("BackgroundAgent locked: force_generate start")
         try:

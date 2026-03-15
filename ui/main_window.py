@@ -1420,7 +1420,7 @@ f'''聊天记录已导入，当前聊天：{self.session_manager.title}
         if not file_path:
             return
 
-        success = self.session_manager.save_chathistory(
+        success = self.session_manager.fork_chathistory(
             file_path=file_path,
             chat_session=self.session_manager.current_chat
         )

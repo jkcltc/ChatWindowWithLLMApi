@@ -11,6 +11,10 @@ from service.text_to_image import ImageAgent
 
 from .signals import BackgroundSignalBus
 
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from core.session.session_model import ChatSession
+    from config.settings import BackgroundSettings
 
 class BackgroundWorker:
     """背景生成工作器（Qt-free）。"""
@@ -20,17 +24,13 @@ class BackgroundWorker:
         self.request_sender: Optional[APIRequestHandler] = None
         self.creator: Optional[ImageAgent] = None
         self._watchdog: Optional[threading.Timer] = None
+        self.background_cfg = None
 
     # ========== 配置属性，统一从 APP_SETTINGS 读 ==========
 
     @property
     def application_path(self):
         return APP_RUNTIME.paths.application_path
-
-    @property
-    def background_cfg(self):
-        """背景配置快捷访问"""
-        return APP_SETTINGS.background
 
     @property
     def summary_provider(self):
@@ -55,6 +55,10 @@ class BackgroundWorker:
     @property
     def required_length(self):
         return self.background_cfg.max_length
+
+    @property
+    def image_size(self):
+        return self.background_cfg.image_size
 
     def _get_api_config(self, provider: str) -> tuple:
         """从全局设置获取 API 配置"""
@@ -105,21 +109,22 @@ class BackgroundWorker:
 
     # ========== 主流程 ==========
 
-    def generate(self, chathistory: list):
+    def generate(self, chat_session: 'ChatSession', cfg :"BackgroundSettings" = None):
         """生成背景图 - 入口方法"""
-        self.signals.log.emit("BGW generate start")
+        self.background_cfg = cfg
         self._finish_image_agent()
         self._finish_api_requester()
+        self.signals.log.emit("BGW generate start")
         try:
-            self._request_image_prompt(chathistory)
+            self._request_image_prompt(chat_session)
         except Exception as e:
             self.signals.error.emit(f"back_ground_update: error code: {e}")
 
-    def _request_image_prompt(self, chathistory: list):
+    def _request_image_prompt(self, chat_session: 'ChatSession'):
         """第一步：请求LLM生成图像prompt"""
         self.signals.log.emit("BGW request image prompt")
         summary_prompt = self.background_cfg.preset.summary_prompt
-        last_full_story = self._get_background_prompt_from_chathistory(chathistory)
+        last_full_story = self._get_background_prompt_from_chathistory(chat_session)
 
         messages = [
             {"role": "system", "content": summary_prompt},
@@ -158,8 +163,8 @@ class BackgroundWorker:
             return
 
 
-        param['width'] = 1280
-        param['height'] = 720
+        param['width'] = self.image_size.width
+        param['height'] = self.image_size.height
         param['model'] = self.image_model
 
         try:
@@ -204,40 +209,41 @@ class BackgroundWorker:
 
     # ========== 辅助方法 ==========
 
-    def _get_readable_story(self, chathistory: list) -> str:
+    def _get_readable_story(self, chat_session: 'ChatSession') -> str:
         """从聊天记录提取指定长度的可读文本"""
         required_length = self.required_length
         total_chars = 0
         index = 1
         last_full_story = []
 
-        for message in reversed(chathistory):
+        for message in reversed(chat_session.history):
             if message["role"] != "system":
                 content = message["content"]
                 total_chars += len(content)
                 index += 1
                 
                 if total_chars >= required_length:
-                    last_full_story = chathistory[-index:]
+                    last_full_story = chat_session.history[-index:]
                     break
 
         if total_chars < required_length:
-            last_full_story = [msg for msg in chathistory if msg["role"] != "system"]
-        return ChatHistoryTools.to_readable_str(last_full_story)
+            last_full_story = [msg for msg in chat_session.history if msg["role"] != "system"]
 
-    def _get_last_full_story(self, chathistory: list) -> str:
+        return ChatHistoryTools.to_readable_str(
+            last_full_story,
+            names= chat_session.name
+        )
+
+    def _get_last_full_story(self, chat_session: 'ChatSession') -> str:
         """从系统消息提取上次摘要"""
-        for item in chathistory:
-            if 'lci' in item['info']['id']:
-                # lci = 上下文压缩
-                return item['content']
+        return '\n'.join(chat_session.get_message_by_tag('lci'))
 
-    def _get_background_prompt_from_chathistory(self, chathistory: list) -> str:
+    def _get_background_prompt_from_chathistory(self, chat_session: 'ChatSession') -> str:
         """组装发给LLM的完整prompt"""
         last_full_story = ''
 
         # 添加自迭代摘要结果
-        summary_in_system = self._get_last_full_story(chathistory)
+        summary_in_system = self._get_last_full_story(chat_session)
         if summary_in_system:
             last_full_story += (
                 self.background_cfg.preset.system_prompt_hint + '\n'
@@ -247,7 +253,7 @@ class BackgroundWorker:
         # 添加场景内容
         last_full_story += (
             self.background_cfg.preset.scene_hint + '\n'
-            + self._get_readable_story(chathistory) + '\n'
+            + self._get_readable_story(chat_session) + '\n'
         )
 
         # 添加用户主请求

@@ -381,6 +381,20 @@ class SessionManager:
         except Exception as e:
             self.error.emit(f"保存聊天记录失败: {e}")
             return False
+    
+    def fork_chathistory(self, file_path: str, chat_session: "ChatSession" ) -> bool:
+        ch = copy.deepcopy(chat_session)
+        ch.chat_id = uuid.uuid4()
+        try:
+            self.chathistory_file_manager.save_chathistory(
+                chat_session=chat_session,
+                file_path=file_path,
+            )
+            self.log.emit(f"聊天记录已分支：{file_path}, ID: {chat_session.chat_id} -> {ch.chat_id}")
+            return True
+        except Exception as e:
+            self.error.emit(f"保存聊天记录失败: {e}")
+            return False
 
     def autosave(self, chat_session: "ChatSession" = None) -> bool:
         """同步自动保存：保存快照/指定 session"""

@@ -205,6 +205,13 @@ class ChatSession:
             return [msg for msg in self.history if msg.get("role") == role]
         return []
 
+    def get_message_by_tag(self,tag = '')-> List["ChatMessage"]:
+        result = []
+        for item in self.history:
+            if item['info']["id"].startswith(tag):
+                result.append(item)
+        return result
+
     def edit_by_index(self, index: int, new_content: str) -> None:
         self.history[index]['content'] = new_content
 
@@ -275,10 +282,12 @@ class ChatSession:
     def increment_chat_rounds(self, delta: int = 2) -> None:
         """增加新对话轮次计数"""
         self.new_chat_rounds += delta
+        self.new_background_rounds = max(0,self.new_chat_rounds)
     
     def increment_background_rounds(self, delta: int = 2) -> None:
         """增加背景更新轮次计数"""
         self.new_background_rounds += delta
+        self.new_background_rounds = max(0,self.new_background_rounds)
     
     def reset_chat_rounds(self) -> None:
         """重置新对话轮次计数"""

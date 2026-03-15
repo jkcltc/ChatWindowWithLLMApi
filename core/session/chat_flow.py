@@ -11,7 +11,7 @@ from core.context.lci.evaluate import LciMetrics,LciEvaluation
 from core.context.lci import LciEngine,LCIValidator
 
 from core.multimodal_coordination.background_generater_helper import BggEvaluation,BggMetrics
-from core.background import BackgroundWorker
+from core.background import BackgroundAgent
 
 from core.session.data import ChatCompletionPack,RequestType
 from core.session.request_flow import RequestFlowManager
@@ -58,7 +58,12 @@ class ChatFlowManager:
         self.lci_validator = LCIValidator()
         self.lci.on_save_history = self._on_lci_complete
 
-        self.bgg= BackgroundWorker()
+        self.bga= BackgroundAgent()
+        self._connect_bga_signals()
+
+    def _connect_bga_signals(self):
+        self.bga.signals.bus_connect(self.signals)
+        self.bga.signals.poll_success.connect(self.signals.BGG_finish.emit)
 
     #def init_concurrenter(self):
     #    self.concurrent_model=ConvergenceDialogueOptiProcessor()
@@ -257,12 +262,13 @@ class ChatFlowManager:
                 api_settings=APP_SETTINGS.api
             )
             self.session_manager.current_chat.reset_chat_rounds()
-        # 还没写完
-        #if self._should_update_background():
-        #    self.bgg.start(
-        #        self.session_manager.current_chat,
-        #        setting=APP_SETTINGS.background
-        #    )
+        if self._should_update_background():
+            self.bga.generate(
+                self.session_manager.current_chat,
+                setting=APP_SETTINGS.background
+            )
+            self.session_manager.current_chat.reset_background_rounds()
+        
         if self.session_manager.should_generate_title:
             self.create_chat_title()
 

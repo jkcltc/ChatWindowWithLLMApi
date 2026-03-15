@@ -115,6 +115,10 @@ class BackgroundPreset(BaseSettings):
 '''
     IRAG_USE_CHINESE: str = '在本次回复中，你需要使用中文填充"prompt"字段中的内容。'
 
+class ImageSize(BaseSettings):
+    width  : int = 1280
+    height : int = 720
+
 class BackgroundSettings(BaseSettings):
     """背景图自动生成设置"""
 
@@ -153,6 +157,8 @@ class BackgroundSettings(BaseSettings):
 
     image_model: str = 'foddaxlPhotorealism_v45_122788.safetensors'
     """图像生成模型"""  # back_ground_image_model
+
+    image_size : ImageSize = Field(default_factory=ImageSize)
 
 class LongChatImprovePersetVars(BaseSettings):
     summary_prompt:str="""

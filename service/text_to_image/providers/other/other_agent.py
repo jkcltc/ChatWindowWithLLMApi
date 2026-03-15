@@ -4,36 +4,36 @@ import requests
 import time
 import threading
 import random
-from PyQt6.QtCore import QObject,pyqtSignal
+from psygnal import Signal
 from urllib.parse import urljoin
 
-class OtherModelFetcher(QObject):
-    update_done=pyqtSignal(list)
 
-    def __init__(self,application_path='',api_key='',base_url=''):
-        super().__init__()
-        self.exact_url = urljoin(base_url,'models?sub_type=text-to-image')
-        self.universal_url=urljoin(base_url,'models')
+class OtherModelFetcher:
+    update_done = Signal(list)
+
+    def __init__(self, application_path='', api_key='', base_url=''):
+        self.exact_url = urljoin(base_url, 'models?sub_type=text-to-image')
+        self.universal_url = urljoin(base_url, 'models')
         self.headers = {"Authorization": f"Bearer {api_key}"}
         self.model_list = OtherModelManager().get_model_options()  # 共享资源需要保护
-        self.application_path=application_path
-        
+        self.application_path = application_path
+
         # 添加线程同步工具
         self.lock = threading.Lock()
         self.fetch_complete = threading.Event()  # 用于标记获取完成状态
-    
+
     def fetch_models(self):
         """启动后台线程获取模型数据"""
         # 重置完成标志
         self.fetch_complete.clear()
-        
+
         # 创建并启动后台线程
         thread = threading.Thread(target=self._fetch_in_thread)
         thread.daemon = True  # 设为守护线程
         thread.start()
-    
+
         return True  # 表示线程启动成功
-    
+
     def _fetch_in_thread(self):
         """在后台线程中执行实际请求"""
         try:
@@ -41,55 +41,56 @@ class OtherModelFetcher(QObject):
                 response = requests.get(self.exact_url, headers=self.headers)
                 response.raise_for_status()
                 result = response.json()
-            except:
+            except Exception:
                 response = requests.get(self.universal_url, headers=self.headers)
                 response.raise_for_status()
                 result = response.json()
-                
+
             if 'data' not in result:
                 raise ValueError("API响应缺少'data'字段")
-                
+
             # 获取模型ID列表
             new_list = [model['id'] for model in result['data']]
-            
+
             # 安全更新共享资源
             with self.lock:
                 self.model_list = new_list
-            
+
             # 标记任务成功完成
             self.fetch_complete.set()
             self.update_done.emit(self.model_list)
-            
+
         except Exception as e:  # 捕获所有异常
             print(f"后台请求出错: {e}")
             # 即使出错也标记完成，防止永久阻塞
             self.fetch_complete.set()
-    
+
     def get_model_list(self, timeout=None):
         """返回模型列表，可选等待操作完成"""
         # 如果设置了超时，等待操作完成
         if timeout is not None:
             self.fetch_complete.wait(timeout=timeout)
-            
+
         # 安全返回当前模型列表
         with self.lock:
             return self.model_list.copy()  # 返回副本避免直接修改
 
+
 class OtherModelManager:
-    _DEFAULT_MODEL_OPTIONS={
-        'UNKNOWN':['init in need : 需初始化']
+    _DEFAULT_MODEL_OPTIONS = {
+        'UNKNOWN': ['init in need : 需初始化']
     }
 
-    def __init__(self,application_path=''):
-        self.file_path = os.path.join(application_path, 'service','text_to_image','providers','other','OTHER_IMAGE_MODELS.json')
+    def __init__(self, application_path=''):
+        self.file_path = os.path.join(application_path, 'service', 'text_to_image', 'providers', 'other', 'OTHER_IMAGE_MODELS.json')
         self._ensure_file_exists()
-       
+
     def _ensure_file_exists(self):
         """确保文件存在，如果不存在则创建并写入默认值"""
         if not os.path.exists(self.file_path):
             os.makedirs(os.path.dirname(self.file_path), exist_ok=True)
             self.save_model_options(self._DEFAULT_MODEL_OPTIONS)
-    
+
     def get_model_options(self) -> list:
         """获取模型选项列表，文件不存在时返回默认值"""
         try:
@@ -99,24 +100,24 @@ class OtherModelManager:
             # 如果文件意外丢失，重新创建并返回默认值
             self._ensure_file_exists()
             return self._DEFAULT_MODEL_OPTIONS
-    
+
     def save_model_options(self, model_options: list):
         """保存模型选项列表到文件"""
         os.makedirs(os.path.dirname(self.file_path), exist_ok=True)
         with open(self.file_path, 'w', encoding='utf-8') as f:
             json.dump(model_options, f, indent=2, ensure_ascii=False)
 
-class OtherImageGenerator(QObject):
-    pull_success = pyqtSignal(str)  # 图片保存路径
-    failure = pyqtSignal(str, str)  # 错误类型和错误信息
 
-    def __init__(self, api_key,base_url, application_path, parent=None, save_folder='pics'):
-        super().__init__(parent)
+class OtherImageGenerator:
+    pull_success = Signal(str)  # 图片保存路径
+    failure = Signal(str, str)  # 错误类型和错误信息
+
+    def __init__(self, api_key, base_url, application_path, parent=None, save_folder='pics'):
         self.api_key = api_key
         self.application_path = application_path
         self.save_path = os.path.join(application_path, save_folder)
         os.makedirs(self.save_path, exist_ok=True)
-        self.base_url = base_url#"https://api.*.cn/v1/"
+        self.base_url = base_url  # "https://api.*.cn/v1/"
         self.headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json"
@@ -128,10 +129,10 @@ class OtherImageGenerator(QObject):
             # 确保文件名有后缀
             if not filename.lower().endswith(('.png', '.jpg', '.jpeg')):
                 filename += '.png'
-                
+
             filepath = os.path.join(self.save_path, filename)
             response = requests.get(image_url)
-            
+
             if response.status_code == 200:
                 with open(filepath, 'wb') as f:
                     f.write(response.content)
@@ -143,7 +144,7 @@ class OtherImageGenerator(QObject):
             self.failure.emit('save', f"保存图片异常：{str(e)}")
         return None
 
-    def generate(self, prompt, model="Kwai-Kolors/Kolors", negative_prompt="", 
+    def generate(self, prompt, model="Kwai-Kolors/Kolors", negative_prompt="",
                  image_size="1024x1024", batch_size=1, steps=20,
                  guidance_scale=7.5, seed=None):
         """
@@ -166,11 +167,11 @@ class OtherImageGenerator(QObject):
             "num_inference_steps": steps,
             "guidance_scale": guidance_scale
         }
-        
+
         # 可选参数
         if negative_prompt:
             payload["negative_prompt"] = negative_prompt
-            
+
         if seed is not None:
             payload["seed"] = seed
         else:
@@ -183,19 +184,19 @@ class OtherImageGenerator(QObject):
                 headers=self.headers,
                 json=payload
             )
-            
+
             # 处理响应
             if response.status_code != 200:
                 self.failure.emit('request', f"请求失败，状态码：{response.status_code}, 响应：{response.text}")
                 return None
-                
+
             result = response.json()
-            
+
             # 验证响应格式
             if not result.get('images') or not isinstance(result['images'], list):
                 self.failure.emit('response', "响应格式错误：缺少images字段")
                 return None
-                
+
             # 保存所有生成的图片
             saved_paths = []
             for i, img_data in enumerate(result['images']):
@@ -207,36 +208,36 @@ class OtherImageGenerator(QObject):
                         saved_paths.append(saved_path)
                 else:
                     self.failure.emit('response', f"图片{i}缺少URL字段")
-            
+
             return saved_paths
-            
+
         except Exception as e:
             self.failure.emit('request', f"请求异常：{str(e)}")
             return None
 
-class OtherAgent(QObject):
-    pull_success = pyqtSignal(str)  # 图片保存路径
-    failure = pyqtSignal(str, str)  # 错误类型和错误信息
+
+class OtherAgent:
+    pull_success = Signal(str)  # 图片保存路径
+    failure = Signal(str, str)  # 错误类型和错误信息
 
     def __init__(self, api_key, application_path, save_folder='pics', parent=None):
-        super().__init__(parent)
         self.application_path = application_path
-        
+
         # 初始化图片生成器
         self.generator = OtherImageGenerator(
-            api_key, 
+            api_key,
             application_path,
             save_folder=save_folder
         )
         # 连接生成器的信号
         self.generator.pull_success.connect(self.pull_success.emit)
         self.generator.failure.connect(self.failure.emit)
-        
+
         # 初始化模型管理器
         self.model_manager = OtherModelManager(application_path)
-        self.model_updater = OtherModelFetcher(application_path=application_path,api_key=api_key)
+        self.model_updater = OtherModelFetcher(application_path=application_path, api_key=api_key)
         self.model_updater.update_done.connect(self.model_manager.save_model_options)
-        
+
         # 线程列表
         self.thread_list = []
 
@@ -251,12 +252,12 @@ class OtherAgent(QObject):
         """
         # 转换参数格式
         params = self.translate_params(config)
-        
+
         # 创建并启动后台线程
         thread = threading.Thread(target=self.generator.generate, kwargs=params)
         thread.daemon = True
         thread.start()
-        
+
         # 添加到线程列表
         self.thread_list.append(thread)
 
@@ -278,32 +279,32 @@ class OtherAgent(QObject):
             'prompt': 'prompt',
             'negative_prompt': 'negative_prompt',
         }
-        
+
         # 构建新的参数字典
         new_params = {}
         for key, value in mapping.items():
             if key in params:
                 new_params[value] = params[key]
-        
+
         # 特殊参数处理
         # 1. 合并宽高生成图像尺寸字符串
         width = params.get('width', 512)
         height = params.get('height', 512)
         new_params['image_size'] = f"{width}x{height}"
-        
+
         # 2. 处理种子参数
         seed = params.get('seed', -1)
         new_params['seed'] = seed if seed != -1 else None
-        
+
         return new_params
 
     def update_model_list(self):
         try:
             self.model_updater.fetch_models()
-        except Exception as e :
-            self.failure.emit('update_model_list',str(e))
+        except Exception as e:
+            self.failure.emit('update_model_list', str(e))
         return
-    
+
     @property
     def request_template(self):
         """返回参数模板"""

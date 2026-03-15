@@ -197,6 +197,8 @@ class ChatapiTextBrowser(QTextBrowser):
         if request_id != self._current_request_id:
             self.renderFinished.emit()
             return
+
+        # 允许子类在 setHtml 前后介入
         self._before_set_html()
         super().setHtml(html_content)
         self._after_set_html()
@@ -221,6 +223,7 @@ class MarkdownTextBrowser(ChatapiTextBrowser):
         super().__init__(parent)
 
         self.setFrameShape(QFrame.Shape.NoFrame)
+        # 使用 WrapAtWordBoundaryOrAnywhere 防止长单词撑破布局
         self.setWordWrapMode(QTextOption.WrapMode.WrapAtWordBoundaryOrAnywhere)
 
         self.anchorClicked.connect(lambda url: QDesktopServices.openUrl(QUrl(url.toString())))
@@ -229,32 +232,93 @@ class MarkdownTextBrowser(ChatapiTextBrowser):
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 
         self._is_streaming = False
-        # 快速取用内容,markdown toPlainText会少字
-        self.content=''
+        # 用于快速取用内容
+        self.content = ''
+        # 用于标记是否正在进行程序内部的全量更新
+        self._is_programmatic_update = False
 
         self._geo_timer = QTimer(self)
         self._geo_timer.setSingleShot(True)
         self._geo_timer.timeout.connect(self.updateGeometry)
+
+        # 监听内容变化，用于处理流式更新或窗口Resize时的重绘
         self.document().contentsChanged.connect(self._schedule_geometry_update)
 
     def setMarkdown(self, text: str, is_streaming: bool = False):
         self._is_streaming = is_streaming
-        self.content=text#用于快速取用
+        self.content = text
         super().setMarkdown(text, debounce_ms=60 if is_streaming else 0)
 
+    def _before_set_html(self) -> None:
+        """在设置HTML前冻结界面，防止中间态渲染"""
+        # 如果不是流式传输（即全量更新），我们冻结界面
+        if not self._is_streaming:
+            self._is_programmatic_update = True
+            self.setUpdatesEnabled(False)
+
     def _after_set_html(self) -> None:
-        self._schedule_geometry_update()
+        """在设置HTML后强制计算布局，然后解冻"""
+        if self._is_streaming:
+            # 流式传输保持原有逻辑，依赖 contentsChanged 触发定时器
+            self._schedule_geometry_update()
+        else:
+            # 全量更新：
+            # 1. 立即强制更新文档宽度，确保高度计算正确 (跳过150ms等待)
+            self._force_layout_calculation()
 
-    def _schedule_geometry_update(self):
-        self._geo_timer.start(150)
+            # 2. 通知父控件尺寸已变更 (Layout系统会调用 sizeHint)
+            self.updateGeometry()
 
-    def sizeHint(self) -> QSize:
+            # 3. 标记程序更新结束
+            self._is_programmatic_update = False
+
+            # 4. 关键：使用 singleShot(0) 将恢复重绘的操作放入事件队列末尾。
+            # 这确保了 Qt 的 Layout 系统已经完成了对 updateGeometry 的响应和父级布局调整，
+            # 然后我们再开启绘制，从而避免看到布局跳变的过程。
+            QTimer.singleShot(0, self._enable_updates)
+
+    def _enable_updates(self):
+        """恢复重绘"""
+        self.setUpdatesEnabled(True)
+        # 强制重绘一次以确保显示最新状态
+        self.repaint()
+
+    def _force_layout_calculation(self):
+        """手动强制触发布局计算"""
         margins = self.contentsMargins()
         w = max(0, self.width() - margins.left() - margins.right())
+        if w > 0:
+            # 设置宽度会触发布局计算，为接下来的 sizeHint 提供正确基础
+            self.document().setTextWidth(w)
+
+    def _schedule_geometry_update(self):
+        """计划更新几何形状（处理 Resize 或 流式更新）"""
+        # 如果是我们正在进行的setHtml全量更新，忽略这个信号，
+        # 因为我们在 _after_set_html 里已经手动处理了，不需要定时器
+        if self._is_programmatic_update:
+            return
+
+        self._geo_timer.start(150)
+
+    def resizeEvent(self, e):
+        """窗口大小改变时，需要重新计算高度"""
+        super().resizeEvent(e)
+        self._force_layout_calculation()
+        self.updateGeometry()
+
+    def sizeHint(self) -> QSize:
+        """计算控件所需大小"""
+        # 确保文档宽度与控件宽度一致（减去边距）
+        margins = self.contentsMargins()
+        w = max(0, self.width() - margins.left() - margins.right())
+
+        # 注意：在 sizeHint 中调用 setTextWidth 是为了确保 documentSize().height() 是基于当前宽度的。
+        # 配合 updateGeometry 使用时，这能保证高度随宽度动态调整。
         if w > 0:
             self.document().setTextWidth(w)
 
         doc_h = self.document().documentLayout().documentSize().height()
         total_h = doc_h + margins.top() + margins.bottom()
-        return QSize(self.width(), int(total_h))
 
+        # 向上取整避免最后一行被切掉
+        return QSize(self.width(), int(total_h) + 1)

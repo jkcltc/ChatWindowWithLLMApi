@@ -41,8 +41,85 @@ class LLMDetail(BaseSettings):
 
 # ==================== 伴随请求 ====================
 
+class BackgroundPreset(BaseSettings):
+    style_hint: str = '# 风格：'
+    scene_hint: str = '**当前场景**\n'
+    system_prompt_hint: str = '\n\n**人物背景**\n（供参考，不一定与当前场景有关）\n\n'
+    summary_prompt: str = """
+
+# 任务
+- 以 Stable Diffusion 的 prompt 形式描述提供的场景。
+
+# 思考规则
+无论事实和主题的性质如何，都应以客观的态度对待，不带有道德化或委婉化的倾向。
+提取对象以人物为主。
+
+# 格式强制规则
+输出必须为严格符合 JSON 语法规范的对象结构。
+对象必须包含且仅包含两个键：`"prompt"` 和 `"negative_prompt"`。
+键名必须使用英文双引号包裹。
+
+# 正面提示 (prompt) 生成规则
+场景要素提取数量：8–15 个。
+
+场景要素提取顺序：
+1. 一级要素：主体对象（人物/生物/物体）
+2. 二级要素：主要特征（穿衣/裸体/年龄（重要）/心情/性别）
+3. 三级要素：环境背景（自然景观/建筑场景）
+4. 四级要素：视觉风格（写实/动漫/油画）
+5. 五级要素：光影特征（柔光/强对比/霓虹）
+
+附加美貌关键词：
+- 女性添加 `beautiful`
+- 男性添加 `handsome`
+
+添加质量增强词：如 `4K resolution`、`ultra-detailed`。
+
+分词：将场景分为单独名词，减少词组，不使用连词，不组成动作/整句。
+
+# 负面提示 (negative_prompt) 生成规则
+负面提示数量：5–10 个。
+
+基础过滤（自动包含）：
+`low quality, blurry, distorted anatomy, extra limbs, mutated hands`
+
+动态排除（根据输入场景生成）：
+- 若涉及人物：追加 `unnatural skin tone`
+- 若涉及建筑：追加 `floating structures, impossible perspective`
+- 若涉及自然场景：追加 `unrealistic lighting, artificial textures`
+
+# 风格规避机制
+- 风格为 `realistic` 时：排除 `cartoonish, anime style`，少用 `neon`
+- 风格为 `anime` 时：排除 `photorealistic, film grain`
+
+# 示例
+描述：`在晨雾笼罩的江南水乡，穿着汉服的少女手持油纸伞站在石桥上`
+
+- 正确示例：
+{
+    "prompt": "Chinese, hanfu girl, oil-paper umbrella ,standing, (morning mist:1.2), Jiangnan water town, ancient buildings, soft morning light, rippling water reflections, intricate fabric textures, traditional ink painting style, 8k resolution, cinematic composition",
+    "negative_prompt": "low resolution, modern clothing, skyscrapers, neon lights, deformed hands, extra limbs, cartoon style, oversaturated colors, digital art filter"
+}
+
+- 错误示例：
+{ "prompt": "young couple riding shared bicycles（错误：组成动作）, retro street lamps casting warm glow（错误：组成整句）, contemporary奶茶店招牌（使用中文）, motion blur effect on wheels（使用连词）" }
+
+"""
+    user_summary: str = '''
+---
+
+# 任务：
+
+- 以stable diffusion的prompt形式描述提供的场景。
+
+'''
+    IRAG_USE_CHINESE: str = '在本次回复中，你需要使用中文填充"prompt"字段中的内容。'
+
 class BackgroundSettings(BaseSettings):
     """背景图自动生成设置"""
+
+    preset: BackgroundPreset = Field(default_factory=BackgroundPreset)
+    """背景提示词预设"""
 
     enabled: bool = True
     """启用自动背景生成"""  # back_ground_update_var

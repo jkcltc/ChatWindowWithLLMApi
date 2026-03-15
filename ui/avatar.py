@@ -321,8 +321,8 @@ class AvatarCreatorWindow(QWidget):
         """初始化环境，创建文件夹和自身变量"""
 
         #初始化变量
-        self.avatar_folder=os.path.join(self.application_path,'pics','avatar')
-        self.temp_folder=os.path.join(self.application_path,'pics','work_temp')
+        self.avatar_folder=os.path.join(self.application_path,'data','pics','avatar')
+        self.temp_folder=os.path.join(self.application_path,'data','pics','work_temp')
 
         #初始化文件夹
         os.makedirs(self.avatar_folder, exist_ok=True)
@@ -430,9 +430,8 @@ class AvatarCreatorWindow(QWidget):
 
         
         self.model_provider.currentTextChanged.connect(
-            lambda text: self.model_choice.clear() 
-            or 
-            self.model_choice.addItems(self.generator.get_model_list(text))
+            lambda text: self.model_choice.clear()
+            or self.model_choice.addItems(self.generator.get_model_list(text))
             )
 
         qf0 = QFrame()

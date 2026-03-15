@@ -1,5 +1,5 @@
 from PyQt6.QtWidgets import (
-    QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QSizePolicy
+    QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QSizePolicy,QFrame
 )
 from PyQt6.QtCore import (
     Qt, QTimer, pyqtSignal, QPoint, QSize, QPropertyAnimation,QEasingCurve, QRectF
@@ -536,4 +536,13 @@ class SwitchButton(QPushButton):
         self.setLabelText()
         self._updateLabelPosition()
 
-
+class QuickSeparator(QFrame):
+    """统一风格的分隔线组件"""
+    def __init__(self, orientation="h"):
+        super().__init__()
+        if orientation == "h":
+            self.setFrameShape(QFrame.Shape.HLine)
+            self.setFrameShadow(QFrame.Shadow.Sunken)
+        else:
+            self.setFrameShape(QFrame.Shape.VLine)
+            self.setFrameShadow(QFrame.Shadow.Sunken)

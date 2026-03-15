@@ -81,7 +81,7 @@ start_log(f'CWLA service import finished, time stamp:{time.time()-start_time_sta
 from core.session.title_generate import TitleGenerator
 start_log(f'CWLA core title import finished, time stamp:{time.time()-start_time_stamp:.2f}s')
 
-from core.multimodal_coordination.background_generate import BackgroundAgent
+from core.background import BackgroundAgent
 
 start_log(f'CWLA core multimodal_coordination import finished, time stamp:{time.time()-start_time_stamp:.2f}s')
 
@@ -1478,15 +1478,10 @@ f'''聊天记录已导入，当前聊天：{self.session_manager.title}
     def _connect_setting_signals(self):
         # LCI开关 → 更新状态栏图标
         self.main_setting_window.lci_enabled_changed.connect(self.update_opti_bar)
+        self.main_setting_window.background_setting_changed.connect(self.update_opti_bar)
+        self.main_setting_window.background_preview_changed.connect(self.update_background)
         self.main_setting_window.name_changed.connect(self.session_manager.set_role_name)
-
-        ## 标题生成provider/model变更 → 重新设置title_generator
-        #self.main_setting_window.title_provider_changed.connect(
-        #    lambda provider, model: self.title_generator.set_provider(
-        #        provider=provider, model=model, api_config=APP_SETTINGS.api.providers
-        #    )
-        #)
-
+        
 
     #历史对话
     def past_chats_menu(self, position):
@@ -1565,14 +1560,14 @@ f'''聊天记录已导入，当前聊天：{self.session_manager.title}
     #背景更新：触发线程
     def call_background_update(self):
         self._setup_bsw()
-        self.background_agent.generate(
+        print('call_background_update')
+        self.background_agent.force_generate(
             chathistory=self.session_manager.history,
         )
 
     #背景更新：触发UI更新
     def update_background(self,file_path):
-        fp = os.path.join(APP_RUNTIME.paths.application_path,file_path)
-        self.info_manager.log(f'update_background: {file_path}')
+        fp = file_path
         if not file_path\
         or not os.path.isfile(fp):
             QMessageBox.critical(
@@ -1582,6 +1577,8 @@ f'''聊天记录已导入，当前聊天：{self.session_manager.title}
                 QMessageBox.StandardButton.Ok
             )
             return
+        if not fp == APP_SETTINGS.background.image_path:
+            APP_SETTINGS.background.image_path = fp
         self.switchImage(fp)
 
     def _setup_bsw(self):
@@ -1591,11 +1588,14 @@ f'''聊天记录已导入，当前聊天：{self.session_manager.title}
 
     #背景更新：设置窗口
     def background_settings_window(self):
-        """创建并显示设置子窗口，用于更新配置变量"""
-        self._setup_bsw()
-        self.background_agent.show()
-        self.background_agent.raise_()
-        
+        """打开主设置窗口并定位到背景设置页"""
+        self.open_main_setting_window()
+        if hasattr(self, "main_setting_window"):
+            background_index = self.main_setting_window.tab_widget.indexOf(
+                self.main_setting_window.background_widget
+            )
+            if background_index >= 0:
+                self.main_setting_window.tab_widget.setCurrentIndex(background_index)
     
     def bind_background_signals(self):
         # 断开所有已存在的信号连接
@@ -1612,12 +1612,19 @@ f'''聊天记录已导入，当前聊天：{self.session_manager.title}
             self._bg_signal_connections.append(lambda: signal.disconnect(connection))
 
         add_connection(
-            self.background_agent.setting_window.updateSettingChanged,
-            self.update_opti_bar
+            self.background_agent.signals.log,
+            self.info_manager.log
         )
-
         add_connection(
-            self.background_agent.poll_success,
+            self.background_agent.signals.warning,
+            self.info_manager.warning
+        )
+        add_connection(
+            self.background_agent.signals.error,
+            self.info_manager.error
+        )
+        add_connection(
+            self.background_agent.signals.poll_success,
             lambda path: [
                 self.update_background(path) or self.info_manager.log(f'背景生成返回了路径，返回了{path}')] if path else [
                     self.update_background('background.jpg'), self.info_manager.log(f'背景生成没返回路径，返回了{path}')
@@ -1867,8 +1874,6 @@ f'''聊天记录已导入，当前聊天：{self.session_manager.title}
 
         # 获取系统提示管理器洗干净的预设消息
         preset=self.system_prompt_override_window.get_init_preset()
-
-        print('self.session_manager.create_new_session(preset)',preset,type(preset.info['name']))
 
         self.session_manager.create_new_session(preset)
 

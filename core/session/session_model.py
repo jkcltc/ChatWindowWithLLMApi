@@ -202,7 +202,7 @@ class ChatSession:
     def get_all_role_messages(self, role: str = "") -> List["ChatMessage"]:
         """获取指定角色的所有消息"""
         if role:
-            return [msg for msg in self.current_chat.history if msg.get("role") == role]
+            return [msg for msg in self.history if msg.get("role") == role]
         return []
 
     def edit_by_index(self, index: int, new_content: str) -> None:
@@ -221,7 +221,9 @@ class ChatSession:
     @property
     def system_prompts(self) ->str:
         '''返回所有系统消息的内容'''
-        return '\n'.join(self.get_all_role_messages('system'))
+        return "\n".join(
+        str(m.get("content", "")) for m in self.get_all_role_messages("system")
+    )
 
     @property
     def new_chat_length(self):

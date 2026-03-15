@@ -977,6 +977,7 @@ class ChatHistoryWidget(QFrame):
             self.scroll_area.verticalScrollBar().installEventFilter(self)
         self.scroll_bar.rangeChanged.connect(self._on_range_changed)
         self.spacer = QLabel()
+        self.spacer.setMaximumHeight(200)
         self.spacer.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Expanding)
         self.spacer.setStyleSheet("QWidget { background-color: rgba(255, 255, 255, 0); }")
         self.content_layout.addWidget(self.spacer, stretch=0)

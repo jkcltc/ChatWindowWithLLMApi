@@ -1,15 +1,15 @@
 import os
+import json
 import requests
 import threading
-from PyQt6.QtCore import QObject,pyqtSignal
+from psygnal import Signal
 
 
-class BaiduImageGenerator(QObject):
-    pull_success = pyqtSignal(str)  # 图片保存路径
-    failure = pyqtSignal(str, str)  # 错误类型和错误信息
+class BaiduImageGenerator:
+    pull_success = Signal(str)  # 图片保存路径
+    failure = Signal(str, str)  # 错误类型和错误信息
 
     def __init__(self, api_key, application_path, parent=None, save_folder='pics'):
-        super().__init__(parent)
         self.api_key = api_key
         self.application_path = application_path
         self.save_path = os.path.join(application_path, save_folder)
@@ -27,10 +27,10 @@ class BaiduImageGenerator(QObject):
             # 确保文件名有后缀
             if not filename.lower().endswith(('.png', '.jpg', '.jpeg')):
                 filename += '.png'
-                
+
             filepath = os.path.join(self.save_path, filename)
             response = requests.get(image_url)
-            
+
             if response.status_code == 200:
                 with open(filepath, 'wb') as f:
                     f.write(response.content)
@@ -42,12 +42,12 @@ class BaiduImageGenerator(QObject):
             self.failure.emit('save', f"保存图片异常：{str(e)}")
         return None
 
-    def generate(self, prompt, model="irag-1.0", negative_prompt="", 
+    def generate(self, prompt, model="irag-1.0", negative_prompt="",
                  image_size="1024x1024", batch_size=1, steps=20,
                  guidance_scale=3.5, seed=None, refer_image=None, user_id=None):
         """
         百度千帆文生图请求并自动保存图片
-        
+
         :param prompt: 提示词（必填，最大512字符）
         :param model: 模型名称（默认为"irag-1.0"）
         :param negative_prompt: 百度的API不支持负面提示词，此参数将被忽略
@@ -66,17 +66,17 @@ class BaiduImageGenerator(QObject):
             "n": batch_size,
             "size": image_size
         }
-        
+
         # 可选参数
         if refer_image:
             if refer_image.startswith("http://") or refer_image.startswith("https://"):
                 payload["refer_image"] = refer_image
             else:  # Base64编码
                 payload["refer_image"] = refer_image
-        
+
         if user_id:
             payload["user"] = user_id
-            
+
         # flux.1-schnell模型专用参数
         if model == "flux.1-schnell":
             payload["steps"] = steps
@@ -95,17 +95,17 @@ class BaiduImageGenerator(QObject):
             print(response.text)
             # 处理响应
             if response.status_code != 200:
-                self.failure.emit('request', 
+                self.failure.emit('request',
                                  f"请求失败，状态码：{response.status_code}, 响应：{response.text}")
                 return None
-                
+
             result = response.json()
-            
+
             # 验证响应格式
             if not result.get('data') or not isinstance(result['data'], list) or 'error' in result:
-                self.failure.emit('response', "响应格式错误"+str(result))
+                self.failure.emit('response', "响应格式错误" + str(result))
                 return None
-                
+
             # 保存所有生成的图片
             saved_paths = []
             for i, img_data in enumerate(result['data']):
@@ -116,46 +116,115 @@ class BaiduImageGenerator(QObject):
                         saved_paths.append(saved_path)
                 else:
                     self.failure.emit('response', f"图片{i}缺少URL字段")
-            
+
             return saved_paths
-            
+
         except Exception as e:
             self.failure.emit('request', f"请求异常：{str(e)}")
             return None
+
+
+class BaiduModelFetcher:
+    update_done = Signal(list)
+
+    def __init__(self, application_path='', api_key=''):
+        self.exact_url = 'https://qianfan.baidubce.com/v2/models?sub_type=text-to-image'
+        self.universal_url = 'https://qianfan.baidubce.com/v2/models'
+        self.headers = {"Authorization": f"Bearer {api_key}"}
+        self.application_path = application_path
+        self.model_list = BaiduModelManager(application_path).get_model_options()
+        self.lock = threading.Lock()
+        self.fetch_complete = threading.Event()
+
+    def fetch_models(self):
+        self.fetch_complete.clear()
+        thread = threading.Thread(target=self._fetch_in_thread)
+        thread.daemon = True
+        thread.start()
+        return True
+
+    def _fetch_in_thread(self):
+        try:
+            try:
+                response = requests.get(self.exact_url, headers=self.headers)
+                response.raise_for_status()
+                result = response.json()
+            except Exception:
+                response = requests.get(self.universal_url, headers=self.headers)
+                response.raise_for_status()
+                result = response.json()
+
+            if 'data' not in result:
+                raise ValueError("API响应缺少'data'字段")
+
+            new_list = [model['id'] for model in result['data']]
+
+            with self.lock:
+                self.model_list = new_list
+
+            self.update_done.emit(self.model_list)
+            self.fetch_complete.set()
+        except Exception as e:
+            print(f"后台请求出错: {e}")
+            self.fetch_complete.set()
+
+    def get_model_list(self, timeout=None):
+        if timeout is not None:
+            self.fetch_complete.wait(timeout=timeout)
+        with self.lock:
+            return self.model_list.copy()
+
+
 class BaiduModelManager:
-    """百度模型管理器（静态模型列表）"""
-    def __init__(self, application_path):
-        self.model_options = ['irag-1.0', 'flux.1-schnell']
-    
+    """百度模型管理器（动态模型列表）"""
+    _DEFAULT_MODEL_OPTIONS = ['irag-1.0', 'flux.1-schnell']
+
+    def __init__(self, application_path=''):
+        self.file_path = os.path.join(application_path, 'service', 'text_to_image', 'providers', 'baidu', 'BAIDU_IMAGE_MODELS.json')
+        self._ensure_file_exists()
+
+    def _ensure_file_exists(self):
+        if not os.path.exists(self.file_path):
+            os.makedirs(os.path.dirname(self.file_path), exist_ok=True)
+            self.save_model_options(self._DEFAULT_MODEL_OPTIONS)
+
     def get_model_options(self) -> list:
         """获取百度支持的模型列表"""
-        return self.model_options.copy()
-    
-    def save_model_options(self):
-        """百度模型列表是静态的，无需保存"""
-        pass
+        try:
+            with open(self.file_path, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except FileNotFoundError:
+            self._ensure_file_exists()
+            return self._DEFAULT_MODEL_OPTIONS.copy()
 
-class BaiduAgent(QObject):
-    pull_success = pyqtSignal(str)  # 图片保存路径
-    failure = pyqtSignal(str, str)  # 错误类型和错误信息
+    def save_model_options(self, model_options: list):
+        os.makedirs(os.path.dirname(self.file_path), exist_ok=True)
+        with open(self.file_path, 'w', encoding='utf-8') as f:
+            json.dump(model_options, f, indent=2, ensure_ascii=False)
+
+
+class BaiduAgent:
+    pull_success = Signal(str)  # 图片保存路径
+    failure = Signal(str, str)  # 错误类型和错误信息
 
     def __init__(self, api_key, application_path, save_folder='pics', parent=None):
-        super().__init__(parent)
         self.application_path = application_path
-        
+
         # 初始化图片生成器
         self.generator = BaiduImageGenerator(
-            api_key, 
+            api_key,
             application_path,
             save_folder=save_folder
         )
         # 连接生成器的信号
         self.generator.pull_success.connect(self.pull_success.emit)
         self.generator.failure.connect(self.failure.emit)
-        
-        # 初始化模型管理器（静态模型列表）
+
+        # 初始化模型管理器
         self.model_manager = BaiduModelManager(application_path)
-        
+        self.model_updater = BaiduModelFetcher(application_path=application_path, api_key=api_key)
+        self.model_updater.update_done.connect(self.model_manager.save_model_options)
+
         # 线程列表
         self.thread_list = []
 
@@ -169,13 +238,13 @@ class BaiduAgent(QObject):
         参数config已使用ParamTranslator翻译
         """
         # 转换参数格式
-        params =config
-        
+        params = config
+
         # 创建并启动后台线程
         thread = threading.Thread(target=self.generator.generate, kwargs=params)
         thread.daemon = True
         thread.start()
-        
+
         # 添加到线程列表
         self.thread_list.append(thread)
 
@@ -193,52 +262,54 @@ class BaiduAgent(QObject):
             'prompt': params['prompt'],
             'model': params['model'],
         }
-        if len(new_params['prompt'])>220:#逆天百度大于220就报错
-            new_params['prompt']=new_params['prompt'][:218]#留俩今晚下菜
-        
+        if len(new_params['prompt']) > 220:  # 逆天百度大于220就报错
+            new_params['prompt'] = new_params['prompt'][:218]  # 留俩今晚下菜
+
         # 图片尺寸 - 可选参数
         width = params.get('width')
         height = params.get('height')
-        
+
         # 仅在提供了宽度和高度时才设置 image_size
         if width is not None and height is not None:
-            #new_params['image_size'] = f"{width}x{height}"
-            #百度后端有问题，不能出非1:1图片
-            a=max(width,height)
+            # new_params['image_size'] = f"{width}x{height}"
+            # 百度后端有问题，不能出非1:1图片
+            a = max(width, height)
             new_params['image_size'] = f"{a}x{a}"
-        
+
         # 生成数量 - 可选但建议提供
         if 'image_num' in params:
             new_params['batch_size'] = params['image_num']
         else:
             # 如果没有提供，使用API默认值1
             new_params['batch_size'] = 1
-            
+
         # 可选参数 - 仅当提供时才设置
         if 'seed' in params and params['seed'] != -1:
             new_params['seed'] = params['seed']
-            
+
         if 'steps' in params:
             new_params['steps'] = params['steps']
-            
+
         if 'guidance_scale' in params:
             new_params['guidance_scale'] = params['guidance_scale']
-            
+
         # 百度专用可选参数
         if 'refer_image' in params and params['refer_image']:
             new_params['refer_image'] = params['refer_image']
-            
+
         if 'user_id' in params and params['user_id']:
             new_params['user_id'] = params['user_id']
-            
+
         return new_params
 
+    def update_model_list(self, timeout=10):
+        try:
+            self.model_updater.fetch_models()
+            self.model_updater.fetch_complete.wait(timeout=timeout)
+        except Exception:
+            return
+        return
 
-    def update_model_list(self):
-        """百度模型列表是静态的，无需更新"""
-        # 这里可以发出一个信号表示更新完成（如果需要）
-        pass
-    
     @property
     def request_template(self):
         """返回参数模板"""

@@ -11,7 +11,7 @@ from core.context.lci.evaluate import LciMetrics,LciEvaluation
 from core.context.lci import LciEngine,LCIValidator
 
 from core.multimodal_coordination.background_generater_helper import BggEvaluation,BggMetrics
-from core.multimodal_coordination.background_generate import BackgroundWorker
+from core.background import BackgroundWorker
 
 from core.session.data import ChatCompletionPack,RequestType
 from core.session.request_flow import RequestFlowManager

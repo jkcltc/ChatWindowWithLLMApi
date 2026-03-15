@@ -1,12 +1,14 @@
-from PyQt6.QtCore import QObject, pyqtSignal
-from .providers import BaiduAgent, NovitaAgent, SiliconFlowAgent
+from psygnal import Signal
+import threading
 
+from core.utils.dispatcher import MainThreadDispatcher
+from .providers import BaiduAgent, NovitaAgent, SiliconFlowAgent
 from config import APP_SETTINGS, APP_RUNTIME
 
 
-class ImageAgent(QObject):
-    pull_success = pyqtSignal(str)  # path to image
-    failure = pyqtSignal(str, str)
+class ImageAgent:
+    pull_success = Signal(str)  # path to image
+    failure = Signal(str, str)
 
     # 支持的图片生成供应商
     SUPPORTED_PROVIDERS = {
@@ -16,7 +18,6 @@ class ImageAgent(QObject):
     }
 
     def __init__(self):
-        super().__init__()
         self.generator_name = None
         self.generator = None
         self.generators = {}
@@ -24,7 +25,11 @@ class ImageAgent(QObject):
         # >>> 缓存只保留图片模型的，和文本模型分开 <<<
         self._image_model_cache = {}
         # 天哪 是老api
-        self.generator_dict=self.SUPPORTED_PROVIDERS
+        self.generator_dict = self.SUPPORTED_PROVIDERS
+
+        # 主线程回调包装
+        self._main_pull_success = MainThreadDispatcher.run_in_main(self.pull_success.emit)
+        self._main_failure = MainThreadDispatcher.run_in_main(self.failure.emit)
 
     @property
     def application_path(self):
@@ -36,30 +41,38 @@ class ImageAgent(QObject):
             return APP_SETTINGS.api.providers[provider].key
         return ""
 
+    def _disconnect_generator(self, generator) -> None:
+        try:
+            generator.pull_success.disconnect()
+        except TypeError:
+            pass
+        try:
+            generator.failure.disconnect()
+        except TypeError:
+            pass
+
+    def _connect_generator(self, generator) -> None:
+        generator.pull_success.connect(self._main_pull_success)
+        generator.failure.connect(self._main_failure)
+
     def set_generator(self, name: str):
         """设置当前使用的图片生成器"""
         self.generator_name = name
 
         # 清空之前的生成器连接
         if self.generator:
-            try:
-                self.generator.pull_success.disconnect()
-                self.generator.failure.disconnect()
-            except TypeError:
-                pass
+            self._disconnect_generator(self.generator)
 
         if name in self.SUPPORTED_PROVIDERS:
             api_key = self._get_api_key(name)
             self.generator = self.SUPPORTED_PROVIDERS[name](
-                api_key, 
+                api_key,
                 self.application_path,
-                save_folder='pics'
+                save_folder='data/pics'
             )
-            self.generator.pull_success.connect(self.pull_success.emit)
-            self.generator.pull_success.connect(lambda path: print('generator.pull_success', path))
-            self.generator.failure.connect(self.failure.emit)
+            self._connect_generator(self.generator)
         else:
-            self.failure.emit(name, "Provider not supported")
+            self._main_failure(name, "Provider not supported")
             self.generator = None
 
     def create(self, params_dict):
@@ -93,7 +106,7 @@ class ImageAgent(QObject):
             try:
                 api_key = self._get_api_key(provider)
                 generator = self.SUPPORTED_PROVIDERS[provider](
-                    api_key, 
+                    api_key,
                     self.application_path
                 )
                 models = generator.get_model_list()
@@ -120,13 +133,23 @@ class ImageAgent(QObject):
                 self.generators[name] = self.SUPPORTED_PROVIDERS[name](
                     api_key,
                     self.application_path,
-                    save_folder='pics'
+                    save_folder='data/pics'
                 )
-                self.generators[name].pull_success.connect(self.pull_success.emit)
-                self.generators[name].failure.connect(self.failure.emit)
+                self._connect_generator(self.generators[name])
 
             try:
                 self.generators[name].update_model_list()
                 self._image_model_cache[name] = self.generators[name].get_model_list()
             except Exception as e:
-                self.failure.emit(name, f"模型更新失败: {str(e)}")
+                self._main_failure(name, f"模型更新失败: {str(e)}")
+
+    def update_models_async(self, callback=None):
+        """异步更新所有图片模型列表，完成后回调"""
+        def _worker():
+            self.update_models()
+            if callback:
+                MainThreadDispatcher.run_in_main(callback)(self._image_model_cache)
+
+        thread = threading.Thread(target=_worker, daemon=True)
+        thread.start()
+        return thread

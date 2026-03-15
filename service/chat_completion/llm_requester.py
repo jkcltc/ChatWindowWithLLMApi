@@ -329,7 +329,8 @@ class OneTimeLLMRequester:
                 params.pop('extra_headers')
             #print('otlr headers',headers)
             import json
-            print('otlr payload:',json.dumps(params,indent=2,ensure_ascii=False))
+            pld = json.dumps(params,indent=2,ensure_ascii=False)
+            print('otlr payload:',pld[:500],pld[-500:])
 
             is_stream = params.get('stream', False)
             
@@ -761,7 +762,9 @@ class APIRequestHandler:
         provider = self.current_provider
         api_config = self.current_api_config or self.api_config
         if not provider or not api_config:
-            self.error_occurred.emit("未设置提供商或API配置，请先调用 set_provider")
+            self.error_occurred.emit(
+                f"未设置提供商或API配置，请先调用 set_provider: provider={provider}, api_config={api_config}"
+            )
             return
 
         # 提取 API 信息

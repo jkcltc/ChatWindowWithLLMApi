@@ -112,7 +112,7 @@ class OtherImageGenerator:
     pull_success = Signal(str)  # 图片保存路径
     failure = Signal(str, str)  # 错误类型和错误信息
 
-    def __init__(self, api_key, base_url, application_path, parent=None, save_folder='pics'):
+    def __init__(self, api_key, base_url, application_path, parent=None, save_folder='data/pics'):
         self.api_key = api_key
         self.application_path = application_path
         self.save_path = os.path.join(application_path, save_folder)
@@ -220,7 +220,7 @@ class OtherAgent:
     pull_success = Signal(str)  # 图片保存路径
     failure = Signal(str, str)  # 错误类型和错误信息
 
-    def __init__(self, api_key, application_path, save_folder='pics', parent=None):
+    def __init__(self, api_key, application_path, save_folder='data/pics', parent=None):
         self.application_path = application_path
 
         # 初始化图片生成器

@@ -111,7 +111,7 @@ class NovitaImageGenerator:
     pull_success = Signal(str)  # path
     failure = Signal(str, str)
 
-    def __init__(self, api_key, application_path, parent=None, save_folder='pics'):
+    def __init__(self, api_key, application_path, parent=None, save_folder='data/pics'):
         '''
         save_folder是后加的，指定pics
         '''
@@ -237,7 +237,7 @@ class NovitaAgent:
     pull_success = Signal(str)
     failure = Signal(str, str)
 
-    def __init__(self, api_key, application_path, save_folder='pics'):
+    def __init__(self, api_key, application_path, save_folder='data/pics'):
         """
         初始化Novita代理
         """

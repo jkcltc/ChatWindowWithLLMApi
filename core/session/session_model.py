@@ -128,14 +128,25 @@ class ChatSession:
         # 直接修改自己的数据
         self.history = self.history[:end_index]
 
-    def truncate_to_user(self):
+    def truncate_to_user(self):self.truncate_to_role('user')
+
+    def truncate_to_assistant(self):self.truncate_to_role('assistant')
+
+    def truncate_to_role(self,role :str | list = None):
         """
-        清理尾部，确保最后一条是用户消息（为重生成做准备）
+        清理尾部
         """
+        if role is None:
+            roles = {'user', 'tool'}
+        elif isinstance(role, str):
+            roles = {role}
+        else:
+            roles = set(role)
+
         if len(self.history) <= 1:
             return
 
-        while len(self.history) > 1 and self.history[-1].get('role') != 'user':
+        while len(self.history) > 1 and self.history[-1].get('role') not in roles:
             self.history.pop()
 
     def get_last_n_length(self,n:int=0):

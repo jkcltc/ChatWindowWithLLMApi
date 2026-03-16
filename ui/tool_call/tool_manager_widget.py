@@ -422,6 +422,8 @@ class FunctionManager(QtWidgets.QWidget):
         """
         设置当前激活的工具名列表（覆盖）。
         """
+        if names == self._model.get_selected_functions():
+            return
         self._model.set_active_tools(names or [])
         self._ensure_first_selection()
 

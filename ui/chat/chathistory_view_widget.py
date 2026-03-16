@@ -145,7 +145,7 @@ class InfoPopup(QWidget):
                 val = info_data.get(key)
                 key_label = QLabel(f"{key}:")
                 key_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignTop)
-                key_label.setFixedWidth(key_width)
+                key_label.setMinimumWidth(key_width)
                 self.form.addRow(key_label, self._make_value_widget(val))
         else:
             key_label = QLabel("value:")
@@ -509,7 +509,7 @@ class ChatBubble(QWidget):
             self.editor.setPlainText(self.message_data.get('content', ''))
 
     def _get_patched_name(self, nickname):
-        if self.role == 'user':
+        if self.role == 'user' or self.role == 'system':
             return nickname if nickname else self.role.upper()
         if self.role == 'tool':
             info = self.message_data.get('info', {})
@@ -808,7 +808,7 @@ class ChatHistoryWidget(QFrame):
     def _pool_status(self) -> str:
         """获取当前对象池的缓存状态。"""
         parts = []
-        for role in ('user', 'assistant', 'tool'):
+        for role in ('user', 'assistant', 'tool','system'):
             pool = self._bubble_pools.get(role, [])
             if pool:
                 parts.append(f'{role}={len(pool)}')
@@ -993,7 +993,7 @@ class ChatHistoryWidget(QFrame):
     def _get_displayable_history(self) -> List[dict]:
         """获取可以展示的聊天历史过滤列表。"""
         return [m for m in self._full_history
-                if m.get('role') in ('user', 'assistant', 'tool')]
+                if m.get('role') in ('user', 'assistant', 'tool','system') and m.get('info')['id'] != 'system_prompt']
 
     def _has_earlier_messages(self) -> bool:
         """检查是否还有更早的未展示消息。"""
@@ -1287,7 +1287,7 @@ class ChatHistoryWidget(QFrame):
     def add_message(self, message_data: dict, streaming=False):
         """向当前聊天列表中添加单个新消息气泡。"""
         role = message_data['role']
-        if role not in ('user', 'assistant', 'tool'):
+        if role not in ('user', 'assistant', 'tool','system'):
             return
         
         msg_id = message_data['info']['id']

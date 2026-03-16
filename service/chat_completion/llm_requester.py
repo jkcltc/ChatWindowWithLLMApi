@@ -327,10 +327,10 @@ class OneTimeLLMRequester:
             # openai 默认构建的payload允许有extra_headers，但请求里是不需要的
             if 'extra_headers' in params:
                 params.pop('extra_headers')
-            #print('otlr headers',headers)
+            print('otlr headers',headers)
             import json
             pld = json.dumps(params,indent=2,ensure_ascii=False)
-            print('otlr payload:',pld[:500],pld[-500:])
+            print('otlr payload:',pld[:500],pld[-500:]) if len(pld) > 1000 else print('otlr payload:',pld)
 
             is_stream = params.get('stream', False)
             

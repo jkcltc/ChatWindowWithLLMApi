@@ -5,17 +5,14 @@ from dataclasses import dataclass, field
 import copy
 import threading
 import time
+import uuid
 from .chat_history_manager import ChathistoryFileManager
 from .session_model import ChatSession,ChatMessage
-from psygnal import Signal
-import uuid
-from core.utils import MainThreadDispatcher as MTD
 from .signals import SessionManagerSignalBus
-import functools
 
 if TYPE_CHECKING:
     from .system_prompt_manager import SystemPromptPreset
-from config.settings import AppPaths,NameSettings,APP_SETTINGS,APP_RUNTIME
+from config.settings import APP_SETTINGS,APP_RUNTIME
     
 _NOTHING = object()
 
@@ -333,11 +330,12 @@ class SessionManager:
             self.error.emit(f"编辑消息失败: {e}")
 
     def edit_by_id(self, id: int, new_content: str,notify = False) -> None:
-        index = None
-        index = self.current_chat.get_msg_index(id)
-        if index is None:
+        try:
+            index = self.current_chat.get_msg_index(id)
+        except Exception as e:
             self.error.emit(f"未找到消息ID: {id}")
             return
+
         try:
             self.current_chat.edit_by_index(index, new_content)
             if notify:
@@ -475,7 +473,7 @@ class SessionManager:
         self.set_name(na)
 
         to = preset.info.get('tools',[])
-        self.set_tools(preset.tools)
+        self.set_tools(to)
 
         self.request_autosave()
         return self.current_chat
@@ -525,7 +523,7 @@ class SessionManager:
         """为重发准备历史记录"""
         if msg_id:
             self.fallback_chat(msg_id)
-        self.current_chat.truncate_to_user()
+        self.current_chat.truncate_to_role()
         if self.current_chat.chat_rounds <= 1:
             self.error.emit("消息回退失败：消息数不足")
             return False

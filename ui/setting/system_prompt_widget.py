@@ -6,8 +6,6 @@ from core.session.system_prompt_manager import SystemPromptPreset,SystemPromptSt
 from ui.tool_call.tool_manager_widget import FunctionsSelectorWidget
 
 class SystemPromptManager(QtWidgets.QWidget):
-    update_system_prompt = QtCore.pyqtSignal(str)
-    update_tool_selection = QtCore.pyqtSignal(list)
     update_preset = QtCore.pyqtSignal(object)
 
     def __init__(self, store=None, parent=None,folder_path=''):
@@ -521,8 +519,6 @@ class SystemPromptManager(QtWidgets.QWidget):
         if not self.store.save(current_path, preset):
             QtWidgets.QMessageBox.critical(self, "失败", "无法写入当前对话")
             return
-        self.update_system_prompt.emit(preset.content)
-        self.update_tool_selection.emit(preset.tools)
         self.update_preset.emit(preset)  # 内含 info.avatar
         QtWidgets.QMessageBox.information(self, "已覆盖", "已覆盖到当前对话")
 

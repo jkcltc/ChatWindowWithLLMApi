@@ -631,14 +631,15 @@ class MainWindow(MainWindow):
         self.toggle_tree_button.setStyleSheet(
             MainWindowPresetVars.toggle_tree_button_stylesheet
         )
+        #UI状态恢复
+        self.recover_ui_status()
 
-        self.creat_new_chat()
+
         self.installEventFilter(self)
         self.bind_hot_key()
         self.update_opti_bar()
 
-        #UI状态恢复
-        self.recover_ui_status()
+        
         #UI创建后
         self.init_post_ui_creation()
         self.info_manager.log(f'CWLA init finished, time stamp:{time.time()-start_time_stamp:.2f}s')
@@ -678,11 +679,11 @@ class MainWindow(MainWindow):
         b.avatar_changed.connect(self.update_avatar_to_chat_bubbles)
         b.history_changed.connect(self.finalize_chat_render)
         b.session_changed.connect(self.handle_session_change)
+        b.tool_changed.connect(lambda id,tool:self.function_manager.set_active_tools(tool))
 
         b.notify.connect(self.info_manager.notify)
         b.warning.connect(self.info_manager.warning)
         b.error.connect(self.info_manager.error)
-
 
     def init_app_core(self):
         self.core = CWLACore()
@@ -711,13 +712,12 @@ class MainWindow(MainWindow):
         self.function_manager = FunctionManager()
         self.function_manager.activatedToolsChanged.connect(self.session_manager.set_tools)
 
+
     def init_system_prompt_window(self):
         self.system_prompt_override_window = SystemPromptManager(
             folder_path=APP_RUNTIME.paths.system_prompt_preset_path
         )
-        self.system_prompt_override_window.update_tool_selection.connect(self.session_manager.set_tools)
         self.system_prompt_override_window.update_preset.connect(self.update_system_preset)
-        self.system_prompt_override_window.update_system_prompt.connect(self.session_manager.set_system_content)
 
     @property
     def mod_configer(self):
@@ -818,6 +818,11 @@ class MainWindow(MainWindow):
         index = self.model_combobox.findText(APP_SETTINGS.ui.LLM.model)
         if index >= 0:
             self.model_combobox.setCurrentIndex(index)
+        self.recover_last_preset()
+
+    def recover_last_preset(self):
+        preset=self.system_prompt_override_window.get_init_preset()
+        self.session_manager.create_new_session(preset)
 
 
     #svg图标渲染器
@@ -992,7 +997,6 @@ class MainWindow(MainWindow):
       return super().eventFilter(obj, event)
 
     def show_function_call_window(self):
-        self.function_manager.set_active_tools(self.session_manager.tools)
         self.function_manager.show()
         self.function_manager.raise_()
 
@@ -1366,6 +1370,11 @@ f'''聊天记录已导入，当前聊天：{self.session_manager.title}
 对话轮数 {self.session_manager.chat_rounds},
 对话标识 {self.session_manager.chat_id}'''
 )
+            if 'web_search' in self.session_manager.tools:
+                self.web_search_button.setCurrentIndex(1)
+            elif self.web_search_button.currentIndex() != 0:
+                self.web_search_button.setCurrentIndex(0)
+            
 
     #编辑记录
     def edit_chathistory(self, file_path=''):
@@ -1741,7 +1750,7 @@ f'''聊天记录已导入，当前聊天：{self.session_manager.title}
         # 启用搜索工具
         if index == 1:
             self.web_search_button.setChecked(True)
-            selected_functions = self.function_manager.get_selected_function_names()
+            selected_functions = self.session_manager.tools
             selected_functions = list(set(selected_functions) | {'web_search'})
         if index ==2 :
             self.init_web_searcher()
@@ -1754,9 +1763,10 @@ f'''聊天记录已导入，当前聊天：{self.session_manager.title}
             self.search_result_label.hide()
 
         if index in [0,2]:
-            selected_functions = self.function_manager.get_selected_function_names()
+            selected_functions = self.session_manager.tools
             selected_functions = [func for func in selected_functions if func != 'web_search']
-        self.function_manager.set_active_tools(selected_functions)
+            
+        self.session_manager.set_tools(selected_functions)
         
         # 强制搜索，老接口
         APP_SETTINGS.web_search.web_search_enabled = index == 2
@@ -1867,15 +1877,10 @@ f'''聊天记录已导入，当前聊天：{self.session_manager.title}
 
     #创建新消息
     def creat_new_chat(self):
-        # todo: 兼容chatsession
         self.system_prompt_override_window.load_income_prompt(
             self.session_manager.current_chat
         )
-
-        # 获取系统提示管理器洗干净的预设消息
-        preset=self.system_prompt_override_window.get_init_preset()
-
-        self.session_manager.create_new_session(preset)
+        self.recover_last_preset()
 
     def update_avatar_to_chat_bubbles(self,id='',avatars = {}):
         if not avatars:
@@ -1936,7 +1941,7 @@ f'''聊天记录已导入，当前聊天：{self.session_manager.title}
 
         table_body = "\n".join([f"{row:<20}|" for row in rows])
 
-        return f"## 📊 对话状态\n---\n{header}\n{table_body}\n"
+        return f"{header}\n{table_body}\n"
 
     def handle_session_change(self,session:'ChatSession'):
         self.chat_history_bubbles.set_chat_history(session.history)

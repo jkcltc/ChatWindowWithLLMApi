@@ -137,6 +137,7 @@ class TitleGenerator:
         try:
             self.log.emit("调用 API 请求生成标题...")
             # 仅把核心消息交给 handler；provider/model/api_config 由 set_provider 预设
+            self.api_handler.set_provider(self.settings.provider,self.settings.model)
             self.api_handler.send_request(message)
         except Exception as e:
             self._on_api_error(f"发送 API 请求失败：{e}")

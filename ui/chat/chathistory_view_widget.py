@@ -1167,17 +1167,17 @@ class ChatHistoryWidget(QFrame):
         self.update_all_nicknames()
         self.scroll_to_bottom()
 
-        t_sync = (time.time() - st) * 1000
-        remaining = len(displayable) - self._displayed_count
-        print(f'[同步调度完成] {t_sync:.2f}ms '
-              f'(删={t_del:.1f} 更新={t_upd:.1f} '
-              f'新增={t_add:.1f} 渲染调度={t_render:.1f}ms), '
-              f'pool命中={self._pool_hits} 未命中={self._pool_misses}, '
-              f'气泡数={len(self.bubble_list)}, '
-              f'pending={self._pending_renders}, '
-              f'未加载={remaining}, '
-              f'池={self._pool_status()}'
-              f'已显示数量：{self._count_visible_bubbles_in_layout()}')
+        #t_sync = (time.time() - st) * 1000
+        #remaining = len(displayable) - self._displayed_count
+        #print(f'[同步调度完成] {t_sync:.2f}ms '
+        #      f'(删={t_del:.1f} 更新={t_upd:.1f} '
+        #      f'新增={t_add:.1f} 渲染调度={t_render:.1f}ms), '
+        #      f'pool命中={self._pool_hits} 未命中={self._pool_misses}, '
+        #      f'气泡数={len(self.bubble_list)}, '
+        #      f'pending={self._pending_renders}, '
+        #      f'未加载={remaining}, '
+        #      f'池={self._pool_status()}'
+        #      f'已显示数量：{self._count_visible_bubbles_in_layout()}')
     
     def _count_visible_bubbles_in_layout(self) -> int:
         """从 UI 布局中真实统计当前可见的 ChatBubble 数量，用于 DEBUG 校对"""

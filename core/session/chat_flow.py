@@ -231,6 +231,7 @@ class ChatFlowManager:
         )
     
     def _should_do_lci(self):
+        self.session_manager.apply_updates(amount=1, lci=APP_SETTINGS.lci.enabled)
         if not APP_SETTINGS.lci.enabled:
             return False
 
@@ -242,6 +243,7 @@ class ChatFlowManager:
         return result.triggered
 
     def _should_update_background(self):
+        self.session_manager.apply_updates(amount=1, lci=APP_SETTINGS.background.enabled)
         if not APP_SETTINGS.background.enabled:
             return
         
@@ -254,6 +256,7 @@ class ChatFlowManager:
 
     def _trigger_accompanying_function(self):
         # 三位启动自己的线程
+        
         if self._should_do_lci():
             self.signals.notify.emit("LCI已启动。")
             self.lci.start(
@@ -262,6 +265,7 @@ class ChatFlowManager:
                 api_settings=APP_SETTINGS.api
             )
             self.session_manager.current_chat.reset_chat_rounds()
+
         if self._should_update_background():
             self.bga.generate(
                 self.session_manager.current_chat,

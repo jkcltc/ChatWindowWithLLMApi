@@ -135,19 +135,7 @@ class ChatFlowManager:
     def _dist_tts(self,id,text):
         if APP_SETTINGS.tts.tts_enabled:
             self.signals.tts.emit(id,text)
-    
-    def _rollback_lci_counters(self, amount=-2):
-        """
-        _rollback_lci_counters(self, amount=-2) 是消息回退时对两个附属模块触发进度的回退
-        
-        :param amount: 直接回退一条是-2，留接口给回退好几条的情况
-        """
-        self.session_manager.apply_updates(
-            amount = amount,
-            lci=APP_SETTINGS.lci.enabled,
-            bgg=APP_SETTINGS.background.enabled
-        )
-    
+
     def pause(self):
         self.rfm.pause()
     
@@ -156,7 +144,6 @@ class ChatFlowManager:
         resend_message : 重发消息，如果msg_id为空，则重发最后一条消息
         """
         chathistory = []
-        start_chat_length = self.session_manager.chat_rounds
         if not msg_id:
             msg_id = self.session_manager.get_last_message()['info']['id']
 
@@ -181,9 +168,6 @@ class ChatFlowManager:
         if not request_type:
             self.signals.error.emit("这是塞了什么鬼东西进来重传？")
             return False
-
-        end_chat_length = self.session_manager.chat_rounds
-        self._rollback_lci_counters(end_chat_length - start_chat_length)
 
         # 如果上层没传参数，兜底使用全局设置
         if not LLM_usage:
@@ -231,7 +215,6 @@ class ChatFlowManager:
         )
     
     def _should_do_lci(self):
-        self.session_manager.apply_updates(amount=1, lci=APP_SETTINGS.lci.enabled)
         if not APP_SETTINGS.lci.enabled:
             return False
 
@@ -243,7 +226,6 @@ class ChatFlowManager:
         return result.triggered
 
     def _should_update_background(self):
-        self.session_manager.apply_updates(amount=1, lci=APP_SETTINGS.background.enabled)
         if not APP_SETTINGS.background.enabled:
             return
         
@@ -376,20 +358,3 @@ class ChatFlowManager:
 
         return start_successful
  
-
-if __name__ == "__main__":
-    from core.utils import MainThreadDispatcher
-    from PyQt6.QtCore import QMetaObject, Qt
-    from PyQt6.QtWidgets import QApplication
-    import sys
-    import time
-    from typing import Callable
-
-    app = QApplication(sys.argv)
-
-    def qt_runner(task: Callable[[], None]):
-        QMetaObject.invokeMethod(app, task, Qt.ConnectionType.QueuedConnection)
-
-    MainThreadDispatcher.register_runner(qt_runner)
-
-    sys.exit(app.exec())

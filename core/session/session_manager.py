@@ -7,7 +7,7 @@ import threading
 import time
 import uuid
 from .chat_history_manager import ChathistoryFileManager
-from .session_model import ChatSession,ChatMessage
+from .session_model import ChatSession,ChatMessage,ChatList
 from .signals import SessionManagerSignalBus
 
 if TYPE_CHECKING:
@@ -156,7 +156,7 @@ class SessionManager:
 
     def __init__(self):
         """
-        初始化会话管理器（无锁版本）
+        初始化会话管理器
 
         Args:
             history_path: 历史记录存储路径，默认为应用配置中的 history_path
@@ -171,9 +171,8 @@ class SessionManager:
 
         self.signals = SessionManagerSignalBus()
 
-        # autosave：让 worker 保存"快照"，不要在后台线程读 current_chat
         self._autosave_worker = AutosaveWorker(
-            save_fn=self._do_autosave_once,   # (session) -> bool
+            save_fn=self._do_autosave_once,
             cooldown_s=0.150,
         )
 
@@ -259,12 +258,12 @@ class SessionManager:
     # ==================== 基本访问 ====================
 
     @property
-    def history(self) -> List[Dict]:
+    def history(self) -> ChatList:
         """获取当前聊天历史"""
         return self.current_chat.history
 
     @history.setter
-    def history(self, value: List[Dict]):
+    def history(self, value: ChatList):
         """设置聊天历史"""
         self.current_chat.history = value
         self.request_autosave()
@@ -300,20 +299,20 @@ class SessionManager:
     def tools(self):
         return self.current_chat.tools
     
-    def get_system_message(self) -> Optional[Dict]:
+    def get_system_message(self) -> str:
         return self.current_chat.system_prompt
 
-    def get_all_role_messages(self, role: str = "") -> List["ChatMessage"]:
+    def get_all_role_messages(self, role: str = "") -> ChatList:
         """获取指定角色的所有消息"""
         if role:
             return [msg for msg in self.current_chat.history if msg.get("role") == role]
         return []
 
-    def get_last_message(self, role: str = "") -> "ChatMessage":
+    def get_last_message(self, role: str = "") -> ChatList:
         """获取最后一条消息（可按role过滤）"""
         return self.current_chat.get_last_message(role=role)
     
-    def get_recent_messages(self, n: int = 10) -> List[Dict]:
+    def get_recent_messages(self, n: int = 10) -> ChatList:
         """获取最近的n条消息"""
         return self.current_chat.history[-n:]
     
@@ -394,6 +393,16 @@ class SessionManager:
             self.error.emit(f"保存聊天记录失败: {e}")
             return False
 
+    def delete_chathistory(self, file_path: str) -> bool:
+        """删除聊天记录文件"""
+        try:
+            self.chathistory_file_manager.delete_chathistory(file_path)
+            self.log.emit(f"聊天记录删除成功：{file_path}")
+            return True
+        except Exception as e:
+            self.error.emit(f"聊天记录删除失败: {e}")
+            return False
+
     def autosave(self, chat_session: "ChatSession" = None) -> bool:
         """同步自动保存：保存快照/指定 session"""
         session = chat_session if chat_session is not None else self._snapshot_session()
@@ -405,16 +414,6 @@ class SessionManager:
     def past_session_list(self) -> List[Dict]:
         """获取历史会话列表"""
         return self.chathistory_file_manager.load_past_chats(self.history_path)
-
-    def delete_chathistory(self, file_path: str) -> bool:
-        """删除聊天记录文件"""
-        try:
-            self.chathistory_file_manager.delete_chathistory(file_path)
-            self.log.emit(f"聊天记录删除成功：{file_path}")
-            return True
-        except Exception as e:
-            self.error.emit(f"聊天记录删除失败: {e}")
-            return False
 
     def is_saved_current_history(self, file_path: str) -> "ChatSession":
         """
@@ -502,35 +501,80 @@ class SessionManager:
         self.signals.session_changed.emit(self.current_chat)
         self.request_autosave()
 
-    def fallback_chat(self, msg_id: str):
-        """回退到指定消息（包含目标消息）"""
-        self.current_chat.truncate_to_message(msg_id, include_target=True)
-        self.request_autosave()
-    
-    def fallback_history_for_edit(self) -> str:
+    def fallback_history_for_edit(self) -> tuple[str, list]:
+        """回退到用户消息，并返回被回退的消息内容"""
+
+        def _finished():
+            """收尾：更新辅助计算、保存对话、更新视图"""
+            # 更新辅助计算
+            end_chat_length = self.chat_rounds
+            self._apply_round_updates(end_chat_length - start_chat_length)
+
+            # 保存对话
+            self.request_autosave()
+
+            # 更新视图
+            self.signals.history_changed.emit(self.chat_id, self.history)
+
+        # 准备截断长度计算
+        start_chat_length = self.chat_rounds
+
+        # 开始截断
         self.current_chat.truncate_to_user()
+        
         if self.current_chat.chat_rounds <= 1:
             self.error.emit("消息回退失败：消息数不足")
+            _finished()
             return False
+        
+        # 取得待修改值
         content = self.history[-1]["content"]
         muti = self.history[-1].get('info',{}).get('multimodal',[])
+
+        # 删除待修改值
         self.history.pop()
-        self.request_autosave()
-        self.signals.history_changed.emit(self.chat_id, self.history)
+
+        # 收尾
+        _finished()
+
+        # 返回文本和多模态
         return content,muti
     
-    def fallback_history_for_resend(self, msg_id: str = "") -> List[Dict]:
+    def fallback_history_for_resend(self, msg_id: str = "") -> ChatList:
         """为重发准备历史记录"""
+
+        def _finished():
+            """收尾：更新辅助计算、保存对话、更新视图"""
+            # 更新辅助计算
+            end_chat_length = self.chat_rounds
+            self._apply_round_updates(end_chat_length - start_chat_length)
+
+            # 保存对话
+            self.request_autosave()
+
+            # 更新视图
+            self.signals.history_changed.emit(self.chat_id, self.history)
+
+        # 准备截断长度计算
+        start_chat_length = self.chat_rounds
+
+        # 提供id时截断到id
         if msg_id:
-            self.fallback_chat(msg_id)
+            self.current_chat.truncate_to_message(msg_id, include_target=True)
+
+        # 重发只考虑用户和tool信息
         self.current_chat.truncate_to_role()
+
+        # 如果截断到只剩系统消息，返回失败
         if self.current_chat.chat_rounds <= 1:
             self.error.emit("消息回退失败：消息数不足")
+            _finished()
             return False
-        hist = self.current_chat.history
-        self.request_autosave()
-        self.signals.history_changed.emit(self.chat_id, self.history)
-        return hist
+        
+        # 收尾
+        _finished()
+
+        return self.history
 
     def set_title(self, title: str):
         """设置会话标题"""
@@ -591,19 +635,10 @@ class SessionManager:
             self.current_chat.history[0]["content"] = content
         self.request_autosave()
 
-    def apply_updates(self, amount=0, lci=False, bgg=False, avatar=None, tools=None):
+    def _apply_round_updates(self, amount=0):
         """应用会话流更新"""
-        if lci:
-            self.current_chat.increment_chat_rounds(amount)
-        if bgg:
-            self.current_chat.increment_background_rounds(amount)
-        if avatar:
-            self.current_chat.avatars = avatar
-            self.signals.avatar_changed.emit(self.chat_id,self.current_chat.avatars)
-        if tools:
-            self.current_chat.tools = tools
-            self.signals.tool_changed.emit(self.chat_id,self.current_chat.tools)
-        self.request_autosave()
+        self.current_chat.increment_chat_rounds(amount)
+        self.current_chat.increment_background_rounds(amount)
 
     def create_new_message(self,role:str,content: str, multimodal=None,info:dict=None):
         new_msg = {
@@ -624,11 +659,13 @@ class SessionManager:
     def add_new_message(self,role:str,content: str, multimodal=None,info:dict=None):
         new_msg = self.create_new_message(role,content,multimodal,info)
         self.current_chat.history.append(new_msg)
+        self._apply_round_updates(1)
         self.signals.history_changed.emit(self.chat_id,self.history)
         self.request_autosave()
 
-    def add_messages(self,messages:list[dict]):
+    def add_messages(self,messages: ChatList):
         self.current_chat.history.extend(messages)
+        self._apply_round_updates(len(messages))
         self.signals.history_changed.emit(self.chat_id,self.history)
         self.request_autosave()
 
@@ -641,7 +678,7 @@ class SessionManager:
     
     def get_filtered_context_data(
             self, 
-            generated_items: List[Dict], 
+            generated_items: ChatList, 
             anchor_id: str,business_tag='lci'
         ) -> Optional[Dict]:
 

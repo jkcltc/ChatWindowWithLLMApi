@@ -1,11 +1,7 @@
 from dataclasses import dataclass, field, asdict, fields
 import uuid
 import json
-from typing import List, Dict, Union, Optional, TypedDict, Literal,TYPE_CHECKING
-import copy
-
-if TYPE_CHECKING:
-    from .system_prompt_manager import SystemPromptPreset
+from typing import List, Dict, Union, Optional, TypedDict, Literal
 
 MEDIA_TYPES = {'image_url', 'image', 'input_audio', 'audio', 'video'}
 
@@ -58,6 +54,8 @@ class SystemMessage(BaseMessage):
 
 
 ChatMessage = Union[SystemMessage, UserMessage, AssistantMessage,ToolMessage]
+ChatList = List[ChatMessage]
+
 DEFAULT_TITLE_SET = {None, '', 'New Chat', 'Untitled Chat'}
 
 @dataclass
@@ -66,7 +64,7 @@ class ChatSession:
     ChatSession 类用于管理单个聊天会话的状态和数据。
     它包含了聊天历史记录、会话ID、标题等信息，并提供了操作这些信息的方法。
     """
-    history: List[ChatMessage] = field(default_factory=lambda: [
+    history: ChatList = field(default_factory=lambda: [
         {
             "role": "system",
             "content": "",
@@ -94,10 +92,6 @@ class ChatSession:
     tools: List[str] = field(default_factory=list)
     _version: str = 'V2'
     """ChatSession 类的版本号"""
-
-    # chat_length 缓存相关字段（不参与序列化）
-    _cached_chat_length: Optional[int] = field(default=None, repr=False, compare=False)
-    _cached_history_signature: Optional[tuple] = field(default=None, repr=False, compare=False)
 
     def __post_init__(self):
         if not self.chat_id:
@@ -149,7 +143,7 @@ class ChatSession:
         while len(self.history) > 1 and self.history[-1].get('role') not in roles:
             self.history.pop()
 
-    def get_last_n_length(self,n:int=0):
+    def get_last_n_length(self,n:int=0) -> int:
         target_types_set = MEDIA_TYPES
         _len = len
         _str = str
@@ -210,13 +204,13 @@ class ChatSession:
                 return i
         return -1
     
-    def get_all_role_messages(self, role: str = "") -> List["ChatMessage"]:
+    def get_all_role_messages(self, role: str = "") -> ChatList :
         """获取指定角色的所有消息"""
         if role:
             return [msg for msg in self.history if msg.get("role") == role]
         return []
 
-    def get_message_by_tag(self,tag = '')-> List["ChatMessage"]:
+    def get_message_by_tag(self,tag = '')-> ChatList :
         result = []
         for item in self.history:
             if item['info']["id"].startswith(tag):
@@ -227,7 +221,7 @@ class ChatSession:
         self.history[index]['content'] = new_content
 
     @property
-    def system_messages(self) -> list:
+    def system_messages(self) -> ChatList :
         '''返回所有系统消息'''
         return self.get_all_role_messages('system')
 
@@ -237,18 +231,18 @@ class ChatSession:
         return self.history[0]['content']
     
     @property
-    def system_prompts(self) ->str:
+    def system_prompts(self) -> str:
         '''返回所有系统消息的内容'''
         return "\n".join(
         str(m.get("content", "")) for m in self.get_all_role_messages("system")
     )
 
     @property
-    def new_chat_length(self):
+    def new_chat_length(self) -> int:
         return self.get_last_n_length(self.new_chat_rounds)
     
     @property
-    def new_background_length(self):
+    def new_background_length(self) -> int:
         return self.get_last_n_length(self.new_background_rounds)
 
     @property
@@ -256,7 +250,7 @@ class ChatSession:
         return len(self.history)
 
     @property
-    def chat_length(self):
+    def chat_length(self) -> int:
         return self.get_last_n_length()
 
     @classmethod

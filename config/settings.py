@@ -555,7 +555,7 @@ class ModelConcurrent(BaseSettings):
 class UIStatus(BaseSettings):
     """UI设置"""
 
-    theme: str = r'theme\ds-r1-0528.qss'
+    theme: str = r'data\theme\ds-r1-0528.qss'
     """主题"""
 
     LLM : LLMUsagePack = Field(default_factory=LLMUsagePack)

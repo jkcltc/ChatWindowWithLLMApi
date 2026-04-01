@@ -46,6 +46,10 @@ def inspect_lingering_threads():
 # 在 main 的最开始注册
 atexit.register(inspect_lingering_threads)
 
+from common.init_functions import install_packages
+
+install_packages()
+
 if sys.platform == 'win32':
     appid = 'CWLA 0.26.1'
     ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(appid)

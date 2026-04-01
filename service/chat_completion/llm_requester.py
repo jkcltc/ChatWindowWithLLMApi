@@ -330,7 +330,7 @@ class OneTimeLLMRequester:
             print('otlr headers',headers)
             import json
             pld = json.dumps(params,indent=2,ensure_ascii=False)
-            print('otlr payload:',pld[:500],pld[-500:]) if len(pld) > 1000 else print('otlr payload:',pld)
+            print('otlr payload:',pld[:500],'\n',pld[-1000:]) if len(pld) > 1500 else print('otlr payload:',pld)
 
             is_stream = params.get('stream', False)
             

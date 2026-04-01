@@ -681,14 +681,10 @@ class RequestFlowManager:
         # 请求时没有带工具，但收到了工具请求
         # 模型幻觉被服务器后端解析了，常见于Deepseek，但也可能是https被劫持了'
         elif not valid_tool_names_snapshot:
-            warning_message=" **!!!警告：非预期的工具调用!!!**  \n请求未搭载工具，但收到工具调用响应。 \n立即检查服务是否被劫持！ \n> 可能的其他原因：工具调用来自模型幻觉。"
-            quick_deny="工具调用已取消。原因：工具未挂载。"
+            print(valid_tool_names_snapshot)
+            warning_message=" **!!!警告：非预期的工具调用!!!**  \n收到未注册的工具调用响应。\n> 可能的原因：工具调用来自模型幻觉。"
+            quick_deny="工具调用已取消。原因：工具调用未启用。"
             self.signals.warning.emit(warning_message)
-
-        for tool in allowed_tool_call:
-            if not tool['tool_call']['function']['name'] in valid_tool_names_snapshot:
-                quick_deny="工具调用已取消。原因：工具未注册。"
-                break
 
         # 有全拒绝标志，全部给否定
         if quick_deny:
@@ -702,15 +698,15 @@ class RequestFlowManager:
             call_index=call["index"]
             try:
                 exec_result = self.function_manager.call_from_openai(tool_to_exec)
-                self.signals.log.emit(f"工具调用结果: {exec_result}")
+                self.signals.log.emit(f"调用结果: {exec_result}")
                 if  exec_result['ok']:
                     tool_result = exec_result['result']
                 else:
-                    tool_result = f"工具执行出错: {exec_result['message']}"
+                    tool_result = f"执行错误: {exec_result['message']}"
                     self.signals.warning.emit(tool_result)
             except Exception as e:
                 # AI用错误的参数调用了工具或者执行内容把工具核心干碎了
-                tool_result= f"工具解析出错: {e}"
+                tool_result= f"工具解析错误: {e}"
 
             message_to_be_returned[call_index]={
                     "role": "tool",

@@ -30,7 +30,7 @@ class TokenAnalyzer:
         self.reset()
         
         if not isinstance(log_data, list):
-            raise ValueError("日志数据必须是字典列表")
+            return self.get_results()
         
         for message in log_data:
             self.message_count += 1

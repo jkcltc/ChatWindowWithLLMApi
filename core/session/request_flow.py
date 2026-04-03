@@ -697,13 +697,17 @@ class RequestFlowManager:
             tool_to_exec=call['tool_call']
             call_index=call["index"]
             try:
-                exec_result = self.function_manager.call_from_openai(tool_to_exec)
-                self.signals.log.emit(f"调用结果: {exec_result}")
-                if  exec_result['ok']:
-                    tool_result = exec_result['result']
+                if not call['tool_call']['function']['name'] in valid_tool_names_snapshot:
+                    tool_result = "工具调用失败。原因：未定义的工具名。"
                 else:
-                    tool_result = f"执行错误: {exec_result['message']}"
-                    self.signals.warning.emit(tool_result)
+                    exec_result = self.function_manager.call_from_openai(tool_to_exec)
+                    self.signals.log.emit(f"调用结果: {exec_result}")
+                    
+                    if  exec_result['ok']:
+                        tool_result = exec_result['result']
+                    else:
+                        tool_result = f"执行错误: {exec_result['message']}"
+                        self.signals.warning.emit(tool_result)
             except Exception as e:
                 # AI用错误的参数调用了工具或者执行内容把工具核心干碎了
                 tool_result= f"工具解析错误: {e}"

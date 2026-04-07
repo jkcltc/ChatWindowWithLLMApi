@@ -39,7 +39,8 @@ def install_packages(package_map={}):
             "markdown": "markdown",
             "jsonfinder": "jsonfinder",
             'edge-tts':'edge_tts',
-            'jsonschema':'jsonschema'
+            'jsonschema':'jsonschema',
+            'psygnal':'psygnal'
         }
     
     # 检查是否有缺失包

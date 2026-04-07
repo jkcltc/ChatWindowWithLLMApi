@@ -308,7 +308,10 @@ class SystemPromptManager(QtWidgets.QWidget):
         """
         current_path = self.store.current_dialog_path(self.default_current_filename)
         preset=self.store.read(current_path)
-        return preset
+        if preset:
+            return preset
+        else:
+            return SystemPromptPreset(name=self.default_current_filename)
 
     # ---------- 内部工具 ----------
     def _reload_list(self, select_path: Optional[str] = None):

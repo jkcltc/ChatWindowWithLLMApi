@@ -1389,8 +1389,11 @@ f'''聊天记录已导入，当前聊天：{self.session_manager.title}
         else:
             session = self.session_manager.current_chat
             connect_current = True
+        
+        if hasattr(self,"_ch_editor") and self._ch_editor:
+            self._ch_editor.editCompleted.disconnect()
 
-        editor = ChatHistoryEditor(
+        self._ch_editor = ChatHistoryEditor(
             title_generator=TitleGenerator(
                 api_handler= APIRequestHandler(),
                 settings=APP_SETTINGS.title
@@ -1398,18 +1401,20 @@ f'''聊天记录已导入，当前聊天：{self.session_manager.title}
             session= session
         )
 
+        self._ch_editor.destroyed.connect(lambda: setattr(self, "_ch_editor", None))
+
         # 连接信号
         if connect_current:
             # 连接到当前聊天记录的更新
-            editor.editCompleted.connect(self.session_manager.set_session)
+            self._ch_editor.editCompleted.connect(self.session_manager.set_session)
         else:
             # 连接到文件保存
-            editor.editCompleted.connect(
+            self._ch_editor.editCompleted.connect(
                 lambda ch: self.session_manager.save_chathistory(chat_session=ch)
             )
-            editor.editCompleted.connect(self.grab_past_chats)
+            self._ch_editor.editCompleted.connect(self.grab_past_chats)
         
-        editor.show()
+        self._ch_editor.show()
     
     def save_chathistory(self):
         """打开文件选择窗口并保存当前聊天记录"""

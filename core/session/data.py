@@ -47,3 +47,5 @@ class RequestType(Enum):
     TOOL_DIRECT_TO_USER = "tool_direct_to_user"
     """用户拦截了工具回调并且立即附上了一条消息"""
 
+    CHECK_TOOL_EXEC = "check_tool_exec"
+

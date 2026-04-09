@@ -1,7 +1,7 @@
 __version__ = "0.26.1"
 __author__ = "jkcltc"
 
-from ui.CWLA_main import start
+#from ui.main_window import start
 import sys
 import ctypes
 
@@ -11,7 +11,7 @@ def setup_app_id():
         ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(appid)
 
 __all__ = [
-    "start", 
+    #"start", 
     "setup_app_id", 
     "__version__", 
     "__author__"

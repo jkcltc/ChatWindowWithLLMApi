@@ -357,6 +357,7 @@ class RequestFlowManager:
             if self.current_requester:
                 self.current_requester.pause()
         threading.Thread(target=tg).start()
+
         self.reset()
         
     def _should_send_message(
@@ -381,9 +382,6 @@ class RequestFlowManager:
             RuntimeError: 当消息未组装时
         """
         history = chat_session.history
-        if not history:
-            raise RuntimeError("严重：消息未组装")
-
         user_last_index = chat_session.get_last_index("user")
         assistant_last_index = chat_session.get_last_index("assistant")
         tool_last_index = chat_session.get_last_index("tool")
@@ -545,16 +543,49 @@ class RequestFlowManager:
             self.signals.failed.emit(f"[RWM M_R] failed {uuid.uuid4()}",str(error_message)+str(e))
         
     def continue_tool_exec(self,pack:"ChatCompletionPack"):
+
         self.reset()
+
         message=[pack.chat_session.get_last_message('assistant')]
-        tc_list=self.post_processor.handle_tool_filter(chat_message=message)
+        tc_list = self.post_processor.handle_tool_filter(chat_message=message)
+
         self._current_request_id = td =  f"resume_{uuid.uuid4()}"
-        self._have_tool_at_sending = (tc_list, td)
-        self.handle_tool_permission(
-            request_id=self._current_request_id,
-            tc_list=tc_list,
+
+        self._have_tool_at_sending: tuple = (
+            pack.chat_session.tools + (pack.tool_list or []),
+            td
+        )
+
+        _dn_tools=[]
+        for toolcall in tc_list:
+            _dn_tools.append(toolcall)
+
+        self.exec_tool_calls(
+            request_id=td,
+            allowed_tool_call= [],
+            denied_tool_call = _dn_tools,
             create_thread = True
         )
+    
+    def fix_tool_call_exec(self,chat_session:"ChatSession"):
+
+        message=[chat_session.get_last_message('assistant')]
+
+        tc_list = self.post_processor.handle_tool_filter(chat_message=message)
+
+        self._current_request_id = td =  f"resume_{uuid.uuid4()}"
+
+        self._have_tool_at_sending: tuple = (
+            chat_session.tools,
+            td
+        )
+
+        _dn_tools=[]
+        for toolcall in tc_list:
+            _dn_tools.append(toolcall)
+
+        return self.exec_tool_calls_after_paused(denied_tool_call= _dn_tools)
+
 
     def _on_requester_finished(self, request_id: str, result: list[dict]):
         """
@@ -698,7 +729,7 @@ class RequestFlowManager:
             call_index=call["index"]
             try:
                 if not call['tool_call']['function']['name'] in valid_tool_names_snapshot:
-                    tool_result = "工具调用失败。原因：未定义的工具名。"
+                    tool_result = f"工具调用失败。原因：未定义的工具名“{call['tool_call']['function']['name']}”。\n可用工具列表：{' '.join(valid_tool_names_snapshot)}"
                 else:
                     exec_result = self.function_manager.call_from_openai(tool_to_exec)
                     self.signals.log.emit(f"调用结果: {exec_result}")
@@ -743,6 +774,25 @@ class RequestFlowManager:
         if not quick_deny:
             self.signals.request_toolcall_resend.emit(request_id)
 
+    def exec_tool_calls_after_paused(self,denied_tool_call):
+        message_to_be_returned={}
+        denied_tool_call = denied_tool_call or []
+        for call in denied_tool_call:
+            tool_to_exec=call['tool_call']
+            call_index=call["index"]
+            message_to_be_returned[call_index]={
+                    "role": "tool",
+                    "tool_call_id": tool_to_exec.get("id"),
+                    "content": "工具调用已取消。原因：用户暂停了当前对话。",
+                    'info': tool_to_exec
+                }
+          
+        # 按 call_index 排序，生成有序列表
+        sorted_indices = sorted(message_to_be_returned.keys())
+        tool_call_result_list = [message_to_be_returned[i] for i in sorted_indices]
+
+        return tool_call_result_list
+        
     def send_tool_callback_request(self, pack):
         """
         发送工具回调请求。

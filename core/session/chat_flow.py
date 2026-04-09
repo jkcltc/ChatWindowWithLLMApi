@@ -14,7 +14,7 @@ from core.multimodal_coordination.background_generater_helper import BggEvaluati
 from core.background import BackgroundAgent
 
 from core.session.data import ChatCompletionPack,RequestType
-from core.session.request_flow import RequestFlowManager
+from core.session.request_flow import RequestFlowManager,ToolNotExecutedError
 from core.session.signals import ChatFlowManagerSignalBus
 
 from core.utils.dispatcher import MainThreadDispatcher as MTD
@@ -298,6 +298,18 @@ class ChatFlowManager:
             temp_style:str='', # 临时风格，这个确实应该在UI上
             ):
         text,multimodal_content=prompt_pack
+        try:
+            self.rfm._should_send_message(self.session_manager.current_chat, RequestType.CHECK_TOOL_EXEC)
+        except ToolNotExecutedError:
+            fix = self.rfm.fix_tool_call_exec(
+                chat_session=self.session_manager.current_chat
+            )
+            self.session_manager.add_messages(fix)
+        except Exception as e:
+            successful = False
+            error_msg = str(e)
+            self.signals.error.emit(f'main completion eval fail {error_msg}')
+
         self.session_manager.add_new_message(
             role='user',
             content=text,

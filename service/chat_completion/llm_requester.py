@@ -1,0 +1,971 @@
+"""
+LLMRequester - Qt-decoupled LLM request handler.
+
+This module provides a Qt-independent, signal-based LLM request handler using
+psygnal for event emission. It follows the single responsibility principle by
+focusing solely on executing single-shot requests and processing responses,
+while delegating tool call orchestration to higher-level managers.
+
+Architecture Overview:
+    WorkflowManager (tool call loop orchestration)
+        ↓
+    LLMRequester (single request execution)
+        ↓
+    StreamParser + ReasoningParser (protocol parsing)
+
+Key Features:
+    - Qt-free: Runs in any Python environment using psygnal signals
+    - Streaming-first: Native support for streaming and non-streaming responses
+    - State management: Tracks request lifecycle from IDLE to COMPLETED/FAILED
+    - Tool call support: Accumulates partial tool calls from streaming responses
+    - Reasoning extraction: Handles chain-of-thought content from local models
+
+Example Usage:
+    >>> from service.chat_completion.llm_requester import LLMRequester, RequestConfig
+    >>> config = RequestConfig(api_key="sk-...", base_url="https://api.example.com")
+    >>> requester = LLMRequester(config=config)
+    >>> requester.signals.stream_content.connect(lambda rid, text: print(text, end=""))
+    >>> requester.send_request({"model": "gpt-4", "messages": [...], "stream": True})
+
+Dependencies:
+    - requests: For HTTP session management
+    - psygnal: For Qt-compatible signal emission
+
+"""
+import time
+from enum import Enum
+import threading
+from typing import Dict, Any, List, Optional, Callable, Union,TYPE_CHECKING,Iterable
+from dataclasses import dataclass, field
+import traceback
+import requests
+import json
+
+import uuid
+
+from .stream_parser import DeltaObject, DeltaType, SimpleSSEParser,decode_content
+from .reasoning_parser import StreamingReasoningParser,SimpleReasoningParser
+from .signals import RequesterSignals
+
+
+# 结束原因映射
+FINISH_REASON_MAP = {
+    "stop": "对话正常结束。",
+    "length": "对话因长度限制提前结束。",
+    "content_filter": "对话因内容过滤提前结束。",
+    "function_call": "AI 发起了工具调用。",
+    "tool_calls": "AI 发起了工具调用。",
+    "tool_call": "AI 发起了工具调用。",
+    "null": "未完成或进行中",
+    "paused":"对话被用户暂停。",
+    "empty_message":"服务端空回复。",
+    None: "对话结束，未返回完成原因。"
+}
+
+
+class RequestState(Enum):
+    """请求状态"""
+    IDLE = "idle"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
+@dataclass
+class RequestConfig:
+    """请求配置"""
+    key: str = ""
+    url: str = ""
+    provider_type: str = "openai_compatible"
+    timeout_connect: float = 30.0
+    timeout_read: float = 180.0
+
+
+@dataclass  
+class RequestResult:
+    """请求结果"""
+    request_id: str
+    content: str = ""
+    reasoning_content: str = ""
+    tool_calls: Optional[List[Dict]] = None
+    finish_reason: Optional[str] = None
+    model: Optional[str] = None
+    usage: Optional[Dict] = None
+    server_id : set = field(default_factory=set)
+
+    # type hint only
+    info: Dict[str, Any] = field(default_factory=dict)
+    messages: List[Dict] = field(default_factory=list)
+
+    
+    """list:用于json.dump"""
+    
+    def to_chat_history(self) -> List[Dict]:
+        """转换为落盘格式"""
+        # 这么小的逻辑单独起一层有点过分了
+        message = {
+            'role': 'assistant',
+            'content': self.content,
+            'reasoning_content': self.reasoning_content,
+            'info': {
+                'id': self.request_id,
+                'model': self.model,
+                'time': time.strftime("%Y-%m-%d %H:%M:%S"),
+                'server_id':list(self.server_id),
+                'finish_reason': self.finish_reason,
+                **(self.usage or {})
+            }
+        }
+        
+        if self.tool_calls:
+            message['tool_calls'] = self.tool_calls
+            
+        return [message]
+
+
+class OneTimeLLMRequester:
+    """
+    openai chat completion单次请求
+
+    使用示例：
+        requester = LLMRequester()
+        requester.signals.stream_content.connect(lambda rid, text: print(text, end=''))
+        requester.signals.finished.connect(lambda rid, result: print("Done!"))
+        
+        requester.send_request({
+            'model': 'gpt-4',
+            'messages': [{'role': 'user', 'content': 'Hello'}],
+            'stream': True
+        })
+    """
+
+    def __init__(self, config:"RequestConfig", session:requests.Session=None):
+        """
+        初始化请求处理器
+        
+        Args:
+            session: 上层请求池，不传就自己解决
+            config: 请求配置
+        """
+        
+        self.config = RequestConfig()
+        self.set_provider(config)
+
+        self.signals = RequesterSignals()
+        
+        # 会话管理，外部连接池或者自己维护
+        self._have_own_session=False
+        if not session:
+            self._have_own_session=True
+        self._session = session or requests.Session()
+
+        # 请求状态
+        self._state = RequestState.IDLE
+        self._pause_flag = threading.Event()
+        self._current_request_id: Optional[str] = None
+        self._current_response: Optional[requests.Response] = None
+        
+        # 流式处理组件
+        self._reasoning_parser: Optional[StreamingReasoningParser] = None
+        
+        # 工具调用累积
+        self._tool_calls_buffer: Dict[int, Dict] = {}
+
+        self._already_executed = None
+        
+    def _log(self, message: str):
+        """内部日志"""
+        self.signals.log.emit(f"[LLMRequester] {message}")
+        
+    @property
+    def state(self) -> RequestState:
+        """当前请求状态"""
+        return self._state
+    
+    @property
+    def is_running(self) -> bool:
+        """是否正在运行"""
+        return self._state == RequestState.RUNNING
+    
+    @property
+    def paused(self):
+        return self._pause_flag.is_set()
+    
+    def set_provider(self, provider: "RequestConfig"):
+        """
+        设置 API 提供商
+        - 老接口
+        - 多个链接安全处理
+        """
+        self.config.key = provider.key
+        self.config.url = provider.url.rstrip('/')
+        self.config.provider_type = provider.provider_type
+        
+    def pause(self):
+        """
+        暂停当前请求
+        别忘了requester.signals.disconnect_all()
+        """
+        self._pause_flag.set()
+
+        if not self.result:
+            # 给个空结果，上层报空回警告
+            self.result = RequestResult(request_id=self._current_request_id)
+        self.signals.finished.emit(self._current_request_id, self.result.to_chat_history())
+
+        if self._current_request_id:
+            self.signals.paused.emit(self._current_request_id)
+        
+        self.close()
+
+
+    def send_request(
+        self,
+        params: Dict[str, Any],
+        create_thread:bool=True,
+        id:str=''
+    ):
+        """
+        发送请求（主要）
+        
+        通过信号返回结果
+        
+        Args:
+            params: OpenAI 格式的请求参数
+            create_thread: 是否需要创建独立线程
+
+        """
+        if self._already_executed:
+
+            # 这是个用一次的类，如果它被复用了，说明上层的请求器管理出了问题
+            # 总的来说：你不能在这里释放死灵法术
+
+            raise RuntimeError("Requester already executed")
+        
+        self._already_executed = True
+
+        self._current_request_id = id if id else f"CWLA_req_{uuid.uuid4()}"
+        
+        if create_thread:
+            self._send_request_multithreading(params)
+        else:
+            self._send_request_sync(params)
+
+    def _send_request_multithreading(
+        self,
+        params: Dict[str, Any],
+    ):  
+        """
+        发送请求（创建线程）
+        前台任务发送请求时使用，不卡UI
+
+        :param params: 数据包
+        :type params: Dict[str, Any]
+        """
+        thread = threading.Thread(
+            target=self._execute_request_sync,
+            args=(params,),
+            daemon=True,
+            name=f"LLM-Worker-{str(uuid.uuid4())[-4:]}"
+        )
+        thread.start()
+
+    def _send_request_sync(
+        self,
+        params: Dict[str, Any],
+    ) :
+        """
+        发送请求（阻塞）
+        后台任务创建请求时使用
+        
+        Args:
+            params: OpenAI 格式的请求参数
+            
+        Returns:
+            请求结果，失败时返回 None
+        """
+        # 同步执行请求，不使用额外线程
+        self._execute_request_sync(params)
+    
+    def _execute_request_sync(
+        self,
+        params: Dict[str, Any],
+    ):
+        """同步发送请求的内部实现"""
+        
+        if self._pause_flag.is_set():
+
+            # 我们遇到了一个手速超人，在线程创建途中点了取消
+            # 直接raise进final
+
+            raise RuntimeError("Super Fast Cancel")
+        
+        # 重置状态
+        self._state = RequestState.RUNNING
+        self._pause_flag.clear()
+        self._current_response = None
+        self._tool_calls_buffer.clear()
+        self.result = None
+        
+        
+        # 初始化思维链解析器（本地模型需要）
+        is_local = self.config.provider_type == 'local'
+        if is_local:
+            self._reasoning_parser = StreamingReasoningParser()
+        else:
+            self._reasoning_parser = None
+        
+        self.signals.started.emit(self._current_request_id)
+        
+        try:
+            # 构建请求
+            url = f"{self.config.url.rstrip('/')}"
+            if not "/chat/completions" in url:
+                url += f"/chat/completions"
+
+            headers = self._build_headers(params.get('extra_headers',{}))
+            # openai 默认构建的payload允许有extra_headers，但请求里是不需要的
+            if 'extra_headers' in params:
+                params.pop('extra_headers')
+            print('otlr headers',headers)
+            import json
+            pld = json.dumps(params,indent=2,ensure_ascii=False)
+            print('otlr payload:',pld[:500],'\n',pld[-1000:]) if len(pld) > 1500 else print('otlr payload:',pld)
+
+            is_stream = params.get('stream', False)
+            
+            if is_stream:
+                self.result = self._handle_stream_request(url, headers, params)
+            else:
+                self.result = self._handle_non_stream_request(url, headers, params)
+            
+            self._state = RequestState.COMPLETED
+
+            if self.result != RequestResult(request_id=self._current_request_id):
+                self.signals.finished.emit(self._current_request_id, self.result.to_chat_history())
+                return self.result
+            else:
+                self.signals.warning('服务器返回了空响应，检查服务状态或参数设置。')
+                return None
+            
+                
+        except Exception as e:
+            # 发生异常时，先看是不是因为用户按了暂停
+            if self._pause_flag.is_set():
+                # 安全无视报错
+                return None
+
+            # 只有在非暂停状态下的异常，才是真正的故障
+            error_msg = self._format_error(e)
+            self._state = RequestState.FAILED
+            if isinstance(e, (
+                requests.exceptions.RequestException,
+                requests.exceptions.Timeout,
+                requests.exceptions.ConnectionError,
+                requests.HTTPError
+            )):
+                self.signals.failed.emit(
+                    self._current_request_id,
+                    f"服务器错误：{error_msg}"
+                )
+            else:
+                self.signals.error.emit(
+                    f"请求失败，内部错误: {error_msg}{traceback.format_exc()}"
+                )
+            return None
+    
+    def _build_headers(self, extra_headers: Optional[Dict] = None) -> Dict[str, str]:
+        """构建请求头"""
+        # 给默认值，用户整活自己覆盖去
+        headers = {
+            'User-Agent': "ChatWindowWithLLMApi-CWLA",
+            'Authorization': f'Bearer {self.config.key}'
+        }
+
+        if extra_headers:
+            headers.update(extra_headers)
+            
+        return headers
+    
+    def _handle_stream_request(
+        self, 
+        url: str, 
+        headers: Dict[str, str], 
+        request_data: Dict
+    ) -> Optional[RequestResult]:
+        """处理流式请求"""
+        self._current_response = response = None
+        self.result = RequestResult(request_id=self._current_request_id)
+        
+        try:
+            # 发起请求
+            response = self._session.post(
+                url,
+                json=request_data,
+                headers=headers,
+                stream=True,
+                timeout=(self.config.timeout_connect, self.config.timeout_read)
+            )
+            self._current_response = response
+            
+            # 检查 HTTP 状态
+            if response.status_code != 200:
+                error_text = decode_content(response.content)
+                raise requests.HTTPError(
+                    error_text,
+                    response=response
+                )
+            # 解析 SSE 流
+            for delta in SimpleSSEParser.parse_stream(response, logger=self._log):
+                # 检查暂停
+                if self._pause_flag.is_set():
+                    response.close()
+                    
+                    self._log("Request paused by user")
+                    break
+                
+                # 处理 delta
+                if delta.delta_type == DeltaType.DONE:
+                    break
+                
+                self._process_delta(delta, self.result)
+
+            # 完成思维链解析
+            if self._reasoning_parser:
+                parse_result = self._reasoning_parser.finalize()
+                self.result.content = parse_result.content
+                self.result.reasoning_content = parse_result.reasoning_content
+            
+            # 处理工具调用
+            if self._tool_calls_buffer:
+                self.result.tool_calls = list(self._tool_calls_buffer.values())
+                self.signals.tool_calls_detected.emit(
+                    self._current_request_id,
+                    self.result.tool_calls
+                )
+            
+            # 确定 finish_reason
+            if not self.result.finish_reason:
+                self.result.finish_reason = "stop" if not self._pause_flag.is_set() else "paused"
+            
+            self._emit_finish_reason(self.result.finish_reason)
+            
+            return self.result
+            
+        finally:
+            self.close()
+    
+    def _handle_non_stream_request(
+        self,
+        url: str,
+        headers: Dict[str, str],
+        request_data: Dict
+    ) -> Optional[RequestResult]:
+        """处理非流式请求"""
+        self._current_response = response = None
+        self.result = RequestResult(request_id=self._current_request_id)
+
+        try:
+            response = self._session.post(
+                url,
+                json=request_data,
+                headers=headers,
+                timeout=(self.config.timeout_connect, self.config.timeout_read)
+            )
+            response.raise_for_status()
+            
+            data = response.json()
+            self.result.model=data.get('model','')
+
+            self._current_response = response
+            # 解析响应
+            if 'choices' in data and data['choices']:
+                choice = data['choices'][0]
+                message = choice.get('message', {})
+                
+                ct=message.get('content', '')
+                self.result.content = ct if ct else ''
+
+                rc= message.get('reasoning_content', '') or message.get('reasoning', '')
+                self.result.reasoning_content = rc if rc else ''
+
+                self.result.finish_reason = choice.get('finish_reason') or None # supported by upper layer
+
+                self.result.tool_calls = message.get('tool_calls')
+
+                self.result.usage = data.get('usage')
+                
+                # 处理本地模型的思维链
+                if self.config.provider_type == 'local' and self.result.content:
+                    
+                    parse_result = SimpleReasoningParser.parse(self.result.content)
+
+                    # 这玩意看起来好吃性能
+                    # 但本地V/LLM跑个32k token顶天了
+                    # 32k*1.6 = 51,200字符
+                    # 好像也不多，ms级在后台或者线程里的任务不太影响
+                    if parse_result.reasoning_content in parse_result.content:
+                        parse_result.content = parse_result.content.replace(parse_result.reasoning_content, '')
+
+                    self.result.content = parse_result.content
+                    self.result.reasoning_content = parse_result.reasoning_content or self.result.reasoning_content
+            
+            # 发送累积的信号
+            if self.result.content:
+                self.signals.stream_content.emit(self.result.request_id, self.result.content)
+            if self.result.reasoning_content:
+                self.signals.stream_reasoning.emit(self.result.request_id, self.result.reasoning_content)
+            if self.result.tool_calls:
+                self.signals.tool_calls_detected.emit(self.result.request_id, self.result.tool_calls)
+            
+            self._emit_finish_reason(self.result.finish_reason)
+            
+            return self.result
+            
+        finally:
+            self.close()
+    
+    def _process_delta(self, delta: DeltaObject, result: RequestResult, ):
+        """处理单个 delta"""
+        # 更新 server_id
+        # 有逆天服务器喜欢发heartbeat当id
+        # 每个delta都要处理，性能消耗...
+        # 大概是没有吧
+        if delta.raw_data and 'id' in delta.raw_data:
+            _sv_id=delta.raw_data['id']
+            result.server_id.add(_sv_id)
+        
+        # 更新模型信息
+        if delta.raw_data and 'model' in delta.raw_data:
+            result.model = delta.raw_data['model']
+
+        # 更新用量
+        if delta.usage:
+            result.usage = delta.usage
+
+        # 但话又说回来了，
+        # 解析器是给本地模型出<think>但不出reasoning用的，
+        # 如果本地解析器给CoT解析了，我就不用解析了
+        if delta.reasoning_content and self._reasoning_parser:
+            self._reasoning_parser = None  # 禁用本地解析器
+
+        # 处理内容
+        if delta.content:
+            if self._reasoning_parser:
+                # 本地模型：使用状态机解析
+                
+                parse_result = self._reasoning_parser.feed(delta.content)
+                if parse_result['reasoning_delta']:
+                    result.reasoning_content += parse_result['reasoning_delta']
+                    self.signals.stream_reasoning.emit(
+                        result.request_id,
+                        parse_result['reasoning_delta']
+                    )
+                    self.signals.full_reasoning.emit(
+                        result.request_id,
+                        result.reasoning_content
+                    )
+
+                if parse_result['content_delta']:
+                    result.content += parse_result['content_delta']
+                    self.signals.stream_content.emit(
+                        result.request_id,
+                        parse_result['content_delta']
+                    )
+                    self.signals.full_content.emit(
+                        result.request_id,
+                        result.content
+                    )
+
+            else:
+                # API 模型：直接发送
+                result.content += delta.content
+                self.signals.stream_content.emit(
+                    result.request_id, 
+                    delta.content
+                )
+                self.signals.full_content.emit(
+                    result.request_id,
+                    result.content
+                )
+        
+        # 处理思维链（API 返回的 reasoning_content）
+        if delta.reasoning_content:
+            result.reasoning_content += delta.reasoning_content
+            self.signals.stream_reasoning.emit(
+                result.request_id, delta.reasoning_content
+            )
+            self.signals.full_reasoning.emit(
+                result.request_id, result.reasoning_content
+            )
+        
+        # 处理工具调用
+        if delta.tool_calls:
+            self._accumulate_tool_calls(delta.tool_calls, result)
+        
+        # 更新 finish_reason
+        if delta.finish_reason:
+            result.finish_reason = delta.finish_reason
+    
+    def _accumulate_tool_calls(self, tool_calls: List[Dict], result: RequestResult):
+        """累积工具调用数据"""
+        for tc in tool_calls:
+            idx = tc.get('index', 0)
+            
+            if idx not in self._tool_calls_buffer:
+                self._tool_calls_buffer[idx] = {
+                    'id': tc.get('id', ''),
+                    'type': tc.get('type', 'function'),
+                    'function': {'name': '', 'arguments': ''}
+                }
+            
+            # 更新 ID
+            if tc.get('id'):
+                self._tool_calls_buffer[idx]['id'] = tc['id']
+            
+            # 更新函数信息
+            func = tc.get('function', {})
+            name_delta = func.get('name', '')
+            if name_delta:
+                self._tool_calls_buffer[idx]['function']['name'] += name_delta
+
+            args_delta = func.get('arguments', '')
+            if args_delta:
+                self._tool_calls_buffer[idx]['function']['arguments'] += args_delta
+                # 发送工具调用增量
+                self.signals.stream_tool_delta.emit(
+                    self._tool_calls_buffer[idx]['id'],
+                    {
+                        'index': idx,
+                        'id': self._tool_calls_buffer[idx]['id'],
+                        'name': self._tool_calls_buffer[idx]['function']['name'],
+                        'arguments_delta': args_delta,
+                        'arguments_full': self._tool_calls_buffer[idx]['function']['arguments']
+                    }
+                )
+                # UI刷新：tool call content
+                self.signals.full_tool_call.emit(
+                    self._tool_calls_buffer[idx]['id'],
+                    self._tool_calls_buffer[idx]['function']['arguments']
+                )
+    
+    def _emit_finish_reason(self, finish_reason: Optional[str]):
+        """发送结束原因信号"""
+        readable = FINISH_REASON_MAP.get(finish_reason, f"未知结束类型: {finish_reason}")
+        self.signals.finish_reason_received.emit(
+            self._current_request_id,
+            str(finish_reason),
+            readable
+        )
+    
+    def _format_error(self, error: Exception) -> str:
+        """格式化错误信息"""
+        error_type = type(error).__name__
+        error_msg = str(error)
+        try:
+            error_msg = json.loads(error_msg)
+            error_msg = '``` json \n'+json.dumps(error_msg, indent=2, ensure_ascii=False)+'\n```'
+        except Exception as e:
+            pass
+        
+        return f"\n[{error_type}] \n{error_msg}"
+    
+    
+    def close(self):
+        """关闭请求处理器，释放资源"""
+        try:
+            if self._current_response:
+                self._current_response.close()
+            if self._have_own_session and self._session:
+                self._session.close()
+            success = True
+        except Exception as e:
+            self.signals.warning.emit(f"Error closing response: {e}")
+            success = False
+        finally:
+            self._current_response = None
+            self._state = RequestState.COMPLETED
+            return success
+
+def get_back_up_api_config():
+    from config import APP_SETTINGS
+    return APP_SETTINGS.api.providers
+
+class APIRequestHandler:
+    """
+    兼容旧版 API 的请求处理器，内部使用 OneTimeLLMRequester + psygnal 信号。
+    不依赖 PyQt，可运行于纯 Python 环境。
+    """
+
+    # 信号定义
+    from psygnal import Signal
+    response_received = Signal(str)            # 部分响应正文
+    reasoning_response_received = Signal(str)  # 部分推理内容
+    request_completed = Signal(str)            # 完整正文（请求结束）
+    error_occurred = Signal(str)               # 错误信息
+
+    def __init__(self, api_config: Optional[Dict] = None, parent=None, enable_debug: bool = False):
+        """
+        :param api_config: 可选，全局 API 配置，格式与旧版兼容
+        :param parent:     仅用于兼容旧版签名，实际无作用
+        :param enable_debug: 是否打印调试信息到控制台
+        """
+        self.api_config = api_config or get_back_up_api_config()
+        self.enable_debug = enable_debug
+
+        # 当前配置（由 set_provider 设置）
+        self.current_provider: Optional[str] = None
+        self.current_model: Optional[str] = None
+        self.current_api_config: Optional[Dict] = None
+
+        # 累加结果（与旧版属性一致，便于外部读取）
+        self.full_response = ""
+        self.think_response = ""
+
+        # 当前运行的请求器（用于暂停）
+        self._current_requester: Optional[OneTimeLLMRequester] = None
+
+        if enable_debug:
+            self._connect_debug()
+
+    def _connect_debug(self):
+        """连接调试打印"""
+        self.response_received.connect(lambda text: print(text, end=''))
+        self.reasoning_response_received.connect(lambda text: print(text, end=''))
+        self.request_completed.connect(lambda text: print(f"\n[完成] {text}"))
+        self.error_occurred.connect(lambda text: print(f"[错误] {text}"))
+
+    def set_provider(self, provider: str, model: str, api_config: Optional[Dict] = None) -> None:
+        """
+        设置 API 提供商和模型
+        :param provider:   提供商名称（如 'openai', 'deepseek'）
+        :param model:      模型名称
+        :param api_config: 可选，覆盖初始化时的配置
+        """
+        self.current_provider = provider
+        self.current_model = model
+        self.current_api_config = api_config if api_config is not None else self.api_config
+
+    def send_request(self, message: Union[str, List[Dict[str, Any]]], model: str = '') -> None:
+        """
+        发送请求（自动在新线程中执行）
+        :param message: 字符串或符合 OpenAI 格式的消息列表
+        :param model:   可选，覆盖 set_provider 设置的模型
+        """
+        # 确定模型
+        model_to_use = model or self.current_model
+        if not model_to_use:
+            self.error_occurred.emit("未设置模型，请先调用 set_provider 或传入 model 参数")
+            return
+
+        # 确定提供商和配置
+        provider = self.current_provider
+        api_config = self.current_api_config or self.api_config
+        if not provider or not api_config:
+            self.error_occurred.emit(
+                f"未设置提供商或API配置，请先调用 set_provider: provider={provider}, api_config={api_config}"
+            )
+            return
+
+        # 提取 API 信息
+        try:
+            api_key, url, provider_type = self._extract_api_info(provider, api_config)
+        except ValueError as e:
+            self.error_occurred.emit(f"API配置错误: {str(e)}")
+            return
+
+        # 构建消息列表
+        if isinstance(message, str):
+            messages = [{"role": "user", "content": message}]
+        else:
+            messages = message
+
+        params = {
+            "model": model_to_use,
+            "messages": messages,
+            "stream": True
+        }
+
+        # 创建 OneTimeLLMRequester 实例（每个请求独立）
+        config = RequestConfig(
+            key=api_key,
+            url=url,
+            provider_type=provider_type
+        )
+        requester = OneTimeLLMRequester(config=config)
+
+        # 生成内部请求 ID（仅用于跟踪）
+        request_id = f"api_req_{int(time.time())}"
+
+        # 连接内部信号到转发槽
+        requester.signals.stream_content.connect(lambda rid, delta: self._on_stream_content(delta))
+        requester.signals.stream_reasoning.connect(lambda rid, delta: self._on_stream_reasoning(delta))
+        requester.signals.finished.connect(lambda rid, result: self._on_finished())
+        requester.signals.failed.connect(lambda rid, err: self._on_error(err))
+        requester.signals.error.connect(lambda err: self._on_error(err))
+
+        # 保存当前请求器（用于暂停）
+        self._current_requester = requester
+
+        # 重置累加器（与旧版行为一致）
+        self.full_response = ""
+        self.think_response = ""
+
+        # 发送请求（在新线程中执行）
+        requester.send_request(params, create_thread=True, id=request_id)
+
+    def pause(self) -> None:
+        """暂停当前请求（如果有）"""
+        if self._current_requester:
+            self._current_requester.pause()
+            self._current_requester = None
+
+    # ---------- 内部转发槽 ----------
+    def _on_stream_content(self, delta: str) -> None:
+        self.full_response += delta
+        self.response_received.emit(delta)
+
+    def _on_stream_reasoning(self, delta: str) -> None:
+        self.think_response += delta
+        self.reasoning_response_received.emit(delta)
+
+    def _on_finished(self) -> None:
+        # 请求正常结束，发出完整内容（兼容旧版）
+        self.request_completed.emit(self.full_response)
+        self._current_requester = None
+
+    def _on_error(self, err: str) -> None:
+        self.error_occurred.emit(err)
+        self._current_requester = None
+
+
+    def _extract_api_info(self,provider, api_config=None):
+        """
+        提取API信息，支持多种api_config格式
+        :param provider: 提供商名称
+        :param api_config: API配置信息
+        :return: (api_key, url, provider_type)
+        """
+        def is_api_config_object(obj):
+            """判断是否为 ApiConfig 数据类"""
+            return hasattr(obj, 'providers') and hasattr(obj, 'endpoints')
+
+        def is_api_provider_object(obj):
+            """
+            判断是否为 ApiConfig.providers 字典结构
+            即: Dict[str, ProviderConfig]
+            """
+            if not isinstance(obj, dict):
+                return False
+
+            # 遍历检查内容
+            for k, v in obj.items():
+                if not isinstance(k, str):
+                    return False
+                if not (hasattr(v, 'url') and hasattr(v, 'key') and hasattr(v, 'models')):
+                    return False
+            return True
+
+        def is_dsls(obj):
+            """判断是否为{'provider':['url','key']}"""
+            if not isinstance(obj, dict):
+                return False
+
+            for key, value in obj.items():
+                if not isinstance(key, str):
+                    return False
+                if not isinstance(value, list) and not isinstance(value, tuple):
+                    return False
+                for item in value:
+                    if not isinstance(item, str):
+                        return False
+            return True
+
+        def is_dsds(obj):
+            """判断对象是否为: {'provider': {'url': 'str','key': 'str'}}"""
+            if not isinstance(obj, dict):
+                return False
+
+            for key, value in obj.items():
+                if not isinstance(key, str):
+                    return False
+                if not isinstance(value, dict):
+                    return False
+                for inner_key, inner_value in value.items():
+                    if not isinstance(inner_key, str) or not isinstance(inner_value, str):
+                        return False
+            return True
+
+        def is_dsuk(obj):
+            """判断是否为 {'url': 'str','key': 'str'}"""
+            if not isinstance(obj, dict):
+                return False
+            if 'url' not in obj or 'key' not in obj:
+                return False
+            return True
+
+        def get_provider_type(url):
+            """
+            根据字符串匹配确定供应商类型
+            """
+            pre_defined_provider_map={
+                'localhost':'local',
+                '127.0':'local',
+                '192.168':'local',
+                'api.deepseek.com':'deepseek',
+                'qianfan.baidubce.com':'baidu',
+                'api.siliconflow.cn':'siliconflow',
+                'api.lkeap.cloud.tencent.com':'tencent',
+                'api.moonshot.cn':'kimi',
+                'api.novita.ai':'novita',
+                'openrouter.ai':'openrouter'
+            }
+            for feature in pre_defined_provider_map.keys():
+                if feature in url:
+                    return pre_defined_provider_map[feature]
+            return 'openai_compatible'
+
+        # 逻辑判断开始
+        if not api_config:
+            return None, None, None
+
+        # List 情况
+        elif isinstance(api_config, list) and len(api_config) == 2:
+            url = api_config[0]
+            api_key = api_config[1]
+
+        # ApiConfig.providers
+        elif is_api_provider_object(api_config):
+            if provider not in api_config:
+                raise ValueError(f'Provider "{provider}" not found in provider config dict')
+            config = api_config[provider]
+            url = config.url
+            api_key = config.key
+
+        # ApiConfig 整体对象
+        elif is_api_config_object(api_config):
+            if provider not in api_config.providers:
+                raise ValueError(f'Provider "{provider}" not found in api_config')
+            config = api_config.providers[provider]
+            url = config.url
+            api_key = config.key
+
+        # 简单字典结构
+        elif is_dsls(api_config):
+            url = api_config[provider][0]
+            api_key = api_config[provider][1]
+
+        elif is_dsds(api_config):
+            url = api_config[provider]['url']
+            api_key = api_config[provider]['key']
+
+        elif is_dsuk(api_config):
+            url = api_config['url']
+            api_key = api_config['key']
+
+        else:
+            raise ValueError('Unrecognized structure: ' + str(api_config))
+
+        return api_key, url, get_provider_type(url)
+
+OneMessageLLMRequseter = APIRequestHandler

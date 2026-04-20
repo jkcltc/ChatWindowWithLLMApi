@@ -13,3 +13,8 @@ background.jpg
 /utils/functions
 /utils/system_prompt_presets
 *.log
+/data/pics
+/tests
+/plans
+/doc
+/ref

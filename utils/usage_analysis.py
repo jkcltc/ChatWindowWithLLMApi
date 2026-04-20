@@ -29,10 +29,13 @@ class TokenAnalyzer:
         """分析聊天记录数据"""
         self.reset()
         
-        if not isinstance(log_data, list):
-            raise ValueError("日志数据必须是字典列表")
+        # 检查是否是包含 history 字段的字典结构（如导出的聊天记录JSON）
+        if isinstance(log_data, dict) and 'history' in log_data:
+            messages = log_data['history']
+        else:
+            messages = log_data
         
-        for message in log_data:
+        for message in messages:
             self.message_count += 1
             self._process_item(message, "")
         
@@ -387,14 +390,24 @@ class TokenAnalysisWidget(QWidget):
         可接受类型：
         1. 文件路径 (str)
         2. 文件夹路径 (str)
-        3. 字典 (聊天记录数据)
+        3. 列表 (聊天消息列表)
+        4. 字典 (包含 history 字段的聊天记录数据)
         """
         if isinstance(data, list):
-            # 直接设置字典数据
+            # 直接设置消息列表数据
             self.current_data = data
             self.path_input.setText("实时数据 - 准备分析")
             self.path_input.setEnabled(False)
             self.analyze_realtime()
+        elif isinstance(data, dict):
+            # 包含 history 字段的聊天记录字典
+            if 'history' in data:
+                self.current_data = data
+                self.path_input.setText("聊天记录数据 - 准备分析")
+                self.path_input.setEnabled(False)
+                self.analyze_realtime()
+            else:
+                QMessageBox.warning(self, "无效输入", "字典数据中未找到 history 字段")
         elif isinstance(data, str):
             # 检查是文件还是文件夹路径
             if os.path.isfile(data) or os.path.isdir(data):

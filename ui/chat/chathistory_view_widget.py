@@ -947,7 +947,7 @@ class ChatHistoryWidget(QFrame):
             #if self._perf_start > 0:
             #    real_total = (time.time() - self._perf_start) * 1000
             #    #print(f'[布局完成] 真实总耗时={real_total:.2f}ms '
-            #    #      f'(pending={self._pending_renders})')
+            #    #      f'(pending={self._pending_renders})')                     
             #    self._perf_start = 0
         self._scroll_mode = 'none'
 

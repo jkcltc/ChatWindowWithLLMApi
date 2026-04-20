@@ -2,16 +2,13 @@ history/**/*.json
 utils/global_presets/**/*.json
 *.ini
 *.pyc
-config.ini
 /pics
 /utils/config.ini
 *.json
 /background.jpg
 /audio
-/utils/system_prompt_presets/当前对话.json
 background.jpg
-/utils/functions
-/utils/system_prompt_presets
+/core/tool_call/function_lib
 *.log
 /data/pics
 /tests

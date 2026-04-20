@@ -20,7 +20,7 @@ class Tool:
     parameters: Dict[str, Any]
     handler: Callable[..., Any]
     tags: List[str] = field(default_factory=list)
-    timeout: float = 30.0
+    timeout: float = 120
     permissions: List[str] = field(default_factory=list)
     is_async: bool = False
 
@@ -173,7 +173,7 @@ class ToolRegistry:
 
         start = time.time()
         try:
-            result = str(self._run(tool, args)) #兼容性转写
+            result = self._run(tool, args)
             return {
                 "ok": True,
                 "tool": name,
@@ -222,7 +222,7 @@ class ToolRegistry:
         def runner():
             start = time.time()
             try:
-                result = str(self._run(tool, args)) #兼容性转写
+                result = self._run(tool, args)
                 return {
                     "ok": True,
                     "tool": name,

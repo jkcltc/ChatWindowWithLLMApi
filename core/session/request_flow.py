@@ -2,6 +2,7 @@ import threading
 import traceback
 import uuid
 import time
+import json
 from typing import TYPE_CHECKING,Literal
 
 from psygnal import Signal
@@ -735,7 +736,15 @@ class RequestFlowManager:
                     self.signals.log.emit(f"调用结果: {exec_result}")
                     
                     if  exec_result['ok']:
-                        tool_result = exec_result['result']
+                        _r = exec_result.get('result')
+                        if isinstance(_r, (dict, list)):
+                            tool_result = json.dumps(_r, ensure_ascii=False)
+                        elif _r is None:
+                            tool_result = ""
+                        elif isinstance(_r, str):
+                            tool_result = _r
+                        else:
+                            tool_result = str(_r)
                     else:
                         tool_result = f"执行错误: {exec_result['message']}"
                         self.signals.warning.emit(tool_result)

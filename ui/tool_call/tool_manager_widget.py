@@ -1,27 +1,33 @@
-
 from typing import Any, Dict, List
 import typing as _t
 import json
 import re
 import logging
+import threading
 from pathlib import Path
-from PyQt6 import QtWidgets,QtCore
+from PyQt6 import QtWidgets, QtCore
 
 from core.tool_call.tool_core import (
-    FunctionsPluginManager,get_tools_event_bus,get_tool_registry,
-    ToolsListModel,ToolsFilterProxyModel
+    FunctionsPluginManager,
+    get_tools_event_bus,
+    get_tool_registry,
+    get_mcp_manager,
+    ToolsListModel,
+    ToolsFilterProxyModel,
 )
 
 logger = logging.getLogger("tools")
 
-    # 公开单例
+# 公开单例
 _PLUGIN_MANAGER_SINGLETON: FunctionsPluginManager = None
+
 
 def get_functions_plugin_manager() -> FunctionsPluginManager:
     global _PLUGIN_MANAGER_SINGLETON
     if _PLUGIN_MANAGER_SINGLETON is None:
         _PLUGIN_MANAGER_SINGLETON = FunctionsPluginManager()
     return _PLUGIN_MANAGER_SINGLETON
+
 
 class FunctionEditorDialog(QtWidgets.QDialog):
     """
@@ -30,6 +36,7 @@ class FunctionEditorDialog(QtWidgets.QDialog):
       - 右侧代码（可编辑；表单可一键生成模板覆盖）
       - 保存到 core.tool_call.function_lib 下并触发热重载
     """
+
     def __init__(self, parent=None, existing_file: Path | None = None):
         super().__init__(parent)
         self.setWindowTitle("函数工具编辑器")
@@ -166,7 +173,9 @@ class FunctionEditorDialog(QtWidgets.QDialog):
         # 基于名称决定文件名
         name = self.nameEdit.text().strip()
         if not name:
-            QtWidgets.QMessageBox.warning(self, "提示", "请填写名称（用于文件名与唯一标识）")
+            QtWidgets.QMessageBox.warning(
+                self, "提示", "请填写名称（用于文件名与唯一标识）"
+            )
             return
         code = self.codeEdit.toPlainText()
         if not code.strip():
@@ -185,7 +194,9 @@ class FunctionEditorDialog(QtWidgets.QDialog):
         summary = self._pm.reload_all()
         errs = summary.get("errors") if isinstance(summary, dict) else []
         if errs:
-            QtWidgets.QMessageBox.warning(self, "重载完成（有错误）", "\n".join(errs)[:2000])
+            QtWidgets.QMessageBox.warning(
+                self, "重载完成（有错误）", "\n".join(errs)[:2000]
+            )
         else:
             QtWidgets.QMessageBox.information(self, "成功", "已保存并重载")
         self.accept()
@@ -201,10 +212,14 @@ class FunctionEditorDialog(QtWidgets.QDialog):
             m_desc = re.search(r'description\s*=\s*["\']([\s\S]*?)["\']\s*,', code)
             if m_desc:
                 self.descEdit.setPlainText(m_desc.group(1))
-            m_params = re.search(r'parameters\s*=\s*(\{[\s\S]*?\})\s*,', code)
+            m_params = re.search(r"parameters\s*=\s*(\{[\s\S]*?\})\s*,", code)
             if m_params:
                 try:
-                    self.schemaEdit.setPlainText(json.dumps(json.loads(m_params.group(1)), ensure_ascii=False, indent=2))
+                    self.schemaEdit.setPlainText(
+                        json.dumps(
+                            json.loads(m_params.group(1)), ensure_ascii=False, indent=2
+                        )
+                    )
                 except Exception:
                     self.schemaEdit.setPlainText(m_params.group(1))
         except Exception as e:
@@ -245,20 +260,23 @@ class FunctionManager(QtWidgets.QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Tools Manager")
-        
+
         screen_geometry = QtWidgets.QApplication.primaryScreen().availableGeometry()
-        
+
         width = int(screen_geometry.width() * 0.6)
         height = int(screen_geometry.height() * 0.6)
-        
+
         left = (screen_geometry.width() - width) // 2
         top = (screen_geometry.height() - height) // 2
-        
+
         self.setGeometry(left, top, width, height)
 
         self._registry = get_tool_registry() if get_tool_registry else None
         self._pm = get_functions_plugin_manager()
         self._bus = get_tools_event_bus()
+
+        # 应用启动后按持久化配置自动加载 MCP tools
+        self._load_mcp_async(force_refresh=False)
 
         self._conversation_id: str | None = None
         self._available_names: list[str] | None = None
@@ -273,7 +291,9 @@ class FunctionManager(QtWidgets.QWidget):
         self.listView = QtWidgets.QListView(self)
         self.listView.setModel(self._proxy)
         self.listView.setUniformItemSizes(True)
-        self.listView.setSelectionMode(QtWidgets.QAbstractItemView.SelectionMode.SingleSelection)
+        self.listView.setSelectionMode(
+            QtWidgets.QAbstractItemView.SelectionMode.SingleSelection
+        )
         self.listView.clicked.connect(self._toggle_checked_on_click)
         self.listView.doubleClicked.connect(self._toggle_checked_on_click)
 
@@ -283,11 +303,11 @@ class FunctionManager(QtWidgets.QWidget):
 
         # 右侧：TabWidget 包含详情和测试
         self.tabWidget = QtWidgets.QTabWidget(self)
-        
+
         # 详情 Tab
         self.detailWidget = QtWidgets.QWidget()
         detailLayout = QtWidgets.QVBoxLayout(self.detailWidget)
-        
+
         # 详情区域
         self.lblName = QtWidgets.QLabel("-")
         self.lblSource = QtWidgets.QLabel("-")
@@ -335,14 +355,14 @@ class FunctionManager(QtWidgets.QWidget):
 
         infoLay.addLayout(btnRow1)
         grpInfo.setLayout(infoLay)
-        
+
         detailLayout.addWidget(grpInfo)
         self.tabWidget.addTab(self.detailWidget, "工具详情")
 
         # 测试运行 Tab
         self.testWidget = QtWidgets.QWidget()
         testLayout = QtWidgets.QVBoxLayout(self.testWidget)
-        
+
         # 测试运行区域
         self.argsEdit = QtWidgets.QPlainTextEdit()
         self.argsEdit.setPlaceholderText('输入 JSON 参数，例如：{"text": "hello"}')
@@ -363,7 +383,7 @@ class FunctionManager(QtWidgets.QWidget):
         testLay.addWidget(QtWidgets.QLabel("返回结果:"))
         testLay.addWidget(self.outputEdit, 2)
         grpTest.setLayout(testLay)
-        
+
         testLayout.addWidget(grpTest)
         self.tabWidget.addTab(self.testWidget, "测试运行")
 
@@ -385,7 +405,7 @@ class FunctionManager(QtWidgets.QWidget):
         self.searchEdit.textChanged.connect(self._proxy.set_search_text)
         self.listView.selectionModel().currentChanged.connect(self._on_current_changed)
         self._model.selectionChanged.connect(self._on_selection_changed)
-        #self.btnApply.clicked.connect(self._on_apply)
+        # self.btnApply.clicked.connect(self._on_apply)
         self.btnRun.clicked.connect(self._on_run_clicked)
         self.testRunFinished.connect(self._on_test_finished)
 
@@ -403,15 +423,23 @@ class FunctionManager(QtWidgets.QWidget):
 
     # 对外 API
 
-    def start(self, conversation_id: str, initial_active_names: _t.List[str], available_names: _t.Optional[_t.List[str]] = None):
+    def start(
+        self,
+        conversation_id: str,
+        initial_active_names: _t.List[str],
+        available_names: _t.Optional[_t.List[str]] = None,
+    ):
         """绑定当前对话，设置初始激活集合并刷新视图"""
         self._conversation_id = conversation_id
         self._available_names = list(available_names) if available_names else None
-        
+
         # 新增：确保用户工具已加载
         if not self._pm._module_records:  # 检查是否已加载
             self._pm.initial_load()  # 加载用户自定义工具
-        
+
+        # MCP tools 初次加载（按配置启用）
+        self._load_mcp_async(force_refresh=False)
+
         # 先设定激活，再刷新
         self._model.set_active_tools(initial_active_names or [])
         self._model.refresh_from_registry(available_names=self._available_names)
@@ -448,9 +476,10 @@ class FunctionManager(QtWidgets.QWidget):
         if not self._registry:
             logger.warning("ToolRegistry not available")
             return []
-        
+
         # 直接使用 registry 的 openai_tools 方法
         return self._registry.openai_tools(tool_names=selected_names)
+
     # 内部行为
 
     def _ensure_first_selection(self):
@@ -463,11 +492,20 @@ class FunctionManager(QtWidgets.QWidget):
         if not proxy_index.isValid():
             return
         src_index = self._proxy.mapToSource(proxy_index)
-        checked = self._model.data(src_index, QtCore.Qt.ItemDataRole.CheckStateRole) == QtCore.Qt.CheckState.Checked
-        self._model.setData(src_index, QtCore.Qt.CheckState.Unchecked if checked else QtCore.Qt.CheckState.Checked, QtCore.Qt.ItemDataRole.CheckStateRole)
+        checked = (
+            self._model.data(src_index, QtCore.Qt.ItemDataRole.CheckStateRole)
+            == QtCore.Qt.CheckState.Checked
+        )
+        self._model.setData(
+            src_index,
+            QtCore.Qt.CheckState.Unchecked if checked else QtCore.Qt.CheckState.Checked,
+            QtCore.Qt.ItemDataRole.CheckStateRole,
+        )
         self._on_apply()
 
-    def _on_current_changed(self, current: QtCore.QModelIndex, previous: QtCore.QModelIndex):
+    def _on_current_changed(
+        self, current: QtCore.QModelIndex, previous: QtCore.QModelIndex
+    ):
         self._update_details_from_index(current)
 
     def _on_selection_changed(self, names: list[str]):
@@ -496,7 +534,9 @@ class FunctionManager(QtWidgets.QWidget):
         self.lblPerms.setText(", ".join(perms) if perms else "-")
         self.descEdit.setPlainText(desc)
         try:
-            self.schemaEdit.setPlainText(json.dumps(params, ensure_ascii=False, indent=2))
+            self.schemaEdit.setPlainText(
+                json.dumps(params, ensure_ascii=False, indent=2)
+            )
         except Exception:
             self.schemaEdit.setPlainText(str(params))
 
@@ -519,7 +559,9 @@ class FunctionManager(QtWidgets.QWidget):
 
     def _on_run_clicked(self):
         if not self._registry:
-            QtWidgets.QMessageBox.warning(self, "错误", "找不到 ToolRegistry 单例（get_tool_registry 未就绪）")
+            QtWidgets.QMessageBox.warning(
+                self, "错误", "找不到 ToolRegistry 单例（get_tool_registry 未就绪）"
+            )
             return
         idx = self.listView.currentIndex()
         if not idx.isValid():
@@ -546,7 +588,12 @@ class FunctionManager(QtWidgets.QWidget):
             try:
                 res = f.result()
             except Exception as ex:
-                res = {"ok": False, "tool": name, "error_type": ex.__class__.__name__, "message": str(ex)}
+                res = {
+                    "ok": False,
+                    "tool": name,
+                    "error_type": ex.__class__.__name__,
+                    "message": str(ex),
+                }
             # 跨线程发回 UI
             self.testRunFinished.emit(res)
 
@@ -557,7 +604,9 @@ class FunctionManager(QtWidgets.QWidget):
         self.btnRun.setEnabled(True)
         self.runStatus.setText("完成")
         try:
-            self.outputEdit.setPlainText(json.dumps(result, ensure_ascii=False, indent=2))
+            self.outputEdit.setPlainText(
+                json.dumps(result, ensure_ascii=False, indent=2)
+            )
         except Exception:
             self.outputEdit.setPlainText(str(result))
 
@@ -576,7 +625,9 @@ class FunctionManager(QtWidgets.QWidget):
         name = self._model.data(src, ToolsListModel.NameRole)
         fp = self._pm.find_tool_file(name)
         if not fp:
-            QtWidgets.QMessageBox.information(self, "提示", "只能编辑用户工具（core.tool_call.function_lib 下的工具）")
+            QtWidgets.QMessageBox.information(
+                self, "提示", "只能编辑用户工具（core.tool_call.function_lib 下的工具）"
+            )
             return
         dlg = FunctionEditorDialog(self, existing_file=fp)
         if dlg.exec():
@@ -591,11 +642,18 @@ class FunctionManager(QtWidgets.QWidget):
         name = self._model.data(src, ToolsListModel.NameRole)
         fp = self._pm.find_tool_file(name)
         if not fp:
-            QtWidgets.QMessageBox.information(self, "提示", "只能删除用户工具（core.tool_call.function_lib 下的工具）")
+            QtWidgets.QMessageBox.information(
+                self, "提示", "只能删除用户工具（core.tool_call.function_lib 下的工具）"
+            )
             return
 
-        ret = QtWidgets.QMessageBox.question(self, "确认删除", f"确定删除用户工具文件：\n{fp} ？",
-                                             QtWidgets.QMessageBox.StandardButton.Yes | QtWidgets.QMessageBox.StandardButton.No)
+        ret = QtWidgets.QMessageBox.question(
+            self,
+            "确认删除",
+            f"确定删除用户工具文件：\n{fp} ？",
+            QtWidgets.QMessageBox.StandardButton.Yes
+            | QtWidgets.QMessageBox.StandardButton.No,
+        )
         if ret != QtWidgets.QMessageBox.StandardButton.Yes:
             return
 
@@ -611,7 +669,23 @@ class FunctionManager(QtWidgets.QWidget):
 
     def _on_reload(self):
         self._pm.reload_all()
+        self._load_mcp_async(force_refresh=True)
         self._refresh_list_only()
+
+    def _load_mcp_async(self, force_refresh: bool):
+        def _runner():
+            try:
+                if force_refresh:
+                    get_mcp_manager().reload_all(force_refresh=True)
+                else:
+                    get_mcp_manager().initial_load(force_refresh=False)
+                self._bus.toolsChanged.emit()
+            except Exception as e:
+                logger.warning("MCP async load failed: %s", e)
+
+        threading.Thread(
+            target=_runner, name="mcp-toolmanager-load", daemon=True
+        ).start()
 
     def _on_copy_tools_json(self):
         names = self.get_selected_functions()
@@ -622,14 +696,18 @@ class FunctionManager(QtWidgets.QWidget):
         txt = json.dumps(tools_payload, ensure_ascii=False, indent=2)
         cb = QtWidgets.QApplication.clipboard()
         cb.setText(txt)
-        QtWidgets.QMessageBox.information(self, "已复制", "OpenAI Tools JSON 已复制到剪贴板")
+        QtWidgets.QMessageBox.information(
+            self, "已复制", "OpenAI Tools JSON 已复制到剪贴板"
+        )
 
     def _refresh_list_only(self):
         self._model.refresh_from_registry(available_names=self._available_names)
         self._ensure_first_selection()
         self._update_details_from_index(self.listView.currentIndex())
 
-from PyQt6 import QtWidgets,QtCore
+
+from PyQt6 import QtWidgets, QtCore
+
 
 # -----------------------
 # 通用视图：FunctionsSelectorWidget
@@ -643,6 +721,7 @@ class FunctionsSelectorWidget(QtWidgets.QWidget):
       - 提供 get_selected_functions()
       - 发出 selectionChanged(list[str]) 信号
     """
+
     selectionChanged = QtCore.pyqtSignal(list)
 
     def __init__(self, parent=None):
@@ -656,8 +735,12 @@ class FunctionsSelectorWidget(QtWidgets.QWidget):
         self._search.setPlaceholderText("搜索工具（名称/描述/标签）")
         self._list = QtWidgets.QListView(self)
         self._list.setModel(self._proxy)
-        self._list.setSelectionMode(QtWidgets.QAbstractItemView.SelectionMode.SingleSelection)
-        self._list.setEditTriggers(QtWidgets.QAbstractItemView.EditTrigger.NoEditTriggers)
+        self._list.setSelectionMode(
+            QtWidgets.QAbstractItemView.SelectionMode.SingleSelection
+        )
+        self._list.setEditTriggers(
+            QtWidgets.QAbstractItemView.EditTrigger.NoEditTriggers
+        )
         self._list.setUniformItemSizes(True)
 
         layout = QtWidgets.QVBoxLayout(self)
@@ -717,7 +800,12 @@ class FunctionsSelectorWidget(QtWidgets.QWidget):
         src_index = self._proxy.mapToSource(proxy_index)
         if not src_index.isValid():
             return
-        checked = self._model.data(src_index, QtCore.Qt.ItemDataRole.CheckStateRole) == QtCore.Qt.CheckState.Checked
-        self._model.setData(src_index, QtCore.Qt.CheckState.Unchecked if checked else QtCore.Qt.CheckState.Checked, QtCore.Qt.ItemDataRole.CheckStateRole)
-
-
+        checked = (
+            self._model.data(src_index, QtCore.Qt.ItemDataRole.CheckStateRole)
+            == QtCore.Qt.CheckState.Checked
+        )
+        self._model.setData(
+            src_index,
+            QtCore.Qt.CheckState.Unchecked if checked else QtCore.Qt.CheckState.Checked,
+            QtCore.Qt.ItemDataRole.CheckStateRole,
+        )

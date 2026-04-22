@@ -1,17 +1,32 @@
 from typing import Optional, Dict, List, Tuple
 from service.chat_completion import GlobalPatcher
 from PyQt6.QtWidgets import (
-    QWidget, QLineEdit, QListWidget, QApplication,
-    QVBoxLayout, QHBoxLayout, QLabel,
-    QTabWidget, QGroupBox, QPushButton,
-    QComboBox, QInputDialog, QFormLayout,
-    QMessageBox, QGraphicsOpacityEffect,
-    QListWidgetItem
+    QWidget,
+    QLineEdit,
+    QListWidget,
+    QApplication,
+    QVBoxLayout,
+    QHBoxLayout,
+    QLabel,
+    QTabWidget,
+    QGroupBox,
+    QPushButton,
+    QComboBox,
+    QInputDialog,
+    QFormLayout,
+    QMessageBox,
+    QGraphicsOpacityEffect,
+    QListWidgetItem,
 )
 from PyQt6.QtCore import (
-    pyqtSignal, Qt, QTimer, QRect,
-    QSequentialAnimationGroup, QAbstractAnimation,
-    QPropertyAnimation, QEasingCurve
+    pyqtSignal,
+    Qt,
+    QTimer,
+    QRect,
+    QSequentialAnimationGroup,
+    QAbstractAnimation,
+    QPropertyAnimation,
+    QEasingCurve,
 )
 from PyQt6.QtGui import QFont
 
@@ -30,7 +45,9 @@ class APIConfigWidget(QWidget):
         self.custom_apis = []
 
         # api_name -> (url_entry, key_entry, model_list_widget, search_edit, type_combo)
-        self.api_widgets: Dict[str, Tuple[QLineEdit, QLineEdit, QListWidget, QLineEdit, QComboBox]] = {}
+        self.api_widgets: Dict[
+            str, Tuple[QLineEdit, QLineEdit, QListWidget, QLineEdit, QComboBox]
+        ] = {}
         self.available_models: Dict[str, List[str]] = {}
         self.api_timers: Dict[str, QTimer] = {}
 
@@ -137,9 +154,15 @@ class APIConfigWidget(QWidget):
         type_combo.addItems(patch_list)
         type_combo.setPlaceholderText("选择或输入适配类型")
 
-        url_entry.textChanged.connect(lambda _text, api=api_name: self._on_config_edited(api))
-        key_entry.textChanged.connect(lambda _text, api=api_name: self._on_config_edited(api))
-        type_combo.currentTextChanged.connect(lambda _text, api=api_name: self._on_config_edited(api))
+        url_entry.textChanged.connect(
+            lambda _text, api=api_name: self._on_config_edited(api)
+        )
+        key_entry.textChanged.connect(
+            lambda _text, api=api_name: self._on_config_edited(api)
+        )
+        type_combo.currentTextChanged.connect(
+            lambda _text, api=api_name: self._on_config_edited(api)
+        )
 
         config_layout.addRow("API URL:", url_entry)
         config_layout.addRow("API 密钥:", key_entry)
@@ -163,7 +186,9 @@ class APIConfigWidget(QWidget):
         search_label = QLabel("搜索:")
         search_edit = QLineEdit()
         search_edit.setPlaceholderText("输入模型名称...")
-        search_edit.textChanged.connect(lambda text, api=api_name: self.filter_models(api, text))
+        search_edit.textChanged.connect(
+            lambda text, api=api_name: self.filter_models(api, text)
+        )
         search_layout.addWidget(search_label)
         search_layout.addWidget(search_edit)
         model_layout.addLayout(search_layout)
@@ -186,7 +211,13 @@ class APIConfigWidget(QWidget):
 
         main_tab_layout.addWidget(model_group, 5)
         self.tab_widget.addTab(tab_content, api_name)
-        self.api_widgets[api_name] = (url_entry, key_entry, model_list_widget, search_edit, type_combo)
+        self.api_widgets[api_name] = (
+            url_entry,
+            key_entry,
+            model_list_widget,
+            search_edit,
+            type_combo,
+        )
 
         if is_custom and api_name not in self.custom_apis:
             self.custom_apis.append(api_name)
@@ -208,14 +239,18 @@ class APIConfigWidget(QWidget):
             for i in range(list_widget.count()):
                 item = list_widget.item(i)
                 if item and item.text() == model_name:
-                    QMessageBox.information(self, "已存在", f"模型 '{model_name}' 已在列表中")
+                    QMessageBox.information(
+                        self, "已存在", f"模型 '{model_name}' 已在列表中"
+                    )
                     return
 
             list_widget.addItem(model_name)
             if api_name not in self.available_models:
                 self.available_models[api_name] = []
             self.available_models[api_name].append(model_name)
-            self.available_models[api_name] = sorted(list(set(self.available_models[api_name])))
+            self.available_models[api_name] = sorted(
+                list(set(self.available_models[api_name]))
+            )
 
             for i in range(list_widget.count()):
                 item = list_widget.item(i)
@@ -237,12 +272,14 @@ class APIConfigWidget(QWidget):
             timer.setSingleShot(True)
             timer.setInterval(1000)
             # 自动编辑仅做“草稿校验/收集”，不改全局、不通知外部、不落盘
-            timer.timeout.connect(lambda: self._validate_and_save(
-                show_message=False,
-                apply_global=False,
-                emit_signal=False,
-                persist=False
-            ))
+            timer.timeout.connect(
+                lambda: self._validate_and_save(
+                    show_message=False,
+                    apply_global=False,
+                    emit_signal=False,
+                    persist=False,
+                )
+            )
             self.api_timers[api_name] = timer
         else:
             timer = self.api_timers[api_name]
@@ -253,9 +290,13 @@ class APIConfigWidget(QWidget):
 
     def _setup_update_button_animation(self):
         self.update_btn_overlay = QWidget(self.update_btn)
-        self.update_btn_overlay.setStyleSheet("background-color: rgba(173, 216, 230, 80);")
+        self.update_btn_overlay.setStyleSheet(
+            "background-color: rgba(173, 216, 230, 80);"
+        )
         self.update_btn_overlay.hide()
-        self.update_btn_overlay.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        self.update_btn_overlay.setAttribute(
+            Qt.WidgetAttribute.WA_TransparentForMouseEvents
+        )
 
         self.opacity_effect = QGraphicsOpacityEffect(self.update_btn_overlay)
         self.opacity_effect.setOpacity(1.0)
@@ -280,7 +321,9 @@ class APIConfigWidget(QWidget):
         self.reset_opacity_anim.setStartValue(0.0)
         self.reset_opacity_anim.setEndValue(1.0)
 
-        self.reset_geometry_anim = QPropertyAnimation(self.update_btn_overlay, b"geometry")
+        self.reset_geometry_anim = QPropertyAnimation(
+            self.update_btn_overlay, b"geometry"
+        )
         self.reset_geometry_anim.setDuration(0)
 
         self.reset_animation.addAnimation(self.reset_opacity_anim)
@@ -292,9 +335,13 @@ class APIConfigWidget(QWidget):
 
     def _setup_save_button_animation(self):
         self.save_btn_overlay = QWidget(self.save_btn)
-        self.save_btn_overlay.setStyleSheet("background-color: rgba(143, 188, 143, 80);")
+        self.save_btn_overlay.setStyleSheet(
+            "background-color: rgba(143, 188, 143, 80);"
+        )
         self.save_btn_overlay.hide()
-        self.save_btn_overlay.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        self.save_btn_overlay.setAttribute(
+            Qt.WidgetAttribute.WA_TransparentForMouseEvents
+        )
 
         self.save_opacity_effect = QGraphicsOpacityEffect(self.save_btn_overlay)
         self.save_opacity_effect.setOpacity(1.0)
@@ -303,11 +350,15 @@ class APIConfigWidget(QWidget):
         self.save_animation_group = QSequentialAnimationGroup(self)
         self.save_animation_group.setLoopCount(1)
 
-        self.save_width_animation = QPropertyAnimation(self.save_btn_overlay, b"geometry")
+        self.save_width_animation = QPropertyAnimation(
+            self.save_btn_overlay, b"geometry"
+        )
         self.save_width_animation.setDuration(1500)
         self.save_width_animation.setEasingCurve(QEasingCurve.Type.OutCubic)
 
-        self.save_fade_animation = QPropertyAnimation(self.save_opacity_effect, b"opacity")
+        self.save_fade_animation = QPropertyAnimation(
+            self.save_opacity_effect, b"opacity"
+        )
         self.save_fade_animation.setDuration(600)
         self.save_fade_animation.setStartValue(1.0)
         self.save_fade_animation.setEndValue(0.0)
@@ -325,13 +376,18 @@ class APIConfigWidget(QWidget):
 
         end_width = self.update_btn.width()
         self.width_animation.setStartValue(QRect(0, 0, 0, self.update_btn.height()))
-        self.width_animation.setEndValue(QRect(0, 0, end_width, self.update_btn.height()))
+        self.width_animation.setEndValue(
+            QRect(0, 0, end_width, self.update_btn.height())
+        )
         self.reset_geometry_anim.setEndValue(QRect(0, 0, 0, self.update_btn.height()))
         self.animation_group.start()
 
     def stop_update_animation(self):
         self.update_btn.setEnabled(True)
-        if self.animation_group and self.animation_group.state() == QAbstractAnimation.State.Running:
+        if (
+            self.animation_group
+            and self.animation_group.state() == QAbstractAnimation.State.Running
+        ):
             self.animation_group.stop()
         if self.update_btn_overlay:
             self.update_btn_overlay.hide()
@@ -347,13 +403,18 @@ class APIConfigWidget(QWidget):
 
         end_width = self.save_btn.width()
         self.save_width_animation.setStartValue(QRect(0, 0, 0, self.save_btn.height()))
-        self.save_width_animation.setEndValue(QRect(0, 0, end_width, self.save_btn.height()))
+        self.save_width_animation.setEndValue(
+            QRect(0, 0, end_width, self.save_btn.height())
+        )
         self.save_animation_group.start()
 
     def stop_save_animation(self):
         self.save_in_progress = False
         self.save_btn.setText("保存并关闭")
-        if self.save_animation_group and self.save_animation_group.state() == QAbstractAnimation.State.Running:
+        if (
+            self.save_animation_group
+            and self.save_animation_group.state() == QAbstractAnimation.State.Running
+        ):
             self.save_animation_group.stop()
         if self.save_btn_overlay:
             self.save_btn_overlay.hide()
@@ -366,7 +427,10 @@ class APIConfigWidget(QWidget):
         )
         self.update_thread.finished_signal.connect(self._on_models_updated)
         self.update_thread.error_signal.connect(
-            lambda msg: [self.status_label.setText(f"更新出错: {msg}"), self.stop_update_animation()]
+            lambda msg: [
+                self.status_label.setText(f"更新出错: {msg}"),
+                self.stop_update_animation(),
+            ]
         )
 
         self.update_thread.start()
@@ -418,19 +482,17 @@ class APIConfigWidget(QWidget):
 
     def _on_save_animation_finished(self):
         config = self._validate_and_save(
-            show_message=True,
-            apply_global=True,
-            emit_signal=True,
-            persist=True
+            show_message=True, apply_global=True, emit_signal=True, persist=True
         )
         self.save_btn_overlay.hide()
         self.save_in_progress = False
         self.save_btn.setText("保存并关闭")
 
-        total_models = sum(len(provider.get("models", [])) for provider in config.values())
+        total_models = sum(
+            len(provider.get("models", [])) for provider in config.values()
+        )
         self.notificationRequested.emit(
-            f"模型列表更新完成。数量:{total_models}",
-            "success"
+            f"模型列表更新完成。数量:{total_models}", "success"
         )
         self.close()
 
@@ -459,9 +521,10 @@ class APIConfigWidget(QWidget):
             return
 
         reply = QMessageBox.question(
-            self, "确认删除",
+            self,
+            "确认删除",
             f"确定要删除'{api_name}'的配置吗?\n此操作不可恢复。",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
 
         if reply == QMessageBox.StandardButton.Yes:
@@ -501,7 +564,9 @@ class APIConfigWidget(QWidget):
                 self._create_api_tab(api_name, is_custom=True)
 
             if api_name in self.api_widgets:
-                url_entry, key_entry, _, search_edit, type_combo = self.api_widgets[api_name]
+                url_entry, key_entry, _, search_edit, type_combo = self.api_widgets[
+                    api_name
+                ]
 
                 url_entry.blockSignals(True)
                 key_entry.blockSignals(True)
@@ -526,7 +591,7 @@ class APIConfigWidget(QWidget):
     def _populate_model_ui(
         self,
         available_models: Dict[str, List[str]],
-        selected_models_map: Dict[str, List[str]] = None
+        selected_models_map: Dict[str, List[str]] = None,
     ):
         selected_models_map = selected_models_map or {}
         for api_name, models in available_models.items():
@@ -573,7 +638,7 @@ class APIConfigWidget(QWidget):
                 "url": url,
                 "key": key,
                 "models": models,
-                "provider_type": p_type
+                "provider_type": p_type,
             }
         return providers
 
@@ -582,7 +647,7 @@ class APIConfigWidget(QWidget):
         show_message: bool = True,
         apply_global: bool = True,
         emit_signal: bool = True,
-        persist: bool = True
+        persist: bool = True,
     ) -> dict:
         config_data = self._collect_config_from_ui()
 

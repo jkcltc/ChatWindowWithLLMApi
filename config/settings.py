@@ -1,15 +1,17 @@
-import os,sys
-from typing import List, Dict, Optional,Literal
+import os, sys
+from typing import List, Dict, Optional, Literal
 from pydantic import Field, model_validator
 from config.base import BaseSettings
 
+
 # ==================== 快捷编组 ====================
 class LLMUsagePack(BaseSettings):
-    provider: str = 'deepseek'
-    model: str = 'deepseek-chat'
+    provider: str = "deepseek"
+    model: str = "deepseek-chat"
+
 
 class LLMDetail(BaseSettings):
-    name : str = Field(default="")
+    name: str = Field(default="")
 
     input_ability: List[Literal[
         "text",
@@ -28,23 +30,24 @@ class LLMDetail(BaseSettings):
 
     tool_ability: bool = True
 
-    default_tool : list[str] = Field(default=[])
+    default_tool: list[str] = Field(default=[])
 
     reasoning_ability: bool = True
 
-    extra_body : Dict = Field(default={})
+    extra_body: Dict = Field(default={})
 
-    extra_headers : Dict = Field(default={})
+    extra_headers: Dict = Field(default={})
 
 
 # ============== >>>   用户配置   <<< ==============
 
 # ==================== 伴随请求 ====================
 
+
 class BackgroundPreset(BaseSettings):
-    style_hint: str = '# 风格：'
-    scene_hint: str = '**当前场景**\n'
-    system_prompt_hint: str = '\n\n**人物背景**\n（供参考，不一定与当前场景有关）\n\n'
+    style_hint: str = "# 风格："
+    scene_hint: str = "**当前场景**\n"
+    system_prompt_hint: str = "\n\n**人物背景**\n（供参考，不一定与当前场景有关）\n\n"
     summary_prompt: str = """
 
 # 任务
@@ -105,15 +108,16 @@ class BackgroundPreset(BaseSettings):
 { "prompt": "young couple riding shared bicycles（错误：组成动作）, retro street lamps casting warm glow（错误：组成整句）, contemporary奶茶店招牌（使用中文）, motion blur effect on wheels（使用连词）" }
 
 """
-    user_summary: str = '''
+    user_summary: str = """
 ---
 
 # 任务：
 
 - 以stable diffusion的prompt形式描述提供的场景。
 
-'''
+"""
     IRAG_USE_CHINESE: str = '在本次回复中，你需要使用中文填充"prompt"字段中的内容。'
+
 
 class ImageSize(BaseSettings):
     width  : int = 1280
@@ -131,37 +135,38 @@ class BackgroundSettings(BaseSettings):
     lock: bool = False
     """锁定背景：生成但不更新到UI"""  # lock_background
 
-    style: str = '现实'
+    style: str = "现实"
     """背景风格"""  # background_style
 
-    image_path: str = 'background.jpg'
+    image_path: str = "background.jpg"
     """当前背景图路径"""  # background_image_path
 
     # === 触发条件 ===
-    max_rounds: int = 15    
+    max_rounds: int = 15
     """触发生成的对话轮数"""  # max_background_rounds
 
-    max_length: int = 2000 
+    max_length: int = 2000
     """提交生成的对话文本长度"""  # max_backgound_lenth
 
     # === 总结模型 ===
-    summary_provider: str = 'deepseek'
+    summary_provider: str = "deepseek"
     """总结用的API供应商"""  # back_ground_summary_provider
 
-    summary_model: str = 'deepseek-reasoner'
+    summary_model: str = "deepseek-reasoner"
     """总结用的模型"""  # back_ground_summary_model
 
     # === 图像生成 ===
-    image_provider: str = 'novita'
+    image_provider: str = "novita"
     """图像生成API供应商"""  # back_ground_image_provider
 
-    image_model: str = 'foddaxlPhotorealism_v45_122788.safetensors'
+    image_model: str = "foddaxlPhotorealism_v45_122788.safetensors"
     """图像生成模型"""  # back_ground_image_model
 
-    image_size : ImageSize = Field(default_factory=ImageSize)
+    image_size: ImageSize = Field(default_factory=ImageSize)
+
 
 class LongChatImprovePersetVars(BaseSettings):
-    summary_prompt:str="""
+    summary_prompt: str = """
 [背景要求]详细提取关键信息，需要严格符合格式。
 格式：
 所有角色的个人资料:[名字是##,性别是##,年龄是##,关键特征]（名字不明也需要，关键特征两条或更多）
@@ -203,20 +208,20 @@ class LongChatImprovePersetVars(BaseSettings):
 """
 
     # [新增] Single模式的完整模板，替代了原来的 before/after 拼接
-    single_update_prompt:str='''基于要求详细提取关键信息。保留之前的信息，加入新总结的信息。
+    single_update_prompt: str = """基于要求详细提取关键信息。保留之前的信息，加入新总结的信息。
 {hint_text}
 **已发生事件和当前人物形象**
 {context_summary}
 
 **之后的事件**
-{new_content}'''
+{new_content}"""
 
-    long_chat_hint_prefix:str='以最高的优先级处理：'
+    long_chat_hint_prefix: str = "以最高的优先级处理："
 
-    summary_merge_prompt:str='将两段内容的信息组合。1.禁止缺少或省略信息。\n2.格式符合[背景要求]。\n3.不要做出推断，保留原事件内容。\n内容1：\n'
-    summary_merge_prompt_and:str='\n\n内容2：\n'
+    summary_merge_prompt: str = "将两段内容的信息组合。1.禁止缺少或省略信息。\n2.格式符合[背景要求]。\n3.不要做出推断，保留原事件内容。\n内容1：\n"
+    summary_merge_prompt_and: str = "\n\n内容2：\n"
 
-    dispersed_summary_prompt:str="""请基于背景信息，仅为最新的对话片段撰写摘要。
+    dispersed_summary_prompt: str = """请基于背景信息，仅为最新的对话片段撰写摘要。
 {hint_text}
 ### 🎞️ 前情提要 (背景参考，请勿重复)
 {context_summary}
@@ -231,8 +236,9 @@ class LongChatImprovePersetVars(BaseSettings):
 4. **输出限制**：直接输出摘要文本。
 """
 
-    mix_consolidation_prompt:str='''请将以下片段整合成完整剧情：
-{dispersed_contents}'''
+    mix_consolidation_prompt: str = """请将以下片段整合成完整剧情：
+{dispersed_contents}"""
+
 
 class LciSettings(BaseSettings):
     """上下文自动压缩设置"""
@@ -243,7 +249,7 @@ class LciSettings(BaseSettings):
     collect_system_prompt: bool = True
     """系统提示注入压缩上下文"""  # enable_lci_system_prompt
 
-    max_segment_rounds : int = 50
+    max_segment_rounds: int = 50
     """触发压缩的最少对话轮数"""  # long_chat_improve_rounds
 
     max_total_length: int = 8000
@@ -258,23 +264,25 @@ class LciSettings(BaseSettings):
     model: Optional[str] = "deepseek-chat"
     """上下文压缩的模型"""  # long_chat_improve_model
 
-    hint: str = ''
+    hint: str = ""
     """上下文压缩：总结模型的额外关注点"""  # long_chat_hint
 
-    placement: str = ''
+    placement: str = ""
     """上下文压缩结果的放置位置"""  # long_chat_placement
 
-    mode : Literal['single','dispersed','mix'] = 'single'
+    mode: Literal["single", "dispersed", "mix"] = "single"
 
-    preset : LongChatImprovePersetVars = Field(default_factory=LongChatImprovePersetVars)
+    preset: LongChatImprovePersetVars = Field(default_factory=LongChatImprovePersetVars)
 
     include: list = Field(default_factory=lambda: ['system','user','assistant','tool'])
 
 
-class TTSSettings(BaseSettings): 
+class TTSSettings(BaseSettings):
     """语音合成配置"""
+
     tts_enabled: bool = False
-    tts_provider: str = '不使用TTS'
+    tts_provider: str = "不使用TTS"
+
 
 class TitleSettings(BaseSettings):
     """自动标题配置"""
@@ -288,18 +296,21 @@ class TitleSettings(BaseSettings):
     max_length: int = 20
     """生成的标题最大长度"""  # title_creator_max_length
 
-    provider: str = 'siliconflow'
+    provider: str = "siliconflow"
     """模型提供商"""  # title_creator_provider
 
-    model: str = 'Qwen/Qwen3-8B'
+    model: str = "Qwen/Qwen3-8B"
     """模型名称"""  # title_creator_model
+
 
 # ==================== 请求前处理 ====================
 
+
 class WebSearchSettings(BaseSettings):
     """手动强制搜索"""
+
     web_search_enabled: bool = False
-    search_engine: str = 'bing'
+    search_engine: str = "bing"
     search_results_num: int = 5
 
     use_llm_reformat: bool = False
@@ -307,13 +318,17 @@ class WebSearchSettings(BaseSettings):
 
     enable_provider_buildin: bool = False
 
+
 class ForceRepeatSettings(BaseSettings):
     """强制降重"""
+
     enabled: bool = False
     """启用"""
 
-class GenerationSettings(BaseSettings): 
+
+class GenerationSettings(BaseSettings):
     """生成参数设置"""
+
     stream_receive: bool = True
     top_p_enable: bool = False
     top_p: float = 0.8
@@ -324,65 +339,104 @@ class GenerationSettings(BaseSettings):
     thinking_enabled: bool = False
     reasoning_effort: int = 0
 
-    max_message_rounds: int = 50   
+    max_message_rounds: int = 50
     """最大发送长度"""
 
-class InputLimitSettings(BaseSettings): 
+
+class InputLimitSettings(BaseSettings):
     """长度限制与对话阈值"""
 
-    max_send_rounds_enabled:bool=True
+    max_send_rounds_enabled: bool = True
     """对话截断：启用轮数限制"""
 
-    max_send_rounds:int=64
+    max_send_rounds: int = 64
     """对话截断：最大上传对话数"""
 
-    max_send_length_enabled:bool = False
+    max_send_length_enabled: bool = False
     """对话截断：启用字数限制"""
 
-    max_send_length:int = 32767
+    max_send_length: int = 32767
     """对话截断：最大上传字数"""
 
-    max_send_token_enabled:bool = False
+    max_send_token_enabled: bool = False
     """对话截断：启用词符限制"""
 
-    max_send_token:int = 32767
+    max_send_token: int = 32767
     """对话截断：最大上传词符"""
 
-    max_input_length_enabled:bool=False
+    max_input_length_enabled: bool = False
     """启用单个对话长度限制：不是，限制这个干嘛"""
 
-    max_input_length:int = 32767
+    max_input_length: int = 32767
     """单个对话长度"""
 
-class NameSettings(BaseSettings): 
+
+class NameSettings(BaseSettings):
     """默认/回退名称"""
+
     user: str = "user"
-    ai: str = 'assistant'
+    ai: str = "assistant"
 
     character_enforce: bool = False
     """是否在消息中注入name字段"""
 
+
 # ================== 请求后处理 =====================
 
-class AutoReplaceSettings(BaseSettings): 
+
+class AutoReplaceSettings(BaseSettings):
     """文本自动替换配置"""
+
     autoreplace_var: bool = False
-    autoreplace_from: str = ''
-    autoreplace_to: str = ''
+    autoreplace_from: str = ""
+    autoreplace_to: str = ""
+
 
 # ================== 工具隔离 =====================
 
+
 class UserToolPermission(BaseSettings):
     """用户工具权限"""
-    enabled:bool = True
-    names:list = Field(default_factory=list)
+
+    enabled: bool = True
+    names: list = Field(default_factory=list)
+
+
+# ==================== MCP配置 ====================
+
+
+class McpServerConfig(BaseSettings):
+    """单个 MCP Server 配置"""
+
+    name: str = ""
+    enabled: bool = True
+    transport: Literal["stdio", "streamable_http", "sse"] = "stdio"
+    url: str = ""
+    command: str = ""
+    args: List[str] = Field(default_factory=list)
+    env: Dict[str, str] = Field(default_factory=dict)
+    cwd: str = ""
+    timeout_sec: float = 30.0
+
+
+class McpSettings(BaseSettings):
+    """MCP 全局配置"""
+
+    enabled: bool = False
+    servers: List[McpServerConfig] = Field(default_factory=list)
+    name_conflict_policy: Literal["prefix", "skip", "error"] = "prefix"
+    refresh_tools_on_startup: bool = False
+
 
 # ==================== 快捷键 =====================
 
+
 class HotkeySingle(BaseSettings):
     """单个快捷键配置"""
+
     enabled: bool = True
     key: str = ""
+
 
 class HotkeySettings(BaseSettings):
     """快捷键配置"""
@@ -430,14 +484,18 @@ class HotkeySettings(BaseSettings):
         default_factory=lambda: HotkeySingle(key="Ctrl+E", enabled=True)
     )
 
+
 # ==================== API配置 ====================
+
 
 class ProviderConfig(BaseSettings):
     """单个供应商的配置结构"""
+
     url: str = ""
     key: str = ""
     models: List[str] = Field(default_factory=list)
-    provider_type : str = "openai_compatible"
+    provider_type: str = "openai_compatible"
+
 
 class ApiConfig(BaseSettings):
     """API配置"""
@@ -498,74 +556,84 @@ class ApiConfig(BaseSettings):
             for name, config in self.providers.items()
         }
 
+
 # ==================== 模型花活 ====================
+
 
 # 模型轮询
 class ModelPollSettings(BaseSettings):
-    enabled : bool = False
+    enabled: bool = False
     """启用模型轮询"""
 
-    mode: Literal['random','order'] = 'order'
+    mode: Literal["random", "order"] = "order"
 
-    model_map : list[LLMUsagePack] = Field(default_factory=list)
+    model_map: list[LLMUsagePack] = Field(default_factory=list)
     """模型轮询顺序"""
+
 
 # 模型聚合
 class ModelGroup(BaseSettings):
     """模型聚合存单"""
-    strategy: Literal['random', 'order'] = 'order'
+
+    strategy: Literal["random", "order"] = "order"
 
     models: List[LLMUsagePack] = Field(default_factory=list)
 
     description: Optional[str] = ""
 
+
 class ModelAggregationSettings(BaseSettings):
     enabled: bool = False
     """启用模型聚合"""
 
-    strategy: Literal['random', 'order'] = 'order'
+    strategy: Literal["random", "order"] = "order"
 
     groups: Dict[str, ModelGroup] = Field(default_factory=dict)
 
     execution_list: List[str] = Field(default_factory=list)
 
+
 # 模型并发
 class ConcurrentLayerSettings(BaseSettings):
-    name : str = ""
+    name: str = ""
     """层名称"""
-    
-    model_map : list[str] = Field(default_factory=list)
+
+    model_map: list[str] = Field(default_factory=list)
     """模型并发清单"""
 
-    prompt : str = ""
+    prompt: str = ""
     """提示词"""
 
+
 class ModelConcurrent(BaseSettings):
-    enabled : bool = False
+    enabled: bool = False
     """启用汇流优化"""
 
     layer_count: int = 2
     """汇流优化层数"""
 
-    layers : list[ConcurrentLayerSettings] = Field(default_factory=list)
+    layers: list[ConcurrentLayerSettings] = Field(default_factory=list)
     """汇流优化层配置"""
 
+
 # ==================== UI设置 ====================
+
 
 class UIStatus(BaseSettings):
     """UI设置"""
 
-    theme: str = r'data\theme\ds-r1-0528.qss'
+    theme: str = r"data\theme\ds-r1-0528.qss"
     """主题"""
 
-    LLM : LLMUsagePack = Field(default_factory=LLMUsagePack)
+    LLM: LLMUsagePack = Field(default_factory=LLMUsagePack)
     """combobox: model + combobox : provider"""
-    
-    past_chat_load_count : int = 100
+
+    past_chat_load_count: int = 100
     """历史聊天加载数量"""
 
-    display_message_count : int = 10
+    display_message_count: int = 10
     """显示消息数量"""
+
 
 # ==============>>> 用户配置总入口 <<<==============
 class AppSettings(BaseSettings):
@@ -616,20 +684,25 @@ class AppSettings(BaseSettings):
 
     tool_permission: UserToolPermission = Field(default_factory=UserToolPermission)
 
+    mcp: McpSettings = Field(default_factory=McpSettings)
+
+
 # 初始化单例
 APP_SETTINGS = AppSettings()
 
+
 class AvatarPath(BaseSettings):
-    user:str = "" #'data','pics','avatar','AI_avatar.png'
-    assistant:str = "" # 'data','pics','avatar','USER_avatar.png'
+    user: str = ""  #'data','pics','avatar','AI_avatar.png'
+    assistant: str = ""  # 'data','pics','avatar','USER_avatar.png'
 
     @property
     def ai(self):
         return self.assistant
-    
+
     @ai.setter
     def ai(self, value):
         self.assistant = value
+
 
 # ==================== 运行时配置 ====================
 class AppPaths(BaseSettings):
@@ -638,50 +711,59 @@ class AppPaths(BaseSettings):
     history_path: str = ""
     theme_path: str = ""
     system_prompt_preset_path: str = ""
-    config_path:str = ""
-    log_path:str = ""
-    avatar_path:AvatarPath = Field(default_factory=AvatarPath)
+    config_path: str = ""
+    log_path: str = ""
+    avatar_path: AvatarPath = Field(default_factory=AvatarPath)
 
-
-    @model_validator(mode='after')
+    @model_validator(mode="after")
     def calculate_paths(self):
         # 1. 如果没传值，就自动计算 application_path
         if not self.application_path:
             # 兼容 PyInstaller 打包后的情况 (frozen)
-            if getattr(sys, 'frozen', False):
+            if getattr(sys, "frozen", False):
                 base_path = os.path.dirname(sys.executable)
             else:
                 base_path = os.path.dirname(os.path.abspath(sys.argv[0]))
             self.application_path = base_path
         # 2. 如果没传值，就根据 application_path 算出 history_path
         if not self.history_path:
-            self.history_path = os.path.join(self.application_path,"data", "history")
-            
+            self.history_path = os.path.join(self.application_path, "data", "history")
+
         if not self.theme_path:
-            self.theme_path = os.path.join(self.application_path,"data", "theme")
-        
+            self.theme_path = os.path.join(self.application_path, "data", "theme")
+
         if not self.system_prompt_preset_path:
-            self.system_prompt_preset_path = os.path.join(self.application_path, "data","system_prompt_presets")
+            self.system_prompt_preset_path = os.path.join(
+                self.application_path, "data", "system_prompt_presets"
+            )
 
         if not self.config_path:
-            self.config_path = os.path.join(self.application_path, "data","config")
+            self.config_path = os.path.join(self.application_path, "data", "config")
 
         if not self.log_path:
-            self.log_path=os.path.join(self.application_path, 'cwla_run_time.log')
+            self.log_path = os.path.join(self.application_path, "cwla_run_time.log")
 
-        self.avatar_path.ai = os.path.join(self.application_path, 'data','pics','avatar','AI_avatar.png')
-        self.avatar_path.user = os.path.join(self.application_path, 'data','pics','avatar','USER_avatar.png')
-        
+        self.avatar_path.ai = os.path.join(
+            self.application_path, "data", "pics", "avatar", "AI_avatar.png"
+        )
+        self.avatar_path.user = os.path.join(
+            self.application_path, "data", "pics", "avatar", "USER_avatar.png"
+        )
+
         return self
+
 
 class ForceRepeatSettings(BaseSettings):
     """强制降重"""
-    text: str = ''
+
+    text: str = ""
 
 
 class DangerousTools(BaseSettings):
     """危险工具"""
-    names:list = Field(default_factory=lambda : [])# ['python_cmd'])
+
+    names: list = Field(default_factory=lambda: [])  # ['python_cmd'])
+
 
 # >>> 全局运行时单例 <<<
 class AppRuntime(BaseSettings):
@@ -689,4 +771,5 @@ class AppRuntime(BaseSettings):
     force_repeat: ForceRepeatSettings = Field(default_factory=ForceRepeatSettings)
     dangerous_tools: DangerousTools = Field(default_factory=DangerousTools)
 
-APP_RUNTIME=AppRuntime()
+
+APP_RUNTIME = AppRuntime()

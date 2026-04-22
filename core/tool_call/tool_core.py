@@ -3,15 +3,15 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Union
 import json, inspect, concurrent.futures, importlib, pkgutil, time, logging, asyncio, threading
 from jsonschema import Draft202012Validator, ValidationError
-import os, sys, webbrowser,subprocess, re, time, json
+import os, sys, webbrowser, subprocess, re, time, json
 import typing as _t
 from pathlib import Path
 from PyQt6 import QtCore
 
 
-
 logger = logging.getLogger("tools")
 executor = concurrent.futures.ThreadPoolExecutor(max_workers=4)
+
 
 @dataclass
 class Tool:
@@ -23,6 +23,7 @@ class Tool:
     timeout: float = 120
     permissions: List[str] = field(default_factory=list)
     is_async: bool = False
+
 
 class ToolRegistry:
     def __init__(self):
@@ -79,10 +80,11 @@ class ToolRegistry:
                 parameters=parameters or {"type": "object", "properties": {}},
                 handler=fn,
                 is_async=inspect.iscoroutinefunction(fn),
-                **meta
+                **meta,
             )
             self.register(t)
             return fn
+
         return decorator
 
     def remove(self, name: str):
@@ -90,7 +92,8 @@ class ToolRegistry:
 
     def update(self, name: str, **patch):
         t = self._tools.get(name)
-        if not t: raise KeyError(name)
+        if not t:
+            raise KeyError(name)
         for k, v in patch.items():
             setattr(t, k, v)
         if "parameters" in patch:
@@ -99,7 +102,7 @@ class ToolRegistry:
     def get(self, name: str) -> Optional[Tool]:
         return self._tools.get(name)
 
-    def list(self, *,  tags: Optional[List[str]]=None) ->list:
+    def list(self, *, tags: Optional[List[str]] = None) -> list:
         tools = list(self._tools.values())
         if tags:
             tools = [t for t in tools if set(tags) & set(t.tags)]
@@ -109,15 +112,15 @@ class ToolRegistry:
         tools = self.list()
         if tool_names is not None:
             tools = [t for t in tools if t.name in tool_names]
-        
+
         return [
             {
                 "type": "function",
                 "function": {
                     "name": t.name,
                     "description": t.description,
-                    "parameters": t.parameters or {"type": "object"}
-                }
+                    "parameters": t.parameters or {"type": "object"},
+                },
             }
             for t in tools
         ]
@@ -138,14 +141,18 @@ class ToolRegistry:
         except ValidationError as e:
             raise ValueError(f"Schema validation failed: {e.message}")
 
-    def _submit(self, tool: Tool, arguments: Dict[str, Any]) -> concurrent.futures.Future:
+    def _submit(
+        self, tool: Tool, arguments: Dict[str, Any]
+    ) -> concurrent.futures.Future:
         # 将任务提交到合适的执行环境（协程 -> 后台事件循环；同步 -> 线程池）
         if tool.is_async:
             if not self._bg_loop:
                 raise RuntimeError("Background asyncio loop not initialized")
             coro = tool.handler(**arguments)
             if not asyncio.iscoroutine(coro):
-                raise TypeError(f"Async tool '{tool.name}' handler did not return a coroutine")
+                raise TypeError(
+                    f"Async tool '{tool.name}' handler did not return a coroutine"
+                )
             fut = asyncio.run_coroutine_threadsafe(coro, self._bg_loop)
         else:
             fut = executor.submit(lambda: tool.handler(**arguments))
@@ -161,7 +168,9 @@ class ToolRegistry:
                 fut.cancel()
             except Exception:
                 pass
-            raise TimeoutError(f"Tool '{tool.name}' timed out after {tool.timeout}s") from e
+            raise TimeoutError(
+                f"Tool '{tool.name}' timed out after {tool.timeout}s"
+            ) from e
 
     def call(self, name: str, arguments: Union[str, Dict[str, Any]]):
         tool = self.get(name)
@@ -178,7 +187,7 @@ class ToolRegistry:
                 "ok": True,
                 "tool": name,
                 "duration_ms": int((time.time() - start) * 1000),
-                "result": result
+                "result": result,
             }
         except Exception as e:
             logger.exception("Tool run error: %s", name)
@@ -186,10 +195,12 @@ class ToolRegistry:
                 "ok": False,
                 "tool": name,
                 "error_type": e.__class__.__name__,
-                "message": str(e)
+                "message": str(e),
             }
 
-    def call_async(self, name: str, arguments: Union[str, Dict[str, Any]]) -> concurrent.futures.Future:
+    def call_async(
+        self, name: str, arguments: Union[str, Dict[str, Any]]
+    ) -> concurrent.futures.Future:
         """
         非阻塞入口：返回一个 concurrent.futures.Future。
         注意：返回值为 call(...) 的字典结果，而非工具原始返回值。
@@ -197,12 +208,14 @@ class ToolRegistry:
         tool = self.get(name)
         if not tool:
             f = concurrent.futures.Future()
-            f.set_result({
-                "ok": False,
-                "tool": name,
-                "error_type": "ValueError",
-                "message": f"Tool '{name}' not found or disabled"
-            })
+            f.set_result(
+                {
+                    "ok": False,
+                    "tool": name,
+                    "error_type": "ValueError",
+                    "message": f"Tool '{name}' not found or disabled",
+                }
+            )
             return f
 
         # 这里预处理参数与校验
@@ -211,12 +224,14 @@ class ToolRegistry:
             self._validate(tool, args)
         except Exception as e:
             f = concurrent.futures.Future()
-            f.set_result({
-                "ok": False,
-                "tool": name,
-                "error_type": e.__class__.__name__,
-                "message": str(e)
-            })
+            f.set_result(
+                {
+                    "ok": False,
+                    "tool": name,
+                    "error_type": e.__class__.__name__,
+                    "message": str(e),
+                }
+            )
             return f
 
         def runner():
@@ -227,7 +242,7 @@ class ToolRegistry:
                     "ok": True,
                     "tool": name,
                     "duration_ms": int((time.time() - start) * 1000),
-                    "result": result
+                    "result": result,
                 }
             except Exception as e:
                 logger.exception("Tool run error: %s", name)
@@ -235,7 +250,7 @@ class ToolRegistry:
                     "ok": False,
                     "tool": name,
                     "error_type": e.__class__.__name__,
-                    "message": str(e)
+                    "message": str(e),
                 }
 
         # 将整体包装为线程池任务，返回字典结果
@@ -257,6 +272,7 @@ class ToolRegistry:
         except ModuleNotFoundError:
             # 目录扫描
             import sys, os, glob
+
             sys.path.append(package_or_path)
             for py in glob.glob(os.path.join(package_or_path, "*.py")):
                 modname = os.path.splitext(os.path.basename(py))[0]
@@ -265,16 +281,17 @@ class ToolRegistry:
 
 registry = ToolRegistry()
 
+
 @registry.tool(
     name="open_file",
     description="Open a URL or local file/folder with system default app",
     parameters={
         "type": "object",
         "properties": {"url": {"type": "string", "minLength": 1}},
-        "required": ["url"]
+        "required": ["url"],
     },
-    tags=["system", "io",'builtin'],
-    timeout=5.0
+    tags=["system", "io", "builtin"],
+    timeout=5.0,
 )
 def open_file(url: str):
     # 简单判断是否URL
@@ -292,23 +309,30 @@ def open_file(url: str):
         subprocess.check_call(["xdg-open", p])
     return f"Opened path: {p}"
 
+
 @registry.tool(
     name="sys_time",
     description="Get current date/time",
     parameters={
         "type": "object",
-        "properties": {"type": {"type": "string", "enum": ["date", "time", "datetime"]}},
-        "required": ["type"]
+        "properties": {
+            "type": {"type": "string", "enum": ["date", "time", "datetime"]}
+        },
+        "required": ["type"],
     },
-    tags=["utility",'builtin'],
-    timeout=2.0
+    tags=["utility", "builtin"],
+    timeout=2.0,
 )
 def sys_time(type: str):
     import datetime
+
     now = datetime.datetime.now()
-    if type == "date": return now.strftime("%Y-%m-%d")
-    if type == "time": return now.strftime("%H:%M:%S")
+    if type == "date":
+        return now.strftime("%Y-%m-%d")
+    if type == "time":
+        return now.strftime("%H:%M:%S")
     return now.strftime("%Y-%m-%d %H:%M:%S")
+
 
 @registry.tool(
     name="python_cmd",
@@ -317,30 +341,34 @@ def sys_time(type: str):
         "type": "object",
         "properties": {
             "code": {"type": "string", "minLength": 1},
-            "timeout_sec": {"type": "number", "minimum": 0, "default": 6000}
+            "timeout_sec": {"type": "number", "minimum": 0, "default": 6000},
         },
-        "required": ["code"]
+        "required": ["code"],
     },
-    tags=["dangerous", "dev",'builtin'],
+    tags=["dangerous", "dev", "builtin"],
     timeout=6000,
-    permissions=["sandbox"]
+    permissions=["sandbox"],
 )
-
 def python_cmd(code: str, timeout_sec: float = 6000):
     """Python命令执行函数，捕获print输出"""
     import contextlib
     from io import StringIO
-    code = code.replace('```python', '').replace('```', '').replace('`', '')
+
+    code = code.replace("```python", "").replace("```", "").replace("`", "")
     print(f"Executing code: {code}")
     output_buffer = StringIO()
     try:
         with contextlib.redirect_stdout(output_buffer):
             exec(code, {})  # 在独立环境中执行代码
         captured_output = output_buffer.getvalue().strip()
-        if len(captured_output)>10000:
-            return '执行完成，响应过长。'+captured_output[0:10000]+"\nWARNING:\ntoo many output!\nthe first 10000 words are kept and the rest is abandoned."
+        if len(captured_output) > 10000:
+            return (
+                "执行完成，响应过长。"
+                + captured_output[0:10000]
+                + "\nWARNING:\ntoo many output!\nthe first 10000 words are kept and the rest is abandoned."
+            )
         if len(captured_output) == 0:
-            return '执行完成，无打印内容'
+            return "执行完成，无打印内容"
         return f"执行完成，打印内容：\n{captured_output}"
     except Exception as e:
         return f"执行失败：{str(e)}"
@@ -353,44 +381,56 @@ def python_cmd(code: str, timeout_sec: float = 6000):
         "type": "object",
         "properties": {
             "keywords": {"type": "string", "minLength": 1},
-            'engine':{'type':'string',"enum":['bing','baidu'], "default":'bing'},
+            "engine": {"type": "string", "enum": ["bing", "baidu"], "default": "bing"},
             "timeout_sec": {"type": "number", "minimum": 0, "default": 40},
-            'result_num':{'type':'integer',"default":10,'maximum':10}
+            "result_num": {"type": "integer", "default": 10, "maximum": 10},
         },
-        "required": ["keywords"]
+        "required": ["keywords"],
     },
     tags=["search", "web"],
-    timeout=40
+    timeout=40,
 )
-
-def web_search(keywords: str,engine='bing',timeout_sec: float = 40,result_num=10):
+def web_search(keywords: str, engine="bing", timeout_sec: float = 40, result_num=10):
     """联网搜索"""
-   
+
     # 根据引擎创建搜索器
     if engine == "baidu":
         from service.web_search.online_rag import baidu_search
+
         searcher = baidu_search()
         searcher.TOTAL_SEARCH_RESULTS = result_num
     elif engine == "bing":
         from service.web_search.online_rag import bing_search
+
         searcher = bing_search()
     try:
         result = searcher.get_search_results(query=keywords)
         return result[:result_num]
     except Exception as e:
-        return f'web_search failed: Interal - {e} '
+        return f"web_search failed: Interal - {e} "
 
 
 # -----------------------
 # 全局单例访问器
 # -----------------------
 _REGISTRY_SINGLETON: ToolRegistry = registry
+_MCP_MANAGER_SINGLETON = None
+
 
 def get_tool_registry() -> ToolRegistry:
     global _REGISTRY_SINGLETON
     if _REGISTRY_SINGLETON is None:
         _REGISTRY_SINGLETON = ToolRegistry()
     return _REGISTRY_SINGLETON
+
+
+def get_mcp_manager():
+    global _MCP_MANAGER_SINGLETON
+    if _MCP_MANAGER_SINGLETON is None:
+        from core.tool_call.mcp import McpManager
+
+        _MCP_MANAGER_SINGLETON = McpManager(get_tool_registry())
+    return _MCP_MANAGER_SINGLETON
 
 
 # -----------------------
@@ -468,13 +508,21 @@ class ToolsListModel(QtCore.QAbstractListModel):
         if role == self.CheckedRole:
             return item.get("checked", False)
         if role == QtCore.Qt.ItemDataRole.CheckStateRole:
-            return QtCore.Qt.CheckState.Checked if item.get("checked", False) else QtCore.Qt.CheckState.Unchecked
+            return (
+                QtCore.Qt.CheckState.Checked
+                if item.get("checked", False)
+                else QtCore.Qt.CheckState.Unchecked
+            )
         return None
 
     def flags(self, index):
         if not index.isValid():
             return QtCore.Qt.NoItemFlags
-        base = QtCore.Qt.ItemFlag.ItemIsEnabled | QtCore.Qt.ItemFlag.ItemIsSelectable | QtCore.Qt.ItemFlag.ItemIsUserCheckable
+        base = (
+            QtCore.Qt.ItemFlag.ItemIsEnabled
+            | QtCore.Qt.ItemFlag.ItemIsSelectable
+            | QtCore.Qt.ItemFlag.ItemIsUserCheckable
+        )
         return base
 
     def setData(self, index, value, role=QtCore.Qt.ItemDataRole.EditRole):
@@ -488,7 +536,9 @@ class ToolsListModel(QtCore.QAbstractListModel):
                 self._active_set.add(name)
             else:
                 self._active_set.discard(name)
-            self.dataChanged.emit(index, index, [QtCore.Qt.ItemDataRole.CheckStateRole, self.CheckedRole])
+            self.dataChanged.emit(
+                index, index, [QtCore.Qt.ItemDataRole.CheckStateRole, self.CheckedRole]
+            )
             self.selectionChanged.emit(self.get_selected_functions())
             return True
         return False
@@ -509,20 +559,34 @@ class ToolsListModel(QtCore.QAbstractListModel):
             mod = getattr(t.handler, "__module__", "") or ""
             if mod.startswith("core.tool_call.function_lib"):
                 source = "user"
+            elif any(
+                str(tag).startswith("mcp:") for tag in (getattr(t, "tags", []) or [])
+            ):
+                mcp_tag = next(
+                    (
+                        str(tag)
+                        for tag in (getattr(t, "tags", []) or [])
+                        if str(tag).startswith("mcp:")
+                    ),
+                    "mcp",
+                )
+                source = mcp_tag
             else:
                 source = mod or "builtin"
             name = t.name
-            items.append({
-                "name": name,
-                "description": t.description or "",
-                "tags": list(getattr(t, "tags", []) or []),
-                "timeout": getattr(t, "timeout", 30.0),
-                "is_async": getattr(t, "is_async", False),
-                "permissions": list(getattr(t, "permissions", []) or []),
-                "parameters": getattr(t, "parameters", {}) or {},
-                "source": source,
-                "checked": name in self._active_set,
-            })
+            items.append(
+                {
+                    "name": name,
+                    "description": t.description or "",
+                    "tags": list(getattr(t, "tags", []) or []),
+                    "timeout": getattr(t, "timeout", 30.0),
+                    "is_async": getattr(t, "is_async", False),
+                    "permissions": list(getattr(t, "permissions", []) or []),
+                    "parameters": getattr(t, "parameters", {}) or {},
+                    "source": source,
+                    "checked": name in self._active_set,
+                }
+            )
 
         self.beginResetModel()
         self._items = items
@@ -542,7 +606,11 @@ class ToolsListModel(QtCore.QAbstractListModel):
                 if it.get("checked") != new_checked:
                     it["checked"] = new_checked
                     idx = self.index(i)
-                    self.dataChanged.emit(idx, idx, [QtCore.Qt.ItemDataRole.CheckStateRole, self.CheckedRole])
+                    self.dataChanged.emit(
+                        idx,
+                        idx,
+                        [QtCore.Qt.ItemDataRole.CheckStateRole, self.CheckedRole],
+                    )
             self.selectionChanged.emit(self.get_selected_functions())
 
     def get_selected_functions(self) -> _t.List[str]:
@@ -565,6 +633,7 @@ class ToolsFilterProxyModel(QtCore.QSortFilterProxyModel):
       - 包含标签 include_tags（交集）
       - 排除标签 exclude_tags（不相交）
     """
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self._search = ""
@@ -628,12 +697,14 @@ class ToolsFilterProxyModel(QtCore.QSortFilterProxyModel):
 # 事件总线（全局）
 # -----------------------
 class ToolsEventBus(QtCore.QObject):
-    toolsChanged    = QtCore.pyqtSignal()
-    reloadStarted   = QtCore.pyqtSignal()
-    reloadFinished  = QtCore.pyqtSignal(dict)
-    errorOccurred   = QtCore.pyqtSignal(str)
+    toolsChanged = QtCore.pyqtSignal()
+    reloadStarted = QtCore.pyqtSignal()
+    reloadFinished = QtCore.pyqtSignal(dict)
+    errorOccurred = QtCore.pyqtSignal(str)
+
 
 _EVENT_BUS_SINGLETON: ToolsEventBus = None
+
 
 def get_tools_event_bus() -> ToolsEventBus:
     global _EVENT_BUS_SINGLETON
@@ -641,8 +712,10 @@ def get_tools_event_bus() -> ToolsEventBus:
         _EVENT_BUS_SINGLETON = ToolsEventBus()
     return _EVENT_BUS_SINGLETON
 
+
 # 写个别称
 get_functions_events = get_tools_event_bus
+
 
 # -----------------------
 # 加载索引与结果摘要
@@ -652,6 +725,7 @@ class ModuleRecord:
     module: str
     file_path: Path
     tool_names: _t.Set[str] = field(default_factory=set)
+
 
 @dataclass
 class ReloadSummary:
@@ -707,6 +781,7 @@ class FunctionsPluginManager(QtCore.QObject):
         self.ensure_scaffold()
         self._start_watch()
 
+
 # 将类定义放在单例函数之后，避免名称覆盖
 class FunctionsPluginManager(FunctionsPluginManager):  # 继续类定义
     # 工具
@@ -732,15 +807,19 @@ class FunctionsPluginManager(FunctionsPluginManager):  # 继续类定义
         self._dir.mkdir(parents=True, exist_ok=True)
         init_file = self._dir / "__init__.py"
         if not init_file.exists():
-            init_file.write_text("# core.tool_call.function_lib package\n", encoding="utf-8")
+            init_file.write_text(
+                "# core.tool_call.function_lib package\n", encoding="utf-8"
+            )
 
         # functions_api 提供 user_tool 简化导入
-        api_file = self._dir.parent / "functions_api.py"  # core/tool_call/function_lib/functions_api.py
+        api_file = (
+            self._dir.parent / "functions_api.py"
+        )  # core/tool_call/function_lib/functions_api.py
         if not api_file.exists():
             api_code = (
                 "from core.tool_call.tool_core import get_tool_registry\n"
                 "def user_tool(name=None, description=None, parameters=None, **meta):\n"
-                "    \"\"\"装饰器：桥接到全局 ToolRegistry 单例。\"\"\"\n"
+                '    """装饰器：桥接到全局 ToolRegistry 单例。"""\n'
                 "    return get_tool_registry().tool(name=name, description=description, parameters=parameters, **meta)\n"
             )
             api_file.write_text(api_code, encoding="utf-8")
@@ -793,7 +872,9 @@ class FunctionsPluginManager(FunctionsPluginManager):  # 继续类定义
                 summary.errors.append(f"remove {name} failed: {e}")
         rec.tool_names.clear()
 
-    def _import_module_collect(self, fqmn: str, file_path: Path, summary: ReloadSummary):
+    def _import_module_collect(
+        self, fqmn: str, file_path: Path, summary: ReloadSummary
+    ):
         """
         导入模块并收集本模块新注册的工具名。
         使用前后 diff 来判断新增注册的工具名集合。
@@ -931,7 +1012,7 @@ class FunctionsPluginManager(FunctionsPluginManager):  # 继续类定义
         code_body = code_body or (
             "    # TODO: 实现你的工具逻辑\n"
             "    # 输入参数在 kwargs 中，或按照 parameters 的属性名定义显式参数\n"
-            "    return {\"echo\": kwargs}\n"
+            '    return {"echo": kwargs}\n'
         )
 
         tpl = f'''# -*- coding: utf-8 -*-

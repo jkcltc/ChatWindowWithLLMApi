@@ -17,8 +17,21 @@ def patch_deepseek_logic(params, config):
     ability = ['text']
 
     # -------- 1. Thinking 逻辑处理 --------
+    #思考模式开关(1)	{"thinking": {"type": "enabled/disabled"}}
     if 'enable_thinking' in params:
-        params.pop('enable_thinking', None)
+        # 映射t/f -> en dis
+        v={
+            True:{"type": "enabled"},
+            False:{"type": "disabled"}
+        }
+        params["thinking"]=v[params['enable_thinking']]
+        del params['enable_thinking']
+    
+    #思考强度控制(2)(3)	{"reasoning_effort": "high/max"}
+    if effort := config.get('reasoning_effort'):
+        effort_map = {1: "high", 2: "high", 3: "max"}
+        if effort in effort_map:
+            params['reasoning_effort'] = effort_map[effort]
 
     # -------- 2. 多模态拦截预处理 --------
     if 'messages' in params and isinstance(params['messages'], list):

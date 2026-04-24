@@ -12,25 +12,38 @@ class McpAsyncRunner:
     """Qt-free background runner for MCP operations."""
 
     def __init__(self, max_workers: int = 4):
+        self._max_workers = max_workers
         self._executor = ThreadPoolExecutor(
             max_workers=max_workers, thread_name_prefix="mcp-bg"
         )
+        self._shutdown = False
 
     def shutdown(self, wait: bool = False):
+        self._shutdown = True
         self._executor.shutdown(wait=wait)
 
+    def _ensure_executor(self):
+        if self._shutdown:
+            self._executor = ThreadPoolExecutor(
+                max_workers=self._max_workers, thread_name_prefix="mcp-bg"
+            )
+            self._shutdown = False
+
     def submit_test_server(self, srv: Dict[str, Any]) -> Future:
+        self._ensure_executor()
         return self._executor.submit(self._test_server_blocking, dict(srv))
 
     def submit_preview_servers(
         self, servers: List[Dict[str, Any]], enabled_only: bool = True
     ) -> Future:
+        self._ensure_executor()
         payload = [dict(s) for s in servers]
         return self._executor.submit(
             self._preview_servers_blocking, payload, enabled_only
         )
 
     def submit_apply_reload(self, enabled: bool, force_refresh: bool = True) -> Future:
+        self._ensure_executor()
         return self._executor.submit(
             self._apply_reload_blocking, bool(enabled), bool(force_refresh)
         )

@@ -362,8 +362,8 @@ class MCPConfigWidget(QWidget):
         self.lbl_transport = QLabel("传输协议")
         self.lbl_cwd = QLabel("工作目录")
         self.lbl_url = QLabel("远程端点 URL")
-        self.lbl_command = QLabel("命令 stdio")
-        self.lbl_args = QLabel("参数 JSON 数组")
+        self.lbl_command = QLabel("命令")
+        self.lbl_args = QLabel("参数（列表）")
         self.lbl_env = QLabel("环境变量 JSON 对象")
 
         conn_grid.addWidget(self.lbl_name, 0, 0)

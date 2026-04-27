@@ -1812,7 +1812,7 @@ class MainWindow(MainWindow):
             file_path=file_path
         )
         if sys_pmt:
-            self.session_manager.set_system_content()
+            self.session_manager.set_system_content(sys_pmt)
             self.info_manager.success("系统提示已导入并覆盖当前对话中的系统提示")
 
     def analysis_past_chat(self):

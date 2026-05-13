@@ -343,6 +343,24 @@ class SessionManager:
         except Exception as e:
             self.error.emit(f"编辑消息失败: {e}")
 
+    def delete_by_indexes(self, indexes: list) -> None:
+        """按索引删除多条消息，触发 history_changed 和 autosave"""
+        try:
+            self.current_chat.delete_by_indexes(indexes)
+            self.signals.history_changed(self.chat_id, self.history)
+            self.request_autosave()
+        except Exception as e:
+            self.error.emit(f"删除消息失败: {e}")
+
+    def delete_by_ids(self, ids: list) -> None:
+        """按 info.id 删除多条消息"""
+        try:
+            self.current_chat.delete_by_ids(ids)
+            self.signals.history_changed(self.chat_id, self.history)
+            self.request_autosave()
+        except Exception as e:
+            self.error.emit(f"删除消息失败: {e}")
+
 
     # ==================== 文件操作 ====================
 

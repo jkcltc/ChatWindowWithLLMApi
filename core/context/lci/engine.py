@@ -3,8 +3,8 @@ import threading
 import uuid
 import time
 
-from typing import TYPE_CHECKING,Optional,Callable,Literal
-
+from typing import TYPE_CHECKING,Optional,Callable
+from .prepare import _Preparer
 
 
 from core.session.chat_history_manager import ChatHistoryTools
@@ -13,38 +13,6 @@ from core.session.chat_history_manager import ChatHistoryTools
 if TYPE_CHECKING:
     from config.settings import LciSettings, ApiConfig
     from core.session.session_model import ChatSession, ChatMessage
-
-class _Preparer:
-    @staticmethod
-    def prepare(
-        session: "ChatSession", 
-        settings: "LciSettings",
-        ):
-        
-        history = session.shallow_history
-        required=set(settings.include)
-        
-        return _Preparer._filter(history,required)
-    
-    @staticmethod
-    def _filter(
-        history:list['ChatMessage'],
-        required:set,
-        collect_mode:Literal['newest','jumpcut'] = ''
-        ):
-
-        items=[]
-        
-        for item in history:
-
-            if item['role'] in required:
-                items.append(item)
-                continue
-
-            if item.get('info', {}).keys() & required:
-                items.append(item)
-            
-        return items
 
 
 class LongChatImprove:

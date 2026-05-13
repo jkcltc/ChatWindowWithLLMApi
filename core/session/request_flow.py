@@ -11,7 +11,7 @@ import requests
 from config import APP_SETTINGS,APP_RUNTIME
 
 from core.tool_call.tool_core import get_tool_registry
-from core.session.preprocessor import Preprocessor
+from core.context import create_default_engine, ContextEngine
 from core.session.signals import RequestFlowManagerSignalBus
 
 from utils.str_tools import StrTools
@@ -28,104 +28,20 @@ if TYPE_CHECKING:
     from .session_model import ChatMessage,ChatSession
     from utils.status_analysis import StatusAnalyzer
 
-class MidProcessor:
-    """
-    中间处理器，负责重写流式文本
-    """
-    def __init__(self,ARS_config:"AutoReplaceSettings"):
-        # 获取Request 信号总线
-        self.output_signals= RequesterSignals()
-
-        # 附属业务设置
-        self.ARS_config =ARS_config
-
-        # 文本处理
-        self._raw_buffer = ""          # 原始的累积文本
-        self._last_processed = ""      # 上一次处理完发给 UI 的文本
-    
-    def reset(self):
-        self._raw_buffer = ""
-        self._last_processed = ""
-    
-    @property 
-    def signals(self):
-        return self.output_signals
-    
-    def bridge_signals(self,request_signals: "RequesterSignals"):
-        
-        request_signals.bus_connect(
-            other= self.output_signals,
-            exclude=['stream_content','full_content','finished']
-        )
-
-        # full_content全部拦截，stream内容重写
-        request_signals.stream_content.connect(self._handle_stream_content)
-
-    def _handle_stream_content(self, req_id, delta):
-        # 1. 累积原始流
-        self._raw_buffer += delta
-        # 2. 全量跑一遍正则
-        current_processed = StrTools.vast_replace(
-            self._raw_buffer, 
-            self.ARS_config.autoreplace_from, 
-            self.ARS_config.autoreplace_to
-        )
-        # 3. 比较差异
-        if current_processed.startswith(self._last_processed):
-
-            # 计算增量
-            new_part = current_processed[len(self._last_processed):]
-            if new_part:
-                # 发送增量信号
-                self.signals.stream_content.emit(req_id, new_part)
-
-        # 4. 更新状态
-        self._last_processed = current_processed
-
-        # 5. 全量信号同步更新
-        self.signals.full_content.emit(req_id, current_processed)
+# MidProcessor / PostProcessor 已由 ContextEngine 接管
+# 保留 PostProcessor 类仅用于工具鉴权（控制流，不属于 Context 层）
 
 class PostProcessor:
+    """工具鉴权处理器（控制流），仅保留 handle_tool_filter"""
     warning = Signal(str)
 
     def __init__(
-            self,ARS_config:"AutoReplaceSettings",
+            self,
             dangerous_tools:"DangerousTools",
             user_tool_permission:"UserToolPermission",
         ):
-
         self.dangerous_tools = dangerous_tools
         self.user_tool_permission = user_tool_permission
-        self.ARS_config =ARS_config
-
-
-    def handle_results(self,chat_message):
-        # 处理一下非正常报错
-        self._handle_finish_reason(chat_message)
-
-        # 真的有服务器不返finish_reason = tool_call的
-        # 所以不检查结束原因直接过tool filter，
-        tc_list= self.handle_tool_filter(chat_message)
-
-        chat_message=self._content_replace(chat_message)
-
-        return chat_message,tc_list
-
-    def _content_replace(self,chat_message:list):
-        content_base = chat_message[0]['content'] or '' # chat_message应该是一个长度为1的列表
-        content=StrTools.vast_replace(
-            content_base, 
-            self.ARS_config.autoreplace_from, 
-            self.ARS_config.autoreplace_to
-        )
-
-        if not content and content_base and content != content_base:
-            self.warning.emit("[CMPL_main_Post] 过度替换警告：响应内容在自动替换完成后为空。")
-            content = "_"
-
-        chat_message[0]['content'] = content
-        
-        return chat_message
 
     def handle_tool_filter(self, chat_message)->list:
         if "tool_calls" not in chat_message[0]:
@@ -155,24 +71,6 @@ class PostProcessor:
                 "index": index
             })
         return analyzed_tools
-
-    def _handle_finish_reason(self,chat_message):
-        message = chat_message[0]
-        finish_reason= str(message['info']['finish_reason'])
-        if not finish_reason in [
-            'tool_calls','stop',"None","Null","length","tool_call","paused","function_call"
-            ]:
-            self.warning.emit(f"非正常结束： {chat_message[0]['info']['finish_reason']}")
-
-        if not finish_reason == 'content_filter':
-            has_content = (
-                message.get('content') 
-                or message.get('reasoning_content') 
-                or (message.get('tool_calls', [{}])[0].get('function', {}).get('arguments'))
-            )
-
-            if not has_content:
-                self.warning.emit("空回复: "+finish_reason)
 
 class RequesterPool:
     log=Signal(str)
@@ -221,11 +119,11 @@ class RequestFlowManager:
         -> 离开线程 -> post做工具调用拦截处理 -> 结束/工具回调循环
 
     """
-    def __init__(self,status_analyzer):
+    def __init__(self, status_analyzer, context_engine: ContextEngine = None):
         """
         初始化 RequestFlowManager。
         
-        初始化各处理器(pre/mid/post)、请求池、搜索组件和信号连接。
+        初始化 ContextEngine、工具鉴权器、请求池和信号连接。
         """
         # 信号总线
         self.signals = RequestFlowManagerSignalBus()
@@ -236,21 +134,14 @@ class RequestFlowManager:
         # tool loop，单例，硬薅
         self.function_manager = get_tool_registry()
 
-        # Request 三阶段
-        self.pre_processor:Preprocessor = Preprocessor()
-        
+        # Context 引擎（替代原 Preprocessor / MidProcessor / PostProcessor 的数据变换职责）
+        self.context_engine: ContextEngine = context_engine or create_default_engine(ARS_config=APP_SETTINGS.replace)
 
-        self.mid_processor = MidProcessor(
-            ARS_config=APP_SETTINGS.replace,
-        )
-        self._connect_mid_signals()
-
+        # 工具鉴权（控制流，不属于 Context 层）
         self.post_processor = PostProcessor(
-            ARS_config=APP_SETTINGS.replace,
             dangerous_tools=APP_RUNTIME.dangerous_tools,
             user_tool_permission=APP_SETTINGS.tool_permission
         )
-        self.post_processor.warning.connect(self.signals.warning.emit)
 
         # Requester生命周期管理
         self.requester_pool : RequesterPool = RequesterPool()
@@ -261,6 +152,10 @@ class RequestFlowManager:
 
         # cache
         self._request_id_for_tool=''
+        self._bridge_output = None
+
+        # 信号连接：引擎输出 → 状态更新
+        self._connect_engine_signals()
 
         # signals
         self.signals.finish_reason_received.connect(self._on_finish_reason_received)
@@ -280,24 +175,27 @@ class RequestFlowManager:
             )
         return self._search_facade
 
-        
-    def _connect_mid_signals(self):
+    def _connect_engine_signals(self):
         """
-        连接中间处理器的信号到主信号总线。
-        
-        将 mid_processor 的流式信号连接到 RequesterSignals，
-        并将 reasoning 和 content 流连接到状态更新处理器。
+        连接 ContextEngine 输出信号到主信号总线和状态更新处理器。
+        在 bridge_stream_signals 后调用，因为此时才有输出信号。
         """
-        self.mid_processor.signals.bus_connect(self.signals)
-        self.mid_processor.signals.stream_reasoning.connect(
-            self._update_status_reasoning
-        )
-        self.mid_processor.signals.stream_content.connect(
-            self._update_status_content
-        )
-        self.mid_processor.signals.stream_tool_delta.connect(
-            self._update_status_tool
-        )
+        pass  # 信号连接在 bridge 后通过 _connect_bridge_output_signals 完成
+
+    def _connect_bridge_output_signals(self):
+        """在 bridge_stream_signals 后，连接引擎输出信号"""
+        if self._bridge_output:
+            # finished 由 _on_requester_finished 手动处理，排除避免重复触发
+            self._bridge_output.bus_connect(self.signals, exclude=['finished'])
+            self._bridge_output.stream_reasoning.connect(
+                self._update_status_reasoning
+            )
+            self._bridge_output.stream_content.connect(
+                self._update_status_content
+            )
+            self._bridge_output.stream_tool_delta.connect(
+                self._update_status_tool
+            )
     
     def _update_status_reasoning(self, request_id: str, content: str):
         self._update_status(request_id, content, 'reasoning')
@@ -323,10 +221,12 @@ class RequestFlowManager:
         self.signals.request_status.emit(result)
 
     def _ensure_web_ability(self):
-        self.pre_processor.web_enabled(
-            search_facade= self.search_facade,
-            return_search_result= self.signals.web_search_result.emit
-        )
+        web_search_injector = self.context_engine.pre_registry.get_by_name("web_search_injector")
+        if web_search_injector:
+            web_search_injector.web_enabled(
+                search_facade=self.search_facade,
+                return_search_result=self.signals.web_search_result.emit
+            )
     
     def _on_finish_reason_received(self,request_id,finish_reason,readable_reason):
         self.status_analyzer.update_finish_reason(readable_reason)
@@ -341,8 +241,9 @@ class RequestFlowManager:
         
         self.requester_pool.abandon_all()
         self.status_analyzer.reset()
-        self.mid_processor.reset()
+        self.context_engine.reset_stream()
         self.current_requester=None
+        self._bridge_output = None
 
         self._current_request_id = None
 
@@ -489,7 +390,9 @@ class RequestFlowManager:
             config=req_config,
             session=self.request_session
         )
-        self.mid_processor.bridge_signals(self.current_requester.signals)
+        # 通过 ContextEngine 桥接流式信号
+        self._bridge_output = self.context_engine.bridge_stream_signals(self.current_requester.signals)
+        self._connect_bridge_output_signals()
         self.current_requester.signals.finished.connect(self._on_requester_finished)
 
         self.requester_pool.add_requester(self.current_requester)
@@ -520,12 +423,12 @@ class RequestFlowManager:
         """
         start_time=time.time()*1000
         
-        if APP_SETTINGS.web_search.web_search_enabled:
-            self._ensure_web_ability()
-
         try:
-            # 1. 前处理
-            __messages_unused, payload = self.pre_processor.prepare_message(pack)
+            if APP_SETTINGS.web_search.web_search_enabled:
+                self._ensure_web_ability()
+
+            # 1. 前处理（通过 ContextEngine）
+            messages, payload = self.context_engine.prepare(pack)
             
             # 2. 拦截取消的请求
             if requester not in self.requester_pool.requesters:
@@ -601,7 +504,17 @@ class RequestFlowManager:
             request_id: 请求唯一标识
             result: LLM返回的消息列表
         """
-        chat_message,tc_list = self.post_processor.handle_results(result) 
+        # 后处理（通过 ContextEngine）
+        post_result = self.context_engine.post_process(result, pack=None)
+
+        # 发射警告
+        for w in post_result.warnings:
+            self.signals.warning.emit(w)
+
+        chat_message = post_result.messages
+
+        # 工具鉴权（控制流，留在 RFM）
+        tc_list = self.post_processor.handle_tool_filter(chat_message)
 
         if not tc_list:
             # CFM把AI响应加进chat session

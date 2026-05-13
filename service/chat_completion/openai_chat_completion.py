@@ -5,6 +5,7 @@ import json
 import requests
 from core.tool_call.tool_core import get_tool_registry
 import traceback
+from .request_model import FINISH_REASON_MAP
 
 class DeltaObject:
     def __init__(self, delta_data):
@@ -471,18 +472,8 @@ class FullFunctionRequestHandler(QObject):
                 # 如果是对象（在流式处理中可能是模拟对象）
                 finish_reason = getattr(event.choices[0], 'finish_reason', '') if hasattr(event, 'choices') and event.choices else ''
 
-            normal_finish_reason = {
-                    "stop": "对话正常结束。",
-                    "length": "对话因长度限制提前结束。",
-                    "content_filter": "对话因内容过滤提前结束。",
-                    "function_call": "AI发起了工具调用。",
-                    "tool_call": "AI发起了工具调用。",
-                    "null": "未完成或进行中",
-                    None: "对话结束，未返回完成原因。"
-                }
-            
-            finish_reason_readable = normal_finish_reason.get(
-                finish_reason, 
+            finish_reason_readable = FINISH_REASON_MAP.get(
+                finish_reason,
                 f"未知结束类型: {finish_reason}"
             )
 

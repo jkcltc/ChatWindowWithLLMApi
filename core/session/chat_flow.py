@@ -7,6 +7,7 @@ from service.chat_completion import APIRequestHandler
 from core.session.title_generate import TitleGenerator
 from core.session.session_manager import SessionManager
 
+from core.context import PendingWrite, create_default_engine
 from core.context.lci.evaluate import LciMetrics,LciEvaluation
 from core.context.lci import LciEngine,LCIValidator
 
@@ -48,11 +49,18 @@ class ChatFlowManager:
         )
         self._connect_title_signals()
 
-        self.rfm=RequestFlowManager(status_analyzer=self.status_analyzer)
+        # Context 引擎由 CFM 创建并持有，注入 RFM
+        self.context_engine = create_default_engine(ARS_config=APP_SETTINGS.replace)
+
+        self.rfm = RequestFlowManager(
+            status_analyzer=self.status_analyzer,
+            context_engine=self.context_engine,
+        )
         self._connect_rfm_signals()
 
         # 持有会话管理器
         self.session_manager = session_manager
+        self.context_engine.set_session_manager(self.session_manager)
 
         self.lci= LciEngine()#LongChatImprove as LciEngine
         self.lci_validator = LCIValidator()
@@ -103,7 +111,10 @@ class ChatFlowManager:
 
 
     def _handle_message_update(self,request_id,messages):
-        self.session_manager.add_messages(messages)
+        self.context_engine.commit(
+            self.session_manager,
+            [PendingWrite(action="add_messages", payload={"messages": messages}, source="response")]
+        )
         stats_dict = self.status_analyzer.process_full()
         stats_dict['total_rounds'] = self.session_manager.current_chat.chat_rounds
         stats_dict['total_length'] = self.session_manager.current_chat.chat_length
@@ -281,14 +292,15 @@ class ChatFlowManager:
             return
         
         # 157μs  @ 3 inserts into 5000 items
-        self.session_manager.insert_items_by_anchor(generated_items, report.anchor_id)
-
-        # 排队到下一个节点做deepcopy
-        # 6μs  @ 500 items
-        @MTD.run_in_main
-        def save():
-            self.session_manager.request_autosave()
-        save()
+        self.context_engine.commit(
+            self.session_manager,
+            [PendingWrite(
+                action="insert_by_anchor",
+                payload={"items": generated_items, "anchor_id": report.anchor_id},
+                source="lci",
+                tag="lci",
+            )]
+        )
 
 
     def send_new_message(

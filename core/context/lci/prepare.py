@@ -1,8 +1,6 @@
-from typing import TYPE_CHECKING,Optional,Iterable
-
+from typing import TYPE_CHECKING,Literal
 if TYPE_CHECKING:
     from config.settings import LciSettings
-    from core.context.lci.model import LciTaskPayload
     from core.session.session_model import ChatSession, ChatMessage
 
 
@@ -10,7 +8,7 @@ class _Preparer:
     @staticmethod
     def prepare(
         session: "ChatSession", 
-        settings: "LciSettings"
+        settings: "LciSettings",
         ):
         
         history = session.shallow_history
@@ -18,9 +16,12 @@ class _Preparer:
         
         return _Preparer._filter(history,required)
     
-    
-
-    def _filter(history:list['ChatMessage'],required:Iterable):
+    @staticmethod
+    def _filter(
+        history:list['ChatMessage'],
+        required:set,
+        collect_mode:Literal['newest','jumpcut'] = ''
+        ):
 
         items=[]
         
@@ -30,10 +31,7 @@ class _Preparer:
                 items.append(item)
                 continue
 
-            # 理论上是必有的
-            info = set(item.get('info',{}).keys())
-
-            if info & required:
+            if item.get('info', {}).keys() & required:
                 items.append(item)
             
         return items

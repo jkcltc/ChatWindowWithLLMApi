@@ -33,10 +33,8 @@ Dependencies:
 
 """
 import time
-from enum import Enum
 import threading
 from typing import Dict, Any, List, Optional, Callable, Union,TYPE_CHECKING,Iterable
-from dataclasses import dataclass, field
 import traceback
 import requests
 import json
@@ -46,81 +44,7 @@ import uuid
 from .stream_parser import DeltaObject, DeltaType, SimpleSSEParser,decode_content
 from .reasoning_parser import StreamingReasoningParser,SimpleReasoningParser
 from .signals import RequesterSignals
-
-
-# 结束原因映射
-FINISH_REASON_MAP = {
-    "stop": "对话正常结束。",
-    "length": "对话因长度限制提前结束。",
-    "content_filter": "对话因内容过滤提前结束。",
-    "function_call": "AI 发起了工具调用。",
-    "tool_calls": "AI 发起了工具调用。",
-    "tool_call": "AI 发起了工具调用。",
-    "null": "未完成或进行中",
-    "paused":"对话被用户暂停。",
-    "empty_message":"服务端空回复。",
-    None: "对话结束，未返回完成原因。"
-}
-
-
-class RequestState(Enum):
-    """请求状态"""
-    IDLE = "idle"
-    RUNNING = "running"
-    COMPLETED = "completed"
-    FAILED = "failed"
-
-
-@dataclass
-class RequestConfig:
-    """请求配置"""
-    key: str = ""
-    url: str = ""
-    provider_type: str = "openai_compatible"
-    timeout_connect: float = 30.0
-    timeout_read: float = 180.0
-
-
-@dataclass  
-class RequestResult:
-    """请求结果"""
-    request_id: str
-    content: str = ""
-    reasoning_content: str = ""
-    tool_calls: Optional[List[Dict]] = None
-    finish_reason: Optional[str] = None
-    model: Optional[str] = None
-    usage: Optional[Dict] = None
-    server_id : set = field(default_factory=set)
-
-    # type hint only
-    info: Dict[str, Any] = field(default_factory=dict)
-    messages: List[Dict] = field(default_factory=list)
-
-    
-    """list:用于json.dump"""
-    
-    def to_chat_history(self) -> List[Dict]:
-        """转换为落盘格式"""
-        # 这么小的逻辑单独起一层有点过分了
-        message = {
-            'role': 'assistant',
-            'content': self.content,
-            'reasoning_content': self.reasoning_content,
-            'info': {
-                'id': self.request_id,
-                'model': self.model,
-                'time': time.strftime("%Y-%m-%d %H:%M:%S"),
-                'server_id':list(self.server_id),
-                'finish_reason': self.finish_reason,
-                **(self.usage or {})
-            }
-        }
-        
-        if self.tool_calls:
-            message['tool_calls'] = self.tool_calls
-            
-        return [message]
+from .request_model import FINISH_REASON_MAP, RequestState, RequestConfig, RequestResult
 
 
 class OneTimeLLMRequester:

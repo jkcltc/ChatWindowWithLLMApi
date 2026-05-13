@@ -220,6 +220,20 @@ class ChatSession:
     def edit_by_index(self, index: int, new_content: str) -> None:
         self.history[index]['content'] = new_content
 
+    def delete_by_indexes(self, indexes: list) -> None:
+        """按索引删除消息，从高到低排序避免索引偏移"""
+        for i in sorted(indexes, reverse=True):
+            if 0 <= i < len(self.history):
+                del self.history[i]
+
+    def delete_by_ids(self, ids: list) -> None:
+        """按 info.id 删除消息"""
+        target_ids = set(str(i) for i in ids)
+        self.history = [
+            msg for msg in self.history
+            if str(msg.get('info', {}).get('id', '')) not in target_ids
+        ]
+
     @property
     def system_messages(self) -> ChatList :
         '''返回所有系统消息'''

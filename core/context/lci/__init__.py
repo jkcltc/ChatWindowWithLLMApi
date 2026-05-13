@@ -6,5 +6,5 @@ __all__ = [
     "LCIValidator",
     "LciEvaluation",
     "LciMetrics",
-    "lciEngine"
+    "LciEngine"
 ]

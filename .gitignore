@@ -15,3 +15,5 @@ background.jpg
 /plans
 /doc
 /ref
+*.md
+*.csv

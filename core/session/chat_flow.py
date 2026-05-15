@@ -7,7 +7,8 @@ from service.chat_completion import APIRequestHandler
 from core.session.title_generate import TitleGenerator
 from core.session.session_manager import SessionManager
 
-from core.context import PendingWrite, create_default_engine
+from core.context import PendingWrite, create_default_engine, ModManager
+from core.context.mod_manager import set_mod_manager
 from core.context.lci.evaluate import LciMetrics,LciEvaluation
 from core.context.lci import LciEngine,LCIValidator
 
@@ -51,6 +52,11 @@ class ChatFlowManager:
 
         # Context 引擎由 CFM 创建并持有，注入 RFM
         self.context_engine = create_default_engine(ARS_config=APP_SETTINGS.replace)
+
+        # Mod 管理器：加载持久化配置、管理 Mod 生命周期
+        self.mod_manager = ModManager(engine=self.context_engine, settings=APP_SETTINGS)
+        self.mod_manager.load_from_settings()
+        set_mod_manager(self.mod_manager)
 
         self.rfm = RequestFlowManager(
             status_analyzer=self.status_analyzer,

@@ -402,6 +402,31 @@ class UserToolPermission(BaseSettings):
     names: list = Field(default_factory=list)
 
 
+# ==================== Mod配置 ====================
+
+
+class ModConfig(BaseSettings):
+    """单个 Mod 的持久化配置"""
+
+    name: str = ""
+    enabled: bool = True
+    mod_type: Literal["class", "handler", "stream"] = "class"
+    class_path: str = ""
+    description: str = ""
+    version: str = "1.0"
+    author: str = ""
+    phase: str = ""
+    depth: int = 50
+    config: dict = Field(default_factory=dict)
+    has_config_widget: bool = False
+    has_main_widget: bool = False
+    main_widget_title: str = ""
+
+
+class ModSettings(BaseSettings):
+    mods: List[ModConfig] = Field(default_factory=list)
+
+
 # ==================== MCP配置 ====================
 
 
@@ -685,6 +710,8 @@ class AppSettings(BaseSettings):
     tool_permission: UserToolPermission = Field(default_factory=UserToolPermission)
 
     mcp: McpSettings = Field(default_factory=McpSettings)
+
+    mod: ModSettings = Field(default_factory=ModSettings)
 
 
 # 初始化单例

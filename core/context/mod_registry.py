@@ -124,5 +124,8 @@ class ModRegistry:
         self._cached_commit_components.sort(key=lambda c: c.descriptor().depth)
         self._cache_valid = True
 
+    def get_mod(self, name: str):
+        return self._mods.get(name)
+
     def list_mods(self) -> List[str]:
         return list(self._mods.keys())

@@ -22,6 +22,9 @@ class ContextMod:
     在自行管理的线程/定时器中调用 engine.commit(pending_writes=[...])。
     """
 
+    def __init__(self):
+        self.config: dict = {}
+
     # ---- 生命周期 ----
 
     def on_activate(self, engine: "ContextEngine") -> None:
@@ -183,6 +186,7 @@ class _HandlerAsStreamComponent(StreamPostComponent):
 class _SingleHookMod(ContextMod):
     """将单个 handler 函数包装为 ContextMod，用于 register_handler"""
     def __init__(self, name: str, phase, depth: int, handler: Callable):
+        super().__init__()
         self.name = name
         self.default_depth = depth
         self._phase = phase
@@ -199,6 +203,7 @@ class _StreamMod(ContextMod):
     """将流式 handler 函数包装为 ContextMod"""
     def __init__(self, name: str, depth: int,
                  on_delta: Callable, on_complete: Callable, on_reset: Callable):
+        super().__init__()
         self.name = name
         self.default_depth = depth
         self._on_delta = on_delta

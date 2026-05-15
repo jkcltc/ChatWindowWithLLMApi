@@ -51,6 +51,7 @@ class MainSettingWindow(QWidget):
         self.create_name_tab()
         self.create_title_creator_tab()
         self.create_theme_tab()
+        self.create_mod_tab()
         
         # 将选项卡添加到主窗口
         main_layout.addWidget(self.tab_widget)
@@ -353,6 +354,17 @@ class MainSettingWindow(QWidget):
     def create_theme_tab(self):
         self.theme_selector = ThemeSelector(self)
         self.tab_widget.addTab(self.theme_selector, "主题设置")
+
+    def create_mod_tab(self):
+        from core.context.mod_manager import get_mod_manager
+        mod_manager = get_mod_manager()
+        if mod_manager is None:
+            return
+        from .mod_main_window_manager import ModMainWindowManager
+        from .mod_config_widget import ModConfigWidget
+        self.mod_window_manager = ModMainWindowManager(mod_manager, self)
+        self.mod_config_widget = ModConfigWidget(mod_manager, self.mod_window_manager)
+        self.tab_widget.addTab(self.mod_config_widget, "Mod管理")
 
     def setup_connections(self):
         s = self.settings

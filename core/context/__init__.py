@@ -11,6 +11,7 @@ from .base import (
 )
 from .mod import ContextMod
 from .mod_registry import ModRegistry
+from .mod_manager import ModManager, get_mod_manager, set_mod_manager
 from .registry import ContextRegistry
 
 from .components.pre.raw_message import RawMessageComponent
@@ -80,7 +81,7 @@ __all__ = [
     # Base
     "ContextComponent", "StreamPostComponent", "PostComponent", "CommitComponent", "ContextInjector",
     # Mod
-    "ContextMod", "ModRegistry",
+    "ContextMod", "ModRegistry", "ModManager", "get_mod_manager", "set_mod_manager",
     # Registry
     "ContextRegistry",
     # Pre components

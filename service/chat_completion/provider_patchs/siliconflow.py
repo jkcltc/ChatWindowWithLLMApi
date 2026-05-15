@@ -14,8 +14,12 @@ def patch_openai_compatible_logic(params, config:dict):
     reasoning= config.get('reasoning_effort',0)
 
     # -------- 1. 多模态标准化 --------
+    # 硅基流动需要 audio_url 格式，不能转成 OpenAI 的 input_audio
     if 'messages' in params and isinstance(params['messages'], list):
-        filter_and_transform_content(params['messages'], ability, "OpenAI_Compat", im)
+        filter_and_transform_content(
+            params['messages'], ability, "siliconflow", im,
+            audio_output_format="audio_url"
+        )
 
     # -------- 2. Header --------
     extra_headers = params.get('extra_headers', {})

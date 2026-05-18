@@ -4,6 +4,7 @@ import os,json
 from PyQt6 import QtCore, QtWidgets,QtGui
 from core.session.system_prompt_manager import SystemPromptPreset,SystemPromptStore
 from ui.tool_call.tool_manager_widget import FunctionsSelectorWidget
+from common.info_module import LOGMANAGER
 
 class SystemPromptManager(QtWidgets.QWidget):
     update_preset = QtCore.pyqtSignal(object)
@@ -713,6 +714,16 @@ class SystemPromptComboBox(QtWidgets.QWidget):
             added_special = True
         final_items.extend(items)
 
+        # 兜底：防止 combo 因竞态/os.scandir 瞬间空等异常变为全白
+        if not final_items:
+            LOGMANAGER.warning(
+                f"[SystemPromptComboBox] reload_presets: final_items is empty. "
+                f"all_paths_count={len(all_paths)}, cur_path_exists={os.path.isfile(cur_path) if cur_path else False}, "
+                f"include_placeholder={self.include_placeholder}, "
+                f"current_hash_valid={current_hash is not None}, matched={matched}"
+            )
+            final_items.append(("（无可用预设）", None))
+
         # 目标选择
         target_data = None
         if matched: target_data = matched
@@ -748,6 +759,16 @@ class SystemPromptComboBox(QtWidgets.QWidget):
 
         self._last_target_data = target_data
         self._update_watchers(self.combo.currentData())
+
+        # 诊断日志：如果 reload 后 combo 仍为空，记录现场
+        if self.combo.count() == 0:
+            safe_items = [(dn, os.path.basename(p) if p else 'None') for dn, p in (self._items_snapshot or [])]
+            LOGMANAGER.warning(
+                f"[SystemPromptComboBox] ComboBox is EMPTY after reload! "
+                f"folder={self.store.folder_path}, "
+                f"snapshot={safe_items}, "
+                f"target_data_basename={os.path.basename(target_data) if target_data else None}"
+            )
 
         if self.auto_emit_on_external_change:
             self._emit_current_from_path(self.combo.currentData())

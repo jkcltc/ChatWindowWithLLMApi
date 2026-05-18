@@ -512,11 +512,13 @@ class SessionManager:
         else:
             return
         self.signals.session_changed.emit(self.current_chat)
+        self.signals.tool_changed.emit(self.chat_id, self.current_chat.tools)
         return self.current_chat
 
     def set_session(self,session:ChatSession) -> "ChatSession":
         self.current_chat = session
         self.signals.session_changed.emit(self.current_chat)
+        self.signals.tool_changed.emit(self.chat_id, self.current_chat.tools)
         self.request_autosave()
 
     def fallback_history_for_edit(self) -> tuple[str, list]:

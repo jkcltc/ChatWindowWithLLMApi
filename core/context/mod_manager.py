@@ -8,6 +8,7 @@ from typing import List, Dict, Optional, TYPE_CHECKING
 
 from psygnal import Signal
 
+from common.info_module import LOGMANAGER
 from config.settings import AppSettings, ModConfig
 from config.manager import ConfigManager
 from .mod import ContextMod
@@ -46,16 +47,14 @@ class ModManager:
     def _enable_mod(self, mod_config: ModConfig) -> bool:
         mod = self._instantiate_mod(mod_config)
         if mod is None:
-            print(f"[ModManager] _enable_mod: 实例化失败, name={mod_config.name}")
+            LOGMANAGER.debug(f"[ModManager] _enable_mod: 实例化失败, name={mod_config.name}")
             return False
         try:
             self._engine.register_mod(mod)
-            print(f"[ModManager] _enable_mod: 注册成功, name={mod_config.name}")
+            LOGMANAGER.debug(f"[ModManager] _enable_mod: 注册成功, name={mod_config.name}")
             return True
         except Exception:
-            import traceback
-            print(f"[ModManager] _enable_mod: 注册失败, name={mod_config.name}")
-            traceback.print_exc()
+            LOGMANAGER.warning(f"[ModManager] _enable_mod: 注册失败, name={mod_config.name}", exc_info=True)
             return False
 
     def _disable_mod(self, name: str) -> bool:
@@ -63,7 +62,7 @@ class ModManager:
 
     def _instantiate_mod(self, mod_config: ModConfig) -> Optional[ContextMod]:
         if not mod_config.class_path:
-            print(f"[ModManager] _instantiate_mod: class_path 为空, name={mod_config.name}")
+            LOGMANAGER.debug(f"[ModManager] _instantiate_mod: class_path 为空, name={mod_config.name}")
             return None
         try:
             module_path, class_name = mod_config.class_path.split(":")
@@ -76,26 +75,27 @@ class ModManager:
 
             return mod_instance
         except Exception:
-            import traceback
-            print(f"[ModManager] _instantiate_mod 失败: name={mod_config.name}, class_path={mod_config.class_path}")
-            traceback.print_exc()
+            LOGMANAGER.warning(
+                f"[ModManager] _instantiate_mod 失败: name={mod_config.name}, class_path={mod_config.class_path}",
+                exc_info=True,
+            )
             return None
 
     def enable_mod(self, name: str) -> bool:
         for mc in self._settings.mod.mods:
             if mc.name == name:
                 if mc.enabled:
-                    print(f"[ModManager] enable_mod: 已启用, 无需操作, name={name}")
+                    LOGMANAGER.debug(f"[ModManager] enable_mod: 已启用, 无需操作, name={name}")
                     return True
                 if self._enable_mod(mc):
                     mc.enabled = True
                     self.mods_changed.emit()
                     self.mod_toggled.emit(name, True)
-                    print(f"[ModManager] enable_mod: 成功, name={name}")
+                    LOGMANAGER.debug(f"[ModManager] enable_mod: 成功, name={name}")
                     return True
                 else:
-                    print(f"[ModManager] enable_mod: _enable_mod 失败, name={name}")
-        print(f"[ModManager] enable_mod: 未找到配置, name={name}")
+                    LOGMANAGER.debug(f"[ModManager] enable_mod: _enable_mod 失败, name={name}")
+        LOGMANAGER.debug(f"[ModManager] enable_mod: 未找到配置, name={name}")
         return False
 
     def disable_mod(self, name: str) -> bool:

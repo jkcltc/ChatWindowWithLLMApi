@@ -67,6 +67,11 @@ class SystemPromptStore:
         except FileNotFoundError:
             os.makedirs(self.folder_path, exist_ok=True)
             return []
+        except OSError as e:
+            # PermissionError, intermittent Windows scandir failures, etc.
+            from common.info_module import LOGMANAGER
+            LOGMANAGER.warning(f"[SystemPromptStore] list_files() OSError on '{self.folder_path}': {e}")
+            return []
 
     def list_presets(self) -> List[Tuple[str, SystemPromptPreset]]:
         out = []
